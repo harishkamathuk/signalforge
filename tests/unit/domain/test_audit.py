@@ -72,7 +72,8 @@ def test_transition_identity_is_timezone_representation_independent() -> None:
         run=ist_transition.run,
     )
 
-    assert utc_transition.occurred_at != ist_transition.occurred_at
+    assert utc_transition.occurred_at.tzinfo is UTC
+    assert ist_transition.occurred_at.tzinfo is IST
     assert utc_transition.occurred_at.timestamp() == ist_transition.occurred_at.timestamp()
     assert utc_transition.transition_id == ist_transition.transition_id
 
