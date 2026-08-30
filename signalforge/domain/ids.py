@@ -41,6 +41,11 @@ class TriggerEventId(_IdBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EntryIntentId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class FillId(_IdBase):
     pass
 
