@@ -11,13 +11,15 @@ from signalforge.domain.money import Price
 from signalforge.domain.time import IST
 from signalforge.runtime.candles import CandleEngine, LateMarketEvent, five_minute_interval
 
+TEST_INSTRUMENT = InstrumentId("NSE:TEST")
+
 
 def _event(
     *,
     at: datetime,
     price: str,
     quantity: int = 1,
-    instrument_id: InstrumentId = InstrumentId("NSE:TEST"),
+    instrument_id: InstrumentId = TEST_INSTRUMENT,
     source: str = "test-feed",
 ) -> MarketEvent:
     return MarketEvent(
@@ -50,20 +52,31 @@ def test_equivalent_utc_and_ist_timestamps_map_to_same_interval() -> None:
 
 
 def test_engine_builds_deterministic_ohlcv_and_emits_on_next_interval() -> None:
-    instrument = InstrumentId("NSE:TEST")
-    engine = CandleEngine(instrument_id=instrument)
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
 
-    assert engine.process(_event(at=datetime(2026, 8, 28, 9, 15, tzinfo=IST), price="100", quantity=2)) is None
-    assert engine.process(_event(at=datetime(2026, 8, 28, 9, 16, tzinfo=IST), price="102", quantity=3)) is None
-    assert engine.process(_event(at=datetime(2026, 8, 28, 9, 18, tzinfo=IST), price="99", quantity=5)) is None
-    assert engine.process(_event(at=datetime(2026, 8, 28, 9, 19, tzinfo=IST), price="101", quantity=7)) is None
+    for minute, price, quantity in (
+        (15, "100", 2),
+        (16, "102", 3),
+        (18, "99", 5),
+        (19, "101", 7),
+    ):
+        assert (
+            engine.process(
+                _event(
+                    at=datetime(2026, 8, 28, 9, minute, tzinfo=IST),
+                    price=price,
+                    quantity=quantity,
+                )
+            )
+            is None
+        )
 
     candle = engine.process(
         _event(at=datetime(2026, 8, 28, 9, 20, tzinfo=IST), price="103", quantity=11)
     )
 
     assert candle is not None
-    assert candle.instrument_id == instrument
+    assert candle.instrument_id == TEST_INSTRUMENT
     assert candle.open == Price(Decimal("100"))
     assert candle.high == Price(Decimal("102"))
     assert candle.low == Price(Decimal("99"))
@@ -74,7 +87,7 @@ def test_engine_builds_deterministic_ohlcv_and_emits_on_next_interval() -> None:
 
 
 def test_gap_does_not_emit_synthetic_empty_candles() -> None:
-    engine = CandleEngine(instrument_id=InstrumentId("NSE:TEST"))
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
     engine.process(_event(at=datetime(2026, 8, 28, 9, 15, tzinfo=IST), price="100"))
 
     first = engine.process(_event(at=datetime(2026, 8, 28, 9, 30, tzinfo=IST), price="105"))
@@ -89,7 +102,7 @@ def test_gap_does_not_emit_synthetic_empty_candles() -> None:
 
 
 def test_engine_rejects_mixed_instruments() -> None:
-    engine = CandleEngine(instrument_id=InstrumentId("NSE:TEST"))
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
 
     with pytest.raises(ValueError, match="different instrument"):
         engine.process(
@@ -102,7 +115,7 @@ def test_engine_rejects_mixed_instruments() -> None:
 
 
 def test_late_event_cannot_mutate_or_reemit_completed_candle() -> None:
-    engine = CandleEngine(instrument_id=InstrumentId("NSE:TEST"))
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
     engine.process(_event(at=datetime(2026, 8, 28, 9, 15, tzinfo=IST), price="100"))
     completed = engine.process(
         _event(at=datetime(2026, 8, 28, 9, 20, tzinfo=IST), price="101")
@@ -121,7 +134,7 @@ def test_late_event_cannot_mutate_or_reemit_completed_candle() -> None:
 
 
 def test_engine_rejects_source_changes_within_one_candle() -> None:
-    engine = CandleEngine(instrument_id=InstrumentId("NSE:TEST"))
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
     engine.process(_event(at=datetime(2026, 8, 28, 9, 15, tzinfo=IST), price="100"))
 
     with pytest.raises(ValueError, match="mix market-event sources"):
