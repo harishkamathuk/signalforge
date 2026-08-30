@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import TypeVar
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,10 +65,7 @@ class InstrumentId(_IdBase):
     pass
 
 
-_IdT = TypeVar("_IdT", bound=_IdBase)
-
-
-def deterministic_id(id_type: type[_IdT], *parts: str) -> _IdT:
+def deterministic_id[_IdT: _IdBase](id_type: type[_IdT], *parts: str) -> _IdT:
     """Create a stable identifier from explicit logical identity components.
 
     The identifier type participates in the hash domain so identical parts used
