@@ -66,6 +66,11 @@ class ExitId(_IdBase):
 
 
 @dataclass(frozen=True, slots=True)
+class StateTransitionId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentId(_IdBase):
     pass
 
