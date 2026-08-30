@@ -1,10 +1,7 @@
 """Canonical incremental RSI(14) calculation for Strategy V1."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from decimal import Decimal
-
 
 _PERIOD = 14
 _ZERO = Decimal("0")
