@@ -65,7 +65,7 @@ class InstrumentId(_IdBase):
     pass
 
 
-def deterministic_id[_IdT: _IdBase](id_type: type[_IdT], *parts: str) -> _IdT:
+def deterministic_id[IdT: _IdBase](id_type: type[IdT], *parts: str) -> IdT:
     """Create a stable identifier from explicit logical identity components.
 
     The identifier type participates in the hash domain so identical parts used
