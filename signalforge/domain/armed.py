@@ -24,7 +24,7 @@ class ExpiryReason(StrEnum):
     ENTRY_CUTOFF_REACHED = "entry_cutoff_reached"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class ArmedSetup:
     """Controlled state machine derived from one immutable Signal."""
 
@@ -83,6 +83,10 @@ class ArmedSetup:
         elif self.state is ArmedSetupState.TRIGGERED:
             if self.terminal_at is None or self.expiry_reason is not None:
                 raise ValueError("TRIGGERED setup requires terminal_at and no expiry_reason")
+            if not self.armed_at <= self.terminal_at < self.valid_until:
+                raise ValueError("TRIGGERED setup terminal_at must be within validity window")
         elif self.state is ArmedSetupState.EXPIRED:
             if self.terminal_at is None or self.expiry_reason is None:
                 raise ValueError("EXPIRED setup requires terminal_at and expiry_reason")
+            if self.terminal_at < self.armed_at:
+                raise ValueError("EXPIRED setup terminal_at must not precede arming")
