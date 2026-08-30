@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from signalforge.domain.time import CandleInterval, IST, require_aware, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, require_aware, to_ist, to_utc
 
 
 def test_require_aware_rejects_naive_datetime() -> None:
