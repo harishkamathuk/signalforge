@@ -70,4 +70,6 @@ class TickSizeSchedule:
         for rule in self.rules:
             if rule.applies_on(trading_date):
                 return rule.tick_size
-        raise LookupError(f"No tick-size rule for {self.instrument_id} on {trading_date.isoformat()}")
+        raise LookupError(
+            f"No tick-size rule for {self.instrument_id} on {trading_date.isoformat()}"
+        )
