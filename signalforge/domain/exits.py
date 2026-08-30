@@ -8,7 +8,14 @@ from decimal import Decimal
 from enum import StrEnum
 
 from signalforge.domain.execution import ExecutionMode
-from signalforge.domain.ids import ExitId, FillId, InstrumentId, PositionId, TradeId, deterministic_id
+from signalforge.domain.ids import (
+    ExitId,
+    FillId,
+    InstrumentId,
+    PositionId,
+    TradeId,
+    deterministic_id,
+)
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
