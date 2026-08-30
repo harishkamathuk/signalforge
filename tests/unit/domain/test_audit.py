@@ -92,12 +92,13 @@ def test_all_mvp_mutable_entity_types_are_representable() -> None:
         TransitionEntityType.TRADE,
         TransitionEntityType.POSITION,
     ):
+        is_setup = entity_type is TransitionEntityType.ARMED_SETUP
         transition = StateTransition.create(
             entity_type=entity_type,
             entity_id=f"{entity_type.value}-001",
-            from_state="open" if entity_type is not TransitionEntityType.ARMED_SETUP else "armed",
-            to_state="closed" if entity_type is not TransitionEntityType.ARMED_SETUP else "expired",
-            cause_type="exit" if entity_type is not TransitionEntityType.ARMED_SETUP else "market_event",
+            from_state="armed" if is_setup else "open",
+            to_state="expired" if is_setup else "closed",
+            cause_type="market_event" if is_setup else "exit",
             cause_id="cause-001",
             occurred_at=datetime(2026, 8, 28, 11, 0, tzinfo=IST),
             run=_run(),
