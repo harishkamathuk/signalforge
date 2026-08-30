@@ -17,6 +17,29 @@ class TransitionEntityType(StrEnum):
     POSITION = "position"
 
 
+def _validate_transition_fields(
+    *,
+    entity_id: str,
+    from_state: str,
+    to_state: str,
+    cause_type: str,
+    cause_id: str,
+    occurred_at: datetime,
+) -> None:
+    require_aware(occurred_at)
+    for name, value in (
+        ("entity_id", entity_id),
+        ("from_state", from_state),
+        ("to_state", to_state),
+        ("cause_type", cause_type),
+        ("cause_id", cause_id),
+    ):
+        if not value or not value.strip():
+            raise ValueError(f"StateTransition {name} must not be empty")
+    if from_state == to_state:
+        raise ValueError("StateTransition must change state")
+
+
 @dataclass(frozen=True, slots=True)
 class StateTransition:
     """Immutable audit fact for a completed domain state change."""
@@ -32,18 +55,14 @@ class StateTransition:
     run: RunIdentity
 
     def __post_init__(self) -> None:
-        require_aware(self.occurred_at)
-        for name, value in (
-            ("entity_id", self.entity_id),
-            ("from_state", self.from_state),
-            ("to_state", self.to_state),
-            ("cause_type", self.cause_type),
-            ("cause_id", self.cause_id),
-        ):
-            if not value or not value.strip():
-                raise ValueError(f"StateTransition {name} must not be empty")
-        if self.from_state == self.to_state:
-            raise ValueError("StateTransition must change state")
+        _validate_transition_fields(
+            entity_id=self.entity_id,
+            from_state=self.from_state,
+            to_state=self.to_state,
+            cause_type=self.cause_type,
+            cause_id=self.cause_id,
+            occurred_at=self.occurred_at,
+        )
         if self.transition_id != self.expected_id():
             raise ValueError("StateTransition ID does not match deterministic logical identity")
 
@@ -62,6 +81,14 @@ class StateTransition:
     ) -> StateTransition:
         """Create a deterministic audit fact for one logical state change."""
 
+        _validate_transition_fields(
+            entity_id=entity_id,
+            from_state=from_state,
+            to_state=to_state,
+            cause_type=cause_type,
+            cause_id=cause_id,
+            occurred_at=occurred_at,
+        )
         transition_id = deterministic_id(
             StateTransitionId,
             str(run.run_id),
