@@ -1,9 +1,9 @@
-"""Decimal-safe monetary and quantity primitives."""
+"""Decimal-safe monetary, quantity, and price-normalization primitives."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,3 +36,13 @@ class Quantity:
 
     def __int__(self) -> int:
         return self.value
+
+
+def ceil_to_tick(price: Price, tick_size: Price) -> Price:
+    """Return the smallest valid tick-aligned price greater than or equal to *price*."""
+
+    if tick_size.value <= 0:
+        raise ValueError("Tick size must be strictly positive")
+
+    ticks = (price.value / tick_size.value).to_integral_value(rounding=ROUND_CEILING)
+    return Price(ticks * tick_size.value)
