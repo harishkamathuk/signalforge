@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SignalForge secrets / local config
+.env.*
+!.env.example
+
+*.pem
+*.key
+
+# Local market / research data
+data/
+
+# Local databases
+*.sqlite
+*.sqlite3
+
+# IDEs
+.idea/
+.vscode/
+
+
