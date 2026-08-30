@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -57,6 +57,24 @@ def test_transition_identity_is_deterministic_for_same_logical_change() -> None:
 
     assert first.transition_id == second.transition_id
     assert isinstance(first.transition_id, StateTransitionId)
+
+
+def test_transition_identity_is_timezone_representation_independent() -> None:
+    ist_transition = _transition()
+    utc_transition = StateTransition.create(
+        entity_type=ist_transition.entity_type,
+        entity_id=ist_transition.entity_id,
+        from_state=ist_transition.from_state,
+        to_state=ist_transition.to_state,
+        cause_type=ist_transition.cause_type,
+        cause_id=ist_transition.cause_id,
+        occurred_at=ist_transition.occurred_at.astimezone(UTC),
+        run=ist_transition.run,
+    )
+
+    assert utc_transition.occurred_at != ist_transition.occurred_at
+    assert utc_transition.occurred_at.timestamp() == ist_transition.occurred_at.timestamp()
+    assert utc_transition.transition_id == ist_transition.transition_id
 
 
 def test_transition_identity_changes_for_different_cause_or_timestamp() -> None:
