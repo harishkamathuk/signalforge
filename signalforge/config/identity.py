@@ -92,13 +92,13 @@ def _normalize_value(value: object) -> object:
         return ["decimal", _canonical_decimal(Decimal(str(value)))]
 
     if isinstance(value, Mapping):
-        items: list[list[object]] = []
+        items: list[tuple[str, object]] = []
         for key, item in value.items():
             if not isinstance(key, str):
                 raise TypeError("Configuration mapping keys must be strings")
-            items.append([key, _normalize_value(item)])
+            items.append((key, _normalize_value(item)))
         items.sort(key=lambda item: item[0])
-        return ["map", items]
+        return ["map", [[key, item] for key, item in items]]
 
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return ["list", [_normalize_value(item) for item in value]]
