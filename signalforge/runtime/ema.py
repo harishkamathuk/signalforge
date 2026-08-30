@@ -2,30 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 
-@dataclass(slots=True)
-class Ema:
-    """Incremental EMA with SMA seeding under the frozen Strategy V1 convention."""
+@dataclass(frozen=True, slots=True)
+class EmaState:
+    """Serializable numerical state required to resume one EMA exactly."""
 
     period: int
-    samples: int = 0
-    value: Decimal | None = None
-    _seed_sum: Decimal = Decimal("0")
+    samples: int
+    value: Decimal | None
+    seed_sum: Decimal
 
     def __post_init__(self) -> None:
-        if isinstance(self.period, bool) or not isinstance(self.period, int):
-            raise TypeError("EMA period must be an integer")
-        if self.period <= 0:
-            raise ValueError("EMA period must be strictly positive")
+        _validate_period(self.period)
         if isinstance(self.samples, bool) or not isinstance(self.samples, int):
             raise TypeError("EMA samples must be an integer")
         if self.samples < 0:
             raise ValueError("EMA samples must not be negative")
-        if not isinstance(self._seed_sum, Decimal) or not self._seed_sum.is_finite():
-            raise ValueError("EMA seed sum must be a finite Decimal")
+        if not isinstance(self.seed_sum, Decimal):
+            raise TypeError("EMA seed sum must be a Decimal")
+        if not self.seed_sum.is_finite():
+            raise ValueError("EMA seed sum must be finite")
         if self.value is not None:
             if not isinstance(self.value, Decimal):
                 raise TypeError("EMA value must be a Decimal when provided")
@@ -36,6 +35,36 @@ class Ema:
         if self.samples >= self.period and self.value is None:
             raise ValueError("EMA requires a value once its seed period is complete")
 
+
+def _validate_period(period: int) -> None:
+    if isinstance(period, bool) or not isinstance(period, int):
+        raise TypeError("EMA period must be an integer")
+    if period <= 0:
+        raise ValueError("EMA period must be strictly positive")
+
+
+@dataclass(slots=True)
+class Ema:
+    """Incremental EMA with SMA seeding under the frozen Strategy V1 convention."""
+
+    period: int
+    samples: int = field(default=0, init=False)
+    value: Decimal | None = field(default=None, init=False)
+    _seed_sum: Decimal = field(default=Decimal("0"), init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        _validate_period(self.period)
+
+    @classmethod
+    def from_state(cls, state: EmaState) -> Ema:
+        """Restore an EMA from complete checkpoint state."""
+
+        ema = cls(period=state.period)
+        ema.samples = state.samples
+        ema.value = state.value
+        ema._seed_sum = state.seed_sum
+        return ema
+
     @property
     def ready(self) -> bool:
         return self.value is not None
@@ -43,6 +72,15 @@ class Ema:
     @property
     def alpha(self) -> Decimal:
         return Decimal(2) / Decimal(self.period + 1)
+
+    @property
+    def state(self) -> EmaState:
+        return EmaState(
+            period=self.period,
+            samples=self.samples,
+            value=self.value,
+            seed_sum=self._seed_sum,
+        )
 
     def update(self, close: Decimal) -> Decimal | None:
         """Consume one close and return the current EMA when ready."""
