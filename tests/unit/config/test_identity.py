@@ -43,6 +43,13 @@ def test_float_and_equivalent_decimal_normalize_identically() -> None:
     assert config_hash(left) == config_hash(right)
 
 
+def test_internal_type_tags_cannot_collide_with_user_mapping_data() -> None:
+    numeric = {"threshold": Decimal("1")}
+    mapping = {"threshold": {"$decimal": "1"}}
+
+    assert config_hash(numeric) != config_hash(mapping)
+
+
 def test_material_parameter_change_changes_hash() -> None:
     baseline = {"adx_min": 22, "reward_risk": 1.5}
     changed = {"adx_min": 23, "reward_risk": 1.5}

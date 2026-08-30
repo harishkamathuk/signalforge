@@ -45,7 +45,6 @@ def canonical_config_json(config: Mapping[str, object]) -> str:
     normalized = _normalize_value(config)
     return json.dumps(
         normalized,
-        sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
         allow_nan=False,
@@ -71,29 +70,38 @@ def identify_config(
 
 
 def _normalize_value(value: object) -> object:
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
+    """Convert supported values to an unambiguous type-tagged canonical structure."""
+
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, str):
+        return ["str", value]
 
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValueError("Configuration Decimal values must be finite")
-        return {"$decimal": _canonical_decimal(value)}
+        return ["decimal", _canonical_decimal(value)]
 
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("Configuration float values must be finite")
-        return {"$decimal": _canonical_decimal(Decimal(str(value)))}
+        return ["decimal", _canonical_decimal(Decimal(str(value)))]
 
     if isinstance(value, Mapping):
-        normalized: dict[str, object] = {}
+        items: list[list[object]] = []
         for key, item in value.items():
             if not isinstance(key, str):
                 raise TypeError("Configuration mapping keys must be strings")
-            normalized[key] = _normalize_value(item)
-        return normalized
+            items.append([key, _normalize_value(item)])
+        items.sort(key=lambda item: item[0])
+        return ["map", items]
 
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_normalize_value(item) for item in value]
+        return ["list", [_normalize_value(item) for item in value]]
 
     raise TypeError(f"Unsupported configuration value type: {type(value).__name__}")
 
