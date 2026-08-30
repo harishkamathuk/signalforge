@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from signalforge.runtime.ema import Ema, EmaSet
+from signalforge.runtime.ema import Ema, EmaSet, EmaState
 
 
 def test_ema_produces_no_value_before_seed_period() -> None:
@@ -109,11 +109,41 @@ def test_batch_replay_matches_incremental_outputs() -> None:
         replayed.append(second.update(close))
 
     assert replayed == incremental
-    assert second.samples == first.samples
-    assert second.value == first.value
+    assert second.state == first.state
 
 
-def test_ema_rejects_invalid_period_close_and_reconstruction_state() -> None:
+def test_checkpoint_restore_before_seed_preserves_future_result() -> None:
+    uninterrupted = Ema(period=4)
+    uninterrupted.update(Decimal("10"))
+    uninterrupted.update(Decimal("20"))
+
+    restored = Ema.from_state(uninterrupted.state)
+
+    expected_third = uninterrupted.update(Decimal("30"))
+    actual_third = restored.update(Decimal("30"))
+    expected_seed = uninterrupted.update(Decimal("50"))
+    actual_seed = restored.update(Decimal("50"))
+
+    assert actual_third == expected_third
+    assert actual_seed == expected_seed
+    assert restored.state == uninterrupted.state
+
+
+def test_checkpoint_restore_after_seed_preserves_recursive_result() -> None:
+    uninterrupted = Ema(period=3)
+    for close in (Decimal("10"), Decimal("20"), Decimal("40"), Decimal("50")):
+        uninterrupted.update(close)
+
+    restored = Ema.from_state(uninterrupted.state)
+
+    expected = uninterrupted.update(Decimal("60"))
+    actual = restored.update(Decimal("60"))
+
+    assert actual == expected
+    assert restored.state == uninterrupted.state
+
+
+def test_ema_rejects_invalid_period_close_and_checkpoint_state() -> None:
     with pytest.raises(ValueError, match="strictly positive"):
         Ema(period=0)
     with pytest.raises(TypeError, match="integer"):
@@ -126,6 +156,8 @@ def test_ema_rejects_invalid_period_close_and_reconstruction_state() -> None:
         ema.update(Decimal("NaN"))
 
     with pytest.raises(ValueError, match="before its seed period"):
-        Ema(period=3, samples=2, value=Decimal("10"))
+        EmaState(period=3, samples=2, value=Decimal("10"), seed_sum=Decimal("30"))
     with pytest.raises(ValueError, match="requires a value"):
-        Ema(period=3, samples=3, value=None)
+        EmaState(period=3, samples=3, value=None, seed_sum=Decimal("30"))
+    with pytest.raises(TypeError, match="seed sum"):
+        EmaState(period=3, samples=1, value=None, seed_sum=1)  # type: ignore[arg-type]
