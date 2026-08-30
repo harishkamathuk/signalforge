@@ -8,7 +8,7 @@ from enum import StrEnum
 
 from signalforge.domain.ids import StateTransitionId, deterministic_id
 from signalforge.domain.provenance import RunIdentity
-from signalforge.domain.time import require_aware
+from signalforge.domain.time import require_aware, to_utc
 
 
 class TransitionEntityType(StrEnum):
@@ -38,6 +38,10 @@ def _validate_transition_fields(
             raise ValueError(f"StateTransition {name} must not be empty")
     if from_state == to_state:
         raise ValueError("StateTransition must change state")
+
+
+def _identity_timestamp(value: datetime) -> str:
+    return to_utc(value).isoformat()
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +102,7 @@ class StateTransition:
             to_state,
             cause_type,
             cause_id,
-            occurred_at.isoformat(),
+            _identity_timestamp(occurred_at),
         )
         return cls(
             transition_id=transition_id,
@@ -122,5 +126,5 @@ class StateTransition:
             self.to_state,
             self.cause_type,
             self.cause_id,
-            self.occurred_at.isoformat(),
+            _identity_timestamp(self.occurred_at),
         )
