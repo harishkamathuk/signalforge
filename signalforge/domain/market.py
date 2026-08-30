@@ -66,7 +66,9 @@ class CompletedCandle:
     def __post_init__(self) -> None:
         if not self.source or not self.source.strip():
             raise ValueError("CompletedCandle source must not be empty")
-        if isinstance(self.source_event_count, bool) or not isinstance(self.source_event_count, int):
+        if isinstance(self.source_event_count, bool) or not isinstance(
+            self.source_event_count, int
+        ):
             raise TypeError("CompletedCandle source_event_count must be an integer")
         if self.source_event_count < 0:
             raise ValueError("CompletedCandle source_event_count must not be negative")
