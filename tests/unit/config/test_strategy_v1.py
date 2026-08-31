@@ -11,7 +11,6 @@ from signalforge.domain.provenance import StrategyIdentity
 
 def test_defaults_match_accepted_strategy_v1() -> None:
     config = StrategyV1EvaluationConfig()
-
     assert config.strategy_identity == StrategyIdentity("intraday_momentum_v1", "1.0.0")
     assert config.timeframe_minutes == 5
     assert config.setup_ema_period == 9
@@ -20,11 +19,7 @@ def test_defaults_match_accepted_strategy_v1() -> None:
     assert (config.rsi_min, config.rsi_max) == (Decimal("58"), Decimal("65"))
     assert config.adx_period == 14
     assert config.adx_threshold == Decimal("22")
-    assert (config.macd_fast_period, config.macd_slow_period, config.macd_signal_period) == (
-        12,
-        26,
-        9,
-    )
+    assert (config.macd_fast_period, config.macd_slow_period, config.macd_signal_period) == (12, 26, 9)
     assert config.minimum_warmup_candles == 250
     assert config.first_signal_time_ist == time(9, 20)
     assert config.last_signal_time_ist == time(15, 0)
@@ -32,7 +27,6 @@ def test_defaults_match_accepted_strategy_v1() -> None:
 
 def test_frozen_semantics_are_explicit_and_cannot_be_changed() -> None:
     config = StrategyV1EvaluationConfig()
-
     assert config.rsi_lower_inclusive is True
     assert config.rsi_upper_inclusive is True
     assert config.adx_strictly_greater is True
@@ -59,7 +53,6 @@ def test_unknown_fields_are_rejected_so_macd_cannot_become_gate() -> None:
 
 def test_configuration_is_immutable() -> None:
     config = StrategyV1EvaluationConfig()
-
     with pytest.raises(ValidationError):
         config.adx_threshold = Decimal("23")
 
@@ -81,7 +74,6 @@ def test_relationship_validation() -> None:
 def test_semantic_mapping_is_supported_by_canonical_hashing() -> None:
     config = StrategyV1EvaluationConfig()
     identity = config.identify()
-
     assert identity.status is ConfigStatus.ACCEPTED
     assert identity == identify_config(config.semantic_mapping(), status=ConfigStatus.ACCEPTED)
     assert identity.config_id.value == identity.config_hash
@@ -91,7 +83,6 @@ def test_semantic_mapping_is_supported_by_canonical_hashing() -> None:
 def test_same_semantics_produce_stable_identity() -> None:
     left = StrategyV1EvaluationConfig()
     right = StrategyV1EvaluationConfig.model_validate(left.model_dump())
-
     assert left.semantic_mapping() == right.semantic_mapping()
     assert left.identify() == right.identify()
 
@@ -99,14 +90,13 @@ def test_same_semantics_produce_stable_identity() -> None:
 def test_parameter_change_changes_config_identity_without_changing_strategy_identity() -> None:
     accepted = StrategyV1EvaluationConfig()
     experimental = StrategyV1EvaluationConfig(adx_threshold=Decimal("23"))
-
     assert accepted.strategy_identity == experimental.strategy_identity
     assert accepted.identify().config_hash != experimental.identify().config_hash
-    assert experimental.identify(status=ConfigStatus.EXPERIMENTAL).status is ConfigStatus.EXPERIMENTAL
+    identity = experimental.identify(status=ConfigStatus.EXPERIMENTAL)
+    assert identity.status is ConfigStatus.EXPERIMENTAL
 
 
 def test_time_values_are_canonicalized_as_minute_strings() -> None:
     mapping = StrategyV1EvaluationConfig().semantic_mapping()
-
     assert mapping["first_signal_time_ist"] == "09:20"
     assert mapping["last_signal_time_ist"] == "15:00"
