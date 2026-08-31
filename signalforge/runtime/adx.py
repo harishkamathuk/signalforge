@@ -81,9 +81,13 @@ class AdxState:
         else:
             if any(value is None for value in smoothed):
                 raise ValueError("ADX smoothing is required from C14 onward")
-            if self.samples < 28 and self.adx is not None:
-                raise ValueError("ADX cannot be ready before C27")
-            if self.samples >= 28:
+            if self.samples < 28:
+                if self.adx is not None:
+                    raise ValueError("ADX cannot be ready before C27")
+                expected_dx_count = self.samples - _PERIOD
+                if self.dx_seed_count != expected_dx_count:
+                    raise ValueError("ADX DX seed count must match candle progress")
+            else:
                 if self.adx is None:
                     raise ValueError("ADX is required from C27 onward")
                 if self.dx_seed_count != _PERIOD or self.dx_seed_sum != 0:
