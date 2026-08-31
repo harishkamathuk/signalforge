@@ -4,10 +4,11 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.domain.armed import ArmedSetupState, ExpiryReason
 from signalforge.domain.ids import ConfigId, InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
-from signalforge.domain.market import CandleQuality, CompletedCandle
+from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.time import IST, CandleInterval
@@ -103,6 +104,26 @@ def _schedule() -> TickSizeSchedule:
             ),
         ),
     )
+
+
+def _event(*, at: datetime, price: str, instrument: InstrumentId = INSTRUMENT) -> MarketEvent:
+    return MarketEvent(
+        instrument_id=instrument,
+        exchange_timestamp=at,
+        received_timestamp=at + timedelta(milliseconds=5),
+        price=Price(Decimal(price)),
+        quantity=1,
+        source="test",
+        source_event_id=f"evt-{at.isoformat()}-{price}",
+    )
+
+
+def _armed_manager(*, end_hour: int = 10, end_minute: int = 0) -> SignalLifecycleManager:
+    candle = _candle(interval=_interval(end_hour=end_hour, end_minute=end_minute))
+    manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
+    result = manager.arm_if_actionable(candle, _evaluation(candle))
+    assert result is not None
+    return manager
 
 
 def test_actionable_evaluation_creates_signal_and_immediately_arms_setup() -> None:
@@ -219,3 +240,154 @@ def test_tick_schedule_instrument_mismatch_is_rejected() -> None:
         assert "TickSizeSchedule instrument" in str(exc)
     else:
         raise AssertionError("Expected mismatched tick schedule to be rejected")
+
+
+def test_trigger_equality_creates_trigger_event_and_terminal_state() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+
+    event = manager.process_market_event(_event(at=at, price="100.30"))
+
+    assert event is not None
+    assert event.reference_price == Price(Decimal("100.30"))
+    assert event.observed_price == Price(Decimal("100.30"))
+    assert event.observed_at == at
+    assert manager.active.armed_setup.state is ArmedSetupState.TRIGGERED
+    assert manager.active.armed_setup.terminal_at == at
+    assert manager.trigger_event is event
+
+
+def test_signal_low_equality_expires_before_later_trigger() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+    later_at = first_at + timedelta(seconds=1)
+
+    first = manager.process_market_event(_event(at=first_at, price="99.00"))
+    later = manager.process_market_event(_event(at=later_at, price="101.00"))
+
+    assert first is None
+    assert later is None
+    assert manager.active.armed_setup.state is ArmedSetupState.EXPIRED
+    assert manager.active.armed_setup.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
+    assert manager.active.armed_setup.terminal_at == first_at
+
+
+def test_neutral_trade_keeps_setup_armed_until_later_trigger() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+    later_at = first_at + timedelta(seconds=1)
+
+    assert manager.process_market_event(_event(at=first_at, price="100.00")) is None
+    assert manager.active.armed_setup.state is ArmedSetupState.ARMED
+
+    triggered = manager.process_market_event(_event(at=later_at, price="100.31"))
+    assert triggered is not None
+    assert triggered.observed_price == Price(Decimal("100.31"))
+
+
+def test_market_event_at_validity_window_end_expires_without_trigger() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    at = manager.active.armed_setup.valid_until
+
+    event = manager.process_market_event(_event(at=at, price="101.00"))
+
+    assert event is None
+    assert manager.active.armed_setup.state is ArmedSetupState.EXPIRED
+    assert manager.active.armed_setup.expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
+    assert manager.active.armed_setup.terminal_at == at
+
+
+def test_following_candle_completion_expires_untriggered_setup() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    setup = manager.active.armed_setup
+    following = _candle(
+        interval=CandleInterval(start=setup.armed_at, end=setup.valid_until),
+        close="100.00",
+        low="99.50",
+    )
+
+    manager.process_completed_candle(following)
+
+    assert setup.state is ArmedSetupState.EXPIRED
+    assert setup.expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
+    assert setup.terminal_at == setup.valid_until
+
+
+def test_event_just_before_1505_can_trigger_but_1505_cannot() -> None:
+    manager = _armed_manager(end_hour=15, end_minute=0)
+    assert manager.active is not None
+    before = datetime(2026, 8, 31, 15, 4, 59, 999999, tzinfo=IST)
+
+    triggered = manager.process_market_event(_event(at=before, price="100.30"))
+
+    assert triggered is not None
+    assert manager.active.armed_setup.state is ArmedSetupState.TRIGGERED
+
+    second = _armed_manager(end_hour=15, end_minute=0)
+    at_cutoff = datetime(2026, 8, 31, 15, 5, tzinfo=IST)
+    blocked = second.process_market_event(_event(at=at_cutoff, price="100.30"))
+
+    assert blocked is None
+    assert second.active is not None
+    assert second.active.armed_setup.state is ArmedSetupState.EXPIRED
+    assert second.active.armed_setup.expiry_reason is ExpiryReason.ENTRY_CUTOFF_REACHED
+    assert second.active.armed_setup.terminal_at == at_cutoff
+
+
+def test_clock_at_1505_expires_remaining_armed_setup() -> None:
+    manager = _armed_manager(end_hour=15, end_minute=0)
+    at_cutoff = datetime(2026, 8, 31, 15, 5, tzinfo=IST)
+
+    manager.process_time(at_cutoff)
+
+    assert manager.active is not None
+    assert manager.active.armed_setup.state is ArmedSetupState.EXPIRED
+    assert manager.active.armed_setup.expiry_reason is ExpiryReason.ENTRY_CUTOFF_REACHED
+
+
+def test_terminal_trigger_replay_returns_same_trigger_event() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+    later_at = first_at + timedelta(seconds=1)
+
+    first = manager.process_market_event(_event(at=first_at, price="100.30"))
+    replay = manager.process_market_event(_event(at=later_at, price="101.00"))
+
+    assert first is not None
+    assert replay is first
+    assert manager.active.armed_setup.terminal_at == first_at
+
+
+def test_terminal_expiry_replay_is_noop() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+    later_at = first_at + timedelta(seconds=1)
+
+    manager.process_market_event(_event(at=first_at, price="99.00"))
+    replay = manager.process_market_event(_event(at=later_at, price="101.00"))
+
+    assert replay is None
+    assert manager.active.armed_setup.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
+    assert manager.active.armed_setup.terminal_at == first_at
+
+
+def test_wrong_instrument_market_event_is_rejected() -> None:
+    manager = _armed_manager()
+    assert manager.active is not None
+    at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
+
+    try:
+        manager.process_market_event(
+            _event(at=at, price="100.30", instrument=InstrumentId("NSE:TCS"))
+        )
+    except ValueError as exc:
+        assert "MarketEvent instrument" in str(exc)
+    else:
+        raise AssertionError("Expected mismatched market event instrument to be rejected")
