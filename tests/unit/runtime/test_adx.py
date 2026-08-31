@@ -139,6 +139,25 @@ def test_checkpoint_restore_after_readiness_is_exact() -> None:
     assert restored.snapshot() == uninterrupted.snapshot()
 
 
+def test_checkpoint_dx_seed_count_must_match_candle_progress() -> None:
+    with pytest.raises(ValueError, match="seed count must match candle progress"):
+        AdxState(
+            samples=20,
+            previous_high=Decimal("10"),
+            previous_low=Decimal("9"),
+            previous_close=Decimal("9.5"),
+            seed_tr_sum=Decimal("0"),
+            seed_plus_dm_sum=Decimal("0"),
+            seed_minus_dm_sum=Decimal("0"),
+            smoothed_tr=Decimal("14"),
+            smoothed_plus_dm=Decimal("7"),
+            smoothed_minus_dm=Decimal("0"),
+            dx_seed_sum=Decimal("500"),
+            dx_seed_count=5,
+            adx=None,
+        )
+
+
 def test_invalid_input_and_reconstruction_state_are_rejected() -> None:
     adx = Adx14()
     with pytest.raises(TypeError, match="Decimal"):
