@@ -6,7 +6,7 @@ import pytest
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorSnapshot
-from signalforge.domain.time import CandleInterval, IST
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.momentum import evaluate_momentum
 
 
