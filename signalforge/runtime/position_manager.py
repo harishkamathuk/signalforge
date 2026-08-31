@@ -176,7 +176,11 @@ class PositionManager:
             raise ValueError("Exit evaluation requires OPEN Trade and Position")
         if position.trade_id != trade.trade_id:
             raise ValueError("Position must belong to the Trade being evaluated")
-        if position.instrument_id != trade.instrument_id or event.instrument_id != trade.instrument_id:
+        instruments_mismatch = (
+            position.instrument_id != trade.instrument_id
+            or event.instrument_id != trade.instrument_id
+        )
+        if instruments_mismatch:
             raise ValueError("Trade, Position, and MarketEvent instruments must match")
         if position.run != trade.run:
             raise ValueError("Trade and Position run provenance must match")
