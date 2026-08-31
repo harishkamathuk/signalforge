@@ -16,7 +16,6 @@ from signalforge.runtime.eligibility import (
 )
 from signalforge.runtime.indicators import IndicatorContinuity
 
-
 INSTRUMENT = InstrumentId("NSE:TEST")
 
 
