@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from signalforge.cli import replay_command
 from signalforge.domain.time import IST
@@ -159,5 +160,5 @@ def test_malformed_replay_input_fails_explicitly(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         replay_command(CONFIG, malformed)
