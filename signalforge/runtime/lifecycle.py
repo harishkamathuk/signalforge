@@ -109,6 +109,10 @@ class LifecycleCoordinator:
             open_position=self.state is LifecycleState.OPEN,
         )
         if arming is not None:
+            if before is not arming:
+                self._execution = None
+                self._open_result = None
+                self._exit = None
             self._arming = arming
             if before is not arming:
                 self._record(
