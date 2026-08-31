@@ -18,6 +18,24 @@ jobs:
     name: Python 3.12 validation
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: signalforge_test
+          POSTGRES_USER: signalforge
+          POSTGRES_PASSWORD: signalforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signalforge -d signalforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://signalforge:signalforge@localhost:5432/signalforge_test
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,6 +54,9 @@ jobs:
 
       - name: Mypy
         run: mypy signalforge
+
+      - name: Apply Alembic migrations
+        run: alembic upgrade head
 
       - name: Pytest with coverage
         run: pytest --cov=signalforge --cov-report=term-missing

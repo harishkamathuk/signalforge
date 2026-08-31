@@ -9,7 +9,10 @@ description = "Strategy-driven intraday trading research, backtesting, paper-tra
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.13,<2",
+  "psycopg[binary]>=3.2,<4",
   "pydantic>=2.8,<3",
+  "sqlalchemy>=2.0,<3",
 ]
 
 [project.scripts]
