@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CompletedCandle
@@ -68,7 +69,7 @@ class ReplayRuntime:
         self._evaluation_context_factory = evaluation_context_factory
 
     @property
-    def instrument_id(self):
+    def instrument_id(self) -> InstrumentId:
         return self.source.identity.instrument_id
 
     def process_input(self, replay_input: ReplayInput) -> ReplayRuntimeStep:
