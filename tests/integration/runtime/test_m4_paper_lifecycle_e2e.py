@@ -3,9 +3,9 @@ from decimal import Decimal
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ArmedSetupState, ExpiryReason
-from signalforge.domain.execution import ExecutionMode, Fill, TriggerEvent
+from signalforge.domain.execution import TriggerEvent
 from signalforge.domain.exits import ExitReason
-from signalforge.domain.ids import ConfigId, EntryIntentId, InstrumentId, RunId, TriggerEventId
+from signalforge.domain.ids import ConfigId, InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
@@ -83,7 +83,13 @@ def _evaluation(candle: CompletedCandle):
     )
 
 
-def _event(price: str, *, hour: int = 10, minute: int = 1, event_id: str | None = None) -> MarketEvent:
+def _event(
+    price: str,
+    *,
+    hour: int = 10,
+    minute: int = 1,
+    event_id: str | None = None,
+) -> MarketEvent:
     at = datetime(2026, 8, 31, hour, minute, tzinfo=IST)
     return MarketEvent(
         instrument_id=INSTRUMENT,
@@ -132,7 +138,11 @@ def test_full_happy_path_reaches_closed_with_exact_economics_and_audit() -> None
     assert closed.exit.realised_pnl == Decimal("24.00")
     assert closed.exit.realised_r == Decimal("1.6")
 
-    assert [(t.entity_type.value, t.from_state, t.to_state) for t in coordinator.audit_transitions] == [
+    transitions = [
+        (t.entity_type.value, t.from_state, t.to_state)
+        for t in coordinator.audit_transitions
+    ]
+    assert transitions == [
         ("armed_setup", "none", "armed"),
         ("armed_setup", "armed", "triggered"),
         ("trade", "none", "open"),
