@@ -19,7 +19,11 @@ def test_defaults_match_accepted_strategy_v1() -> None:
     assert (config.rsi_min, config.rsi_max) == (Decimal("58"), Decimal("65"))
     assert config.adx_period == 14
     assert config.adx_threshold == Decimal("22")
-    assert (config.macd_fast_period, config.macd_slow_period, config.macd_signal_period) == (12, 26, 9)
+    assert (
+        config.macd_fast_period,
+        config.macd_slow_period,
+        config.macd_signal_period,
+    ) == (12, 26, 9)
     assert config.minimum_warmup_candles == 250
     assert config.first_signal_time_ist == time(9, 20)
     assert config.last_signal_time_ist == time(15, 0)
