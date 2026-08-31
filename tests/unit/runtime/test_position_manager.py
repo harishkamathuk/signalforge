@@ -2,14 +2,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from signalforge.domain.execution import ExecutionMode, Fill
-from signalforge.domain.ids import (
-    ConfigId,
-    EntryIntentId,
-    InstrumentId,
-    RunId,
-    SignalId,
-    TriggerEventId,
-)
+from signalforge.domain.ids import ConfigId, EntryIntentId, InstrumentId, RunId, TriggerEventId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
@@ -30,8 +23,8 @@ def _run() -> RunIdentity:
     )
 
 
-def _signal(*, low: str = "100.00") -> Signal:
-    end = datetime(2026, 8, 31, 10, 0, tzinfo=IST)
+def _signal(*, low: str = "100.00", end_minute: int = 0) -> Signal:
+    end = datetime(2026, 8, 31, 10, end_minute, tzinfo=IST)
     return Signal.create(
         instrument_id=INSTRUMENT,
         interval=CandleInterval(start=end - timedelta(minutes=5), end=end),
@@ -138,15 +131,7 @@ def test_reference_trigger_price_does_not_drive_trade_economics() -> None:
 def test_fill_and_signal_identity_mismatch_fails_fast() -> None:
     signal = _signal()
     fill = _fill(signal)
-    other_signal = Signal(
-        signal_id=SignalId("other"),
-        instrument_id=signal.instrument_id,
-        interval=signal.interval,
-        signal_close=signal.signal_close,
-        signal_low=signal.signal_low,
-        run=signal.run,
-        created_at=signal.created_at,
-    )
+    other_signal = _signal(end_minute=5)
 
     manager = PositionManager(tick_schedule=_schedule())
     try:
