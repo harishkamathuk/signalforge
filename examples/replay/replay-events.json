@@ -1,0 +1,26 @@
+[
+  {
+    "exchange_timestamp": "2026-08-31T10:00:00+05:30",
+    "received_timestamp": "2026-08-31T10:00:00.001+05:30",
+    "price": "100.00",
+    "quantity": 1,
+    "source": "demo",
+    "source_event_id": "e1"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:01:00+05:30",
+    "received_timestamp": "2026-08-31T10:01:00.001+05:30",
+    "price": "100.20",
+    "quantity": 1,
+    "source": "demo",
+    "source_event_id": "e2"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:05:00+05:30",
+    "received_timestamp": "2026-08-31T10:05:00.001+05:30",
+    "price": "100.10",
+    "quantity": 1,
+    "source": "demo",
+    "source_event_id": "e3"
+  }
+]
