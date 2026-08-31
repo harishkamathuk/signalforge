@@ -19,10 +19,11 @@ from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.replay import InMemoryReplaySource
-from signalforge.runtime.replay_clock import ReplaySessionClock
+from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext
 
@@ -70,7 +71,10 @@ def _read_json(path: Path) -> Any:
         return json.load(handle)
 
 
-def _build_runtime(config: ReplayCommandConfig, raw_events: Any) -> tuple[ReplayRuntime, ReplaySessionClock]:
+def _build_runtime(
+    config: ReplayCommandConfig,
+    raw_events: Any,
+) -> tuple[ReplayRuntime, ReplaySessionClock]:
     if not isinstance(raw_events, list):
         raise ValueError("Replay input must be a JSON array")
 
@@ -136,11 +140,14 @@ def _build_runtime(config: ReplayCommandConfig, raw_events: Any) -> tuple[Replay
     return runtime, ReplaySessionClock(runtime=runtime)
 
 
-def _summary(runtime: ReplayRuntime, clock_steps: tuple[object, ...]) -> dict[str, object]:
-    evaluations = []
+def _summary(
+    runtime: ReplayRuntime,
+    clock_steps: tuple[ReplayClockStep, ...],
+) -> dict[str, object]:
+    evaluations: list[StrategyEvaluation] = []
     rejection_fill_ids: set[str] = set()
     for step in clock_steps:
-        runtime_step = step.runtime_step  # type: ignore[attr-defined]
+        runtime_step = step.runtime_step
         if runtime_step.evaluation is not None:
             evaluations.append(runtime_step.evaluation.evaluation)
         lifecycle = runtime_step.lifecycle
