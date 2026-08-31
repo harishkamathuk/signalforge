@@ -12,6 +12,9 @@ dependencies = [
   "pydantic>=2.8,<3",
 ]
 
+[project.scripts]
+signalforge = "signalforge.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "mypy>=1.11,<2",
