@@ -11,6 +11,7 @@ from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import FillId, TradeId, deterministic_id
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import MarketEvent
+from signalforge.domain.money import Price
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
@@ -140,7 +141,7 @@ class PositionManager:
         self,
         trade: Trade,
         event: MarketEvent,
-    ) -> tuple[ExitReason, object] | None:
+    ) -> tuple[ExitReason, Price] | None:
         forced_at = self._forced_exit_at(event.exchange_timestamp)
         if event.exchange_timestamp >= forced_at:
             return ExitReason.FORCED_SESSION_EXIT, event.price
