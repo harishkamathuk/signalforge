@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CompletedCandle
-from signalforge.domain.strategy import StrategyEvaluation
+from signalforge.domain.strategy import DecisionReason, StrategyEvaluation
 from signalforge.runtime.eligibility import (
     EvaluationGuardResult,
     MarketDataFeedState,
@@ -38,7 +38,9 @@ class StrategyEvaluatorResult:
     def __post_init__(self) -> None:
         expected_actionable = self.evaluation.qualified and self.guard.actionable
         if self.evaluation.actionable != expected_actionable:
-            raise ValueError("StrategyEvaluation actionability must equal qualified AND guard actionable")
+            raise ValueError(
+                "StrategyEvaluation actionability must equal qualified AND guard actionable"
+            )
 
 
 class StrategyEvaluator:
@@ -75,7 +77,12 @@ class StrategyEvaluator:
             setup=setup,
             qualified=qualified,
             actionable=qualified and guard.actionable,
-            reasons=_decision_reasons(trend.passed, momentum.passed, setup.passed, guard.actionable),
+            reasons=_decision_reasons(
+                trend.passed,
+                momentum.passed,
+                setup.passed,
+                guard.actionable,
+            ),
         )
         return StrategyEvaluatorResult(evaluation=evaluation, guard=guard)
 
@@ -85,10 +92,8 @@ def _decision_reasons(
     momentum_passed: bool,
     setup_passed: bool,
     guard_actionable: bool,
-):
-    """Build reasons by constructing through the StrategyEvaluation domain contract."""
-
-    from signalforge.domain.strategy import DecisionReason
+) -> tuple[DecisionReason, ...]:
+    """Return the existing domain reason ordering for the composed decision."""
 
     qualified = trend_passed and momentum_passed and setup_passed
     if qualified:
