@@ -65,16 +65,16 @@ class SignalLifecycleManager:
             raise ValueError("Candle and StrategyEvaluation intervals must match")
         if self.tick_schedule.instrument_id != candle.instrument_id:
             raise ValueError("TickSizeSchedule instrument must match the signal candle")
+        if not isinstance(open_position, bool):
+            raise TypeError("open_position must be a boolean")
 
-        if not evaluation.actionable:
+        if not evaluation.actionable or open_position:
             return None
         if candle.close is None or candle.low is None:
             raise ValueError("Actionable evaluation requires signal candle close and low")
 
         candidate = self._build_result(candle)
 
-        if open_position:
-            return None
         if self._active is not None and self._active.armed_setup.state is ArmedSetupState.ARMED:
             if self._active.signal.signal_id == candidate.signal.signal_id:
                 return self._active
