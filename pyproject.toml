@@ -45,6 +45,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/20260831_0001_initial_runtime_schema.py" = ["E501", "I001"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

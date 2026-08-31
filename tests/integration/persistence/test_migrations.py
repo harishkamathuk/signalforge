@@ -5,11 +5,11 @@ from collections.abc import Iterator
 
 import pytest
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.engine import Engine
 
-from signalforge.persistence.models import Base, PRICE_PRECISION, PRICE_SCALE
+from alembic import command
+from signalforge.persistence.models import PRICE_PRECISION, PRICE_SCALE, Base
 
 EXPECTED_TABLES = {
     "armed_setups",
