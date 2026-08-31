@@ -7,11 +7,11 @@ from signalforge.domain.ids import ConfigId, EntryIntentId, InstrumentId, RunId,
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.positions import PositionState
+from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.domain.trades import TradeState
+from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.position_manager import PositionManager
 
 INSTRUMENT = InstrumentId("NSE:TEST")
@@ -34,7 +34,7 @@ def _schedule() -> TickSizeSchedule:
     )
 
 
-def _open_position() -> tuple[PositionManager, object, object]:
+def _open_position() -> tuple[PositionManager, Trade, Position]:
     end = datetime(2026, 8, 31, 10, 0, tzinfo=IST)
     signal = Signal.create(
         instrument_id=INSTRUMENT,
