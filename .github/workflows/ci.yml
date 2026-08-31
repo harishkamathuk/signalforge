@@ -37,5 +37,5 @@ jobs:
       - name: Mypy
         run: mypy signalforge
 
-      - name: Pytest
-        run: pytest
+      - name: Pytest with coverage
+        run: pytest --cov=signalforge --cov-report=term-missing
