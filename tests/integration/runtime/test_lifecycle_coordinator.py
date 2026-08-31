@@ -163,7 +163,11 @@ def test_exit_closes_trade_and_position_once_and_duplicate_is_idempotent() -> No
     assert first.exit is not None
     assert second.exit is first.exit
     assert len(coordinator.audit_transitions) == audit_count
-    assert [(t.entity_type.value, t.from_state, t.to_state) for t in coordinator.audit_transitions[-2:]] == [
+    closing_transitions = [
+        (t.entity_type.value, t.from_state, t.to_state)
+        for t in coordinator.audit_transitions[-2:]
+    ]
+    assert closing_transitions == [
         ("trade", "open", "closed"),
         ("position", "open", "closed"),
     ]
