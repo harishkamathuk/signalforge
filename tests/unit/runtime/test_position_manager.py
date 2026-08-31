@@ -93,8 +93,8 @@ def test_target_rounds_up_using_effective_tick_schedule() -> None:
 
 
 def test_non_positive_risk_is_explicitly_rejected_without_open_lifecycle() -> None:
-    signal = _signal(low="101.10")
-    fill = _fill(signal, price="101.10")
+    signal = _signal(low="101.00")
+    fill = _fill(signal, price="101.00")
     result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal)
 
     assert result.opened is False
