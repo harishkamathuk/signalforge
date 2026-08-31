@@ -152,16 +152,20 @@ class SignalLifecycleManager:
             setup.expire(at=setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
 
     def process_time(self, at: datetime) -> None:
-        """Expire an ARMED setup once the 15:05 IST entry cutoff is reached."""
+        """Expire an ARMED setup at its next deterministic time boundary."""
 
         require_aware(at)
         active = self._active
         if active is None or active.armed_setup.state is not ArmedSetupState.ARMED:
             return
 
+        setup = active.armed_setup
         cutoff = self._entry_cutoff(active.signal.interval.end)
-        if at >= cutoff:
-            active.armed_setup.expire(at=cutoff, reason=ExpiryReason.ENTRY_CUTOFF_REACHED)
+        if cutoff <= setup.valid_until and at >= cutoff:
+            setup.expire(at=cutoff, reason=ExpiryReason.ENTRY_CUTOFF_REACHED)
+            return
+        if at >= setup.valid_until:
+            setup.expire(at=setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
 
     def _entry_cutoff(self, signal_time: datetime) -> datetime:
         local = signal_time.astimezone(IST)

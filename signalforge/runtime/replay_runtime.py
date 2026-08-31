@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId
@@ -71,6 +72,11 @@ class ReplayRuntime:
     @property
     def instrument_id(self) -> InstrumentId:
         return self.source.identity.instrument_id
+
+    def process_time(self, at: datetime) -> LifecycleSnapshot:
+        """Route one explicit replay-time boundary into the lifecycle."""
+
+        return self.lifecycle.process_time(at)
 
     def process_input(self, replay_input: ReplayInput) -> ReplayRuntimeStep:
         """Process one replay input without reading any future source input."""
