@@ -1,0 +1,12 @@
+{
+  "instrument_id": "NSE:RELIANCE",
+  "quantity": 10,
+  "engine_calculation_version": "engine-v1",
+  "tick_rules": [
+    {
+      "tick_size": "0.10",
+      "effective_from": "2026-01-01"
+    }
+  ],
+  "strategy": {}
+}
