@@ -48,7 +48,6 @@ def test_orm_metadata_declares_exact_canonical_table_set() -> None:
 
 def test_alembic_head_creates_canonical_runtime_schema(postgres_engine: Engine) -> None:
     inspector = sa.inspect(postgres_engine)
-
     assert EXPECTED_TABLES <= set(inspector.get_table_names())
 
     signal_pk = inspector.get_pk_constraint("signals")
@@ -68,6 +67,12 @@ def test_alembic_head_creates_canonical_runtime_schema(postgres_engine: Engine) 
     assert signal_close_type.precision == PRICE_PRECISION
     assert signal_close_type.scale == PRICE_SCALE
 
+    exit_columns = {column["name"]: column for column in inspector.get_columns("exits")}
+    realised_r_type = exit_columns["realised_r"]["type"]
+    assert isinstance(realised_r_type, sa.Numeric)
+    assert realised_r_type.precision is None
+    assert realised_r_type.scale is None
+
     created_at_type = signal_columns["created_at"]["type"]
     assert isinstance(created_at_type, sa.DateTime)
     assert created_at_type.timezone is True
@@ -75,12 +80,10 @@ def test_alembic_head_creates_canonical_runtime_schema(postgres_engine: Engine) 
 
 def test_schema_enforces_core_lifecycle_constraints(postgres_engine: Engine) -> None:
     inspector = sa.inspect(postgres_engine)
-
     trade_checks = {constraint["name"] for constraint in inspector.get_check_constraints("trades")}
     armed_checks = {
         constraint["name"] for constraint in inspector.get_check_constraints("armed_setups")
     }
-
     assert "ck_trade_close_metadata" in trade_checks
     assert "ck_trade_risk_positive" in trade_checks
     assert "ck_armed_terminal_metadata" in armed_checks
@@ -89,9 +92,7 @@ def test_schema_enforces_core_lifecycle_constraints(postgres_engine: Engine) -> 
 
 def test_initial_migration_is_reversible_and_reproducible(postgres_engine: Engine) -> None:
     config = Config("alembic.ini")
-
     command.downgrade(config, "base")
     assert not (EXPECTED_TABLES & set(sa.inspect(postgres_engine).get_table_names()))
-
     command.upgrade(config, "head")
     assert EXPECTED_TABLES <= set(sa.inspect(postgres_engine).get_table_names())

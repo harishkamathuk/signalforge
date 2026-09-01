@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from signalforge.domain.execution import ExecutionMode, Fill
 from signalforge.domain.exits import Exit, ExitReason
+from signalforge.domain.identity import canonical_decimal, canonical_timestamp
 from signalforge.domain.ids import FillId, TradeId, deterministic_id
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import MarketEvent
@@ -117,8 +118,8 @@ class PositionManager:
             str(trade.run.run_id),
             str(trade.trade_id),
             "exit",
-            event.exchange_timestamp.isoformat(),
-            str(event.price.value),
+            canonical_timestamp(event.exchange_timestamp),
+            canonical_decimal(event.price.value),
             reason.value,
         )
         exit_fact = Exit.create(

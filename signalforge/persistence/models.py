@@ -420,9 +420,7 @@ class ExitRecord(Base):
     realised_pnl: Mapped[Decimal] = mapped_column(
         Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=False
     )
-    realised_r: Mapped[Decimal] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=False
-    )
+    realised_r: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
 
 
 class StateTransitionRecord(Base):

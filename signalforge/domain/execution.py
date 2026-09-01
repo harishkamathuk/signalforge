@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from signalforge.domain.identity import canonical_decimal, canonical_timestamp
 from signalforge.domain.ids import (
     EntryIntentId,
     FillId,
@@ -60,8 +61,8 @@ class TriggerEvent:
             TriggerEventId,
             str(run.run_id),
             str(signal_id),
-            observed_at.isoformat(),
-            str(observed_price.value),
+            canonical_timestamp(observed_at),
+            canonical_decimal(observed_price.value),
         )
         return cls(
             trigger_event_id=event_id,
@@ -78,8 +79,8 @@ class TriggerEvent:
             TriggerEventId,
             str(self.run.run_id),
             str(self.signal_id),
-            self.observed_at.isoformat(),
-            str(self.observed_price.value),
+            canonical_timestamp(self.observed_at),
+            canonical_decimal(self.observed_price.value),
         )
 
 
@@ -190,8 +191,8 @@ class Fill:
             FillId,
             str(run.run_id),
             str(entry_intent_id),
-            filled_at.isoformat(),
-            str(fill_price.value),
+            canonical_timestamp(filled_at),
+            canonical_decimal(fill_price.value),
             str(quantity.value),
         )
         return cls(
@@ -213,7 +214,7 @@ class Fill:
             FillId,
             str(self.run.run_id),
             str(self.entry_intent_id),
-            self.filled_at.isoformat(),
-            str(self.fill_price.value),
+            canonical_timestamp(self.filled_at),
+            canonical_decimal(self.fill_price.value),
             str(self.quantity.value),
         )

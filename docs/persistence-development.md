@@ -67,3 +67,37 @@ The initial schema implements ADR-003's hybrid model:
 CI starts a clean PostgreSQL service, runs `alembic upgrade head`, then runs the normal test suite.
 Migration integration tests also verify that the initial revision can downgrade to `base` and
 re-upgrade to `head` reproducibly.
+
+
+## SF-045A fidelity contracts
+
+Repository contracts in `signalforge.persistence.contracts` are SQL-free. SQLAlchemy records remain
+behind explicit Data Mappers, and later PostgreSQL adapters receive transaction ownership from their
+caller.
+
+All price/economic columns retain SF-044's `NUMERIC(38,18)` representation except
+`exits.realised_r`. The Exit domain accepts any finite Decimal and defines no 40-fractional-digit
+bound, so a fixed scale such as `NUMERIC(80,40)` would still round valid values. Realised R therefore
+uses unconstrained PostgreSQL `NUMERIC`, preserving its decimal coefficient without imposing an
+unaccepted domain precision rule.
+
+### Deterministic identity compatibility
+
+Before SF-045A, affected timestamp components used direct `datetime.isoformat()`. That retained
+the source UTC offset and representation, so two aware datetimes for the same instant could hash
+differently. SF-045A converts the instant to UTC and emits a fixed-microsecond form such as
+`2026-08-31T04:30:00.000000Z`. Naive timestamps remain invalid.
+
+Affected Decimal components previously used `str(Decimal)`, retaining trailing-zero exponents,
+exponent notation, and the sign of zero. SF-045A emits finite Decimals in fixed-point notation,
+removes only insignificant fractional zeros, and maps `0`, `-0`, `0.000`, and `-0.000` to `0`.
+Non-zero values are never rounded, including values exceeding the active Decimal context precision.
+The valid TriggerEvent, Fill, and MarketEvent domains require strictly positive prices, so signed
+zero is rejected before those domain facts can be created; the shared canonical encoding still
+defines signed-zero behavior explicitly.
+
+Direct IDs for Signal, TriggerEvent, Fill, and generated exit fills can change. EntryIntent, Trade,
+Position, Exit, and StateTransition IDs can also change transitively when they include or reference
+one of those changed IDs. This is acceptable because no production persistence or restart-compatible
+ID history exists before M6. No historical-ID migration or recovery compatibility path is required
+or introduced.
