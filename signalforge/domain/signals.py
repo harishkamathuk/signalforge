@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from signalforge.domain.identity import canonical_timestamp
 from signalforge.domain.ids import InstrumentId, SignalId, deterministic_id
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
@@ -51,8 +52,8 @@ class Signal:
             SignalId,
             str(run.run_id),
             str(instrument_id),
-            interval.start.isoformat(),
-            interval.end.isoformat(),
+            canonical_timestamp(interval.start),
+            canonical_timestamp(interval.end),
         )
         return cls(
             signal_id=signal_id,
@@ -71,6 +72,6 @@ class Signal:
             SignalId,
             str(self.run.run_id),
             str(self.instrument_id),
-            self.interval.start.isoformat(),
-            self.interval.end.isoformat(),
+            canonical_timestamp(self.interval.start),
+            canonical_timestamp(self.interval.end),
         )
