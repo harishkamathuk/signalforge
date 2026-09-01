@@ -16,7 +16,7 @@ def test_postgres_adapters_keep_transaction_ownership_with_caller() -> None:
     assert "on_conflict_do_nothing" in source
 
 
-def test_sf045b_adapter_inventory_excludes_later_issue_repositories() -> None:
+def test_sf045_adapter_inventory_includes_only_accepted_repositories() -> None:
     names = set(vars(repositories))
 
     assert {
@@ -29,7 +29,21 @@ def test_sf045b_adapter_inventory_excludes_later_issue_repositories() -> None:
         "PostgresExitRepository",
         "PostgresStateTransitionRepository",
     } <= names
-    assert "PostgresArmedSetupRepository" not in names
-    assert "PostgresTradeRepository" not in names
-    assert "PostgresPositionRepository" not in names
+    assert {
+        "PostgresArmedSetupRepository",
+        "PostgresTradeRepository",
+        "PostgresPositionRepository",
+    } <= names
     assert "UnitOfWork" not in names
+    assert "PostgresCheckpointRepository" not in names
+    assert "PostgresLifecycleProjectionRepository" not in names
+
+
+def test_authoritative_adapters_use_conditional_predecessor_updates() -> None:
+    source = inspect.getsource(repositories)
+
+    assert source.count("sa.update(") >= 3
+    assert "ArmedSetupRecord.state == ArmedSetupState.ARMED.value" in source
+    assert "TradeRecord.state == TradeState.OPEN.value" in source
+    assert "PositionRecord.state == PositionState.OPEN.value" in source
+    assert source.count("self._session.expire_all()") >= 3

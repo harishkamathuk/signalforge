@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import FromClause, TableClause
 
+from signalforge.domain.armed import ArmedSetup, ArmedSetupState
 from signalforge.domain.audit import StateTransition
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
@@ -24,27 +25,35 @@ from signalforge.domain.ids import (
     ExitId,
     FillId,
     InstrumentId,
+    PositionId,
     RunId,
     SignalId,
     StateTransitionId,
+    TradeId,
     TriggerEventId,
 )
+from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.domain.time import CandleInterval
+from signalforge.domain.trades import Trade, TradeState
 from signalforge.persistence.errors import (
     ContradictoryFactError,
     PersistenceDependencyError,
     PersistenceError,
 )
 from signalforge.persistence.mappers import (
+    armed_setup_from_record,
+    armed_setup_record_from_domain,
     entry_intent_from_record,
     entry_intent_record_from_domain,
     exit_from_record,
     exit_record_from_domain,
     fill_from_record,
     fill_record_from_domain,
+    position_from_record,
+    position_record_from_domain,
     run_identity_from_records,
     run_record_from_domain,
     signal_from_record,
@@ -54,10 +63,13 @@ from signalforge.persistence.mappers import (
     strategy_config_record_from_domain,
     strategy_evaluation_from_record,
     strategy_evaluation_record_from_domain,
+    trade_from_record,
+    trade_record_from_domain,
     trigger_event_from_record,
     trigger_event_record_from_domain,
 )
 from signalforge.persistence.models import (
+    ArmedSetupRecord,
     EntryIntentRecord,
     ExitRecord,
     FillRecord,
@@ -81,9 +93,7 @@ def _insert_ignoring_unique_conflicts(
     session.execute(insert(cast(TableClause, table)).values(values).on_conflict_do_nothing())
 
 
-def _single_collision[RecordT](
-    records: Sequence[RecordT], *, fact_name: str
-) -> RecordT | None:
+def _single_collision[RecordT](records: Sequence[RecordT], *, fact_name: str) -> RecordT | None:
     if len(records) > 1:
         raise ContradictoryFactError(
             f"{fact_name} primary and alternate identities resolve to different stored facts"
@@ -109,10 +119,16 @@ def _append_immutable[FactT, RecordT](
         raise PersistenceError(f"{fact_name} insert did not produce a persisted fact")
     persisted = hydrate(existing)
     if persisted != requested:
-        raise ContradictoryFactError(
-            f"stored {fact_name} contradicts requested immutable fact"
-        )
+        raise ContradictoryFactError(f"stored {fact_name} contradicts requested immutable fact")
     return persisted
+
+
+def _same_record_fields(
+    stored: object,
+    candidate: object,
+    fields: tuple[str, ...],
+) -> bool:
+    return all(getattr(stored, field) == getattr(candidate, field) for field in fields)
 
 
 class _PostgresRepository:
@@ -487,3 +503,242 @@ class PostgresStateTransitionRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("state transition references missing run provenance")
         return state_transition_from_record(record, run)
+
+
+class PostgresArmedSetupRepository(_PostgresRepository):
+    """Persist authoritative ArmedSetup state with caller-owned transactions."""
+
+    _IMMUTABLE_FIELDS = (
+        "signal_id",
+        "run_id",
+        "raw_trigger",
+        "tradable_trigger",
+        "signal_low",
+        "armed_at",
+        "valid_until",
+    )
+    _STATE_FIELDS = ("state", "terminal_at", "expiry_reason")
+
+    def _require_dependencies(self, run_id: RunId, setup: ArmedSetup) -> None:
+        if self._load_run(run_id) is None:
+            raise PersistenceDependencyError(f"run provenance {run_id!s} must be persisted first")
+        signal = self._require_record(SignalRecord, str(setup.signal_id), name="signal")
+        if signal.run_id != str(run_id):
+            raise ContradictoryFactError("setup run contradicts the persisted signal provenance")
+
+    def upsert(self, run_id: RunId, setup: ArmedSetup) -> ArmedSetup:
+        self._require_dependencies(run_id, setup)
+        candidate = armed_setup_record_from_domain(run_id, setup)
+        stored = self._session.get(ArmedSetupRecord, candidate.signal_id)
+        if stored is None:
+            _insert_ignoring_unique_conflicts(self._session, ArmedSetupRecord.__table__, candidate)
+            self._session.flush()
+            stored = self._session.get(ArmedSetupRecord, candidate.signal_id)
+        if stored is None:
+            raise PersistenceError("armed setup insert produced no persisted record")
+        if not _same_record_fields(stored, candidate, self._IMMUTABLE_FIELDS):
+            raise ContradictoryFactError("stored armed setup contradicts immutable setup anchors")
+        if _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return armed_setup_from_record(stored)
+        if stored.state != ArmedSetupState.ARMED.value or candidate.state not in {
+            ArmedSetupState.TRIGGERED.value,
+            ArmedSetupState.EXPIRED.value,
+        }:
+            raise ContradictoryFactError("stored armed setup cannot be replaced or regressed")
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(ArmedSetupRecord)
+                .where(
+                    ArmedSetupRecord.signal_id == candidate.signal_id,
+                    ArmedSetupRecord.state == ArmedSetupState.ARMED.value,
+                )
+                .values(
+                    state=candidate.state,
+                    terminal_at=candidate.terminal_at,
+                    expiry_reason=candidate.expiry_reason,
+                )
+            ),
+        )
+        if result.rowcount == 1:
+            self._session.flush()
+        self._session.expire_all()
+        stored = self._session.get(ArmedSetupRecord, candidate.signal_id)
+        if stored is not None and _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return armed_setup_from_record(stored)
+        raise ContradictoryFactError("stored armed setup conflicts with requested terminal state")
+
+    def get(self, signal_id: SignalId) -> ArmedSetup | None:
+        record = self._session.get(ArmedSetupRecord, str(signal_id))
+        return None if record is None else armed_setup_from_record(record)
+
+
+class PostgresTradeRepository(_PostgresRepository):
+    """Persist authoritative Trade state while freezing entry economics."""
+
+    _IMMUTABLE_FIELDS = (
+        "trade_id",
+        "entry_fill_id",
+        "signal_id",
+        "run_id",
+        "instrument_id",
+        "entry_price",
+        "stop_price",
+        "raw_target_price",
+        "tradable_target_price",
+        "risk_per_share",
+        "quantity",
+        "opened_at",
+    )
+    _STATE_FIELDS = ("state", "closed_at", "exit_id")
+
+    def _find(self, candidate: TradeRecord) -> TradeRecord | None:
+        records = self._session.scalars(
+            sa.select(TradeRecord).where(
+                sa.or_(
+                    TradeRecord.trade_id == candidate.trade_id,
+                    TradeRecord.entry_fill_id == candidate.entry_fill_id,
+                )
+            )
+        ).all()
+        return _single_collision(records, fact_name="trade")
+
+    def _require_dependencies(self, trade: Trade, candidate: TradeRecord) -> None:
+        self._require_run(trade.run)
+        entry_fill = self._require_record(FillRecord, candidate.entry_fill_id, name="entry fill")
+        signal = self._require_record(SignalRecord, candidate.signal_id, name="signal")
+        if entry_fill.run_id != candidate.run_id or signal.run_id != candidate.run_id:
+            raise ContradictoryFactError(
+                "trade dependencies contradict the requested run provenance"
+            )
+        if candidate.state == TradeState.CLOSED.value:
+            exit_record = self._require_record(ExitRecord, candidate.exit_id or "", name="exit")
+            if exit_record.trade_id != candidate.trade_id:
+                raise ContradictoryFactError("trade close references an exit for a different trade")
+
+    def upsert(self, trade: Trade) -> Trade:
+        candidate = trade_record_from_domain(trade)
+        self._require_dependencies(trade, candidate)
+        stored = self._find(candidate)
+        if stored is None:
+            _insert_ignoring_unique_conflicts(self._session, TradeRecord.__table__, candidate)
+            self._session.flush()
+            stored = self._find(candidate)
+        if stored is None:
+            raise PersistenceError("trade insert produced no persisted record")
+        if not _same_record_fields(stored, candidate, self._IMMUTABLE_FIELDS):
+            raise ContradictoryFactError("stored trade contradicts immutable entry economics")
+        if _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return trade_from_record(stored, trade.run)
+        if stored.state != TradeState.OPEN.value or candidate.state != TradeState.CLOSED.value:
+            raise ContradictoryFactError("stored trade cannot be replaced or regressed")
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(TradeRecord)
+                .where(
+                    TradeRecord.trade_id == candidate.trade_id,
+                    TradeRecord.state == TradeState.OPEN.value,
+                )
+                .values(
+                    state=candidate.state,
+                    closed_at=candidate.closed_at,
+                    exit_id=candidate.exit_id,
+                )
+            ),
+        )
+        if result.rowcount == 1:
+            self._session.flush()
+        self._session.expire_all()
+        stored = self._find(candidate)
+        if stored is not None and _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return trade_from_record(stored, trade.run)
+        raise ContradictoryFactError("stored trade conflicts with requested closed state")
+
+    def get(self, trade_id: TradeId) -> Trade | None:
+        record = self._session.get(TradeRecord, str(trade_id))
+        if record is None:
+            return None
+        run = self._load_run(record.run_id)
+        if run is None:
+            raise PersistenceDependencyError("trade references missing run provenance")
+        return trade_from_record(record, run)
+
+
+class PostgresPositionRepository(_PostgresRepository):
+    """Persist authoritative Position state while freezing MVP exposure facts."""
+
+    _IMMUTABLE_FIELDS = (
+        "position_id",
+        "trade_id",
+        "run_id",
+        "instrument_id",
+        "quantity",
+        "average_entry_price",
+        "opened_at",
+    )
+    _STATE_FIELDS = ("state", "closed_at")
+
+    def _find(self, candidate: PositionRecord) -> PositionRecord | None:
+        records = self._session.scalars(
+            sa.select(PositionRecord).where(
+                sa.or_(
+                    PositionRecord.position_id == candidate.position_id,
+                    PositionRecord.trade_id == candidate.trade_id,
+                )
+            )
+        ).all()
+        return _single_collision(records, fact_name="position")
+
+    def _require_dependencies(self, position: Position, candidate: PositionRecord) -> None:
+        self._require_run(position.run)
+        trade = self._require_record(TradeRecord, candidate.trade_id, name="trade")
+        if trade.run_id != candidate.run_id or trade.instrument_id != candidate.instrument_id:
+            raise ContradictoryFactError("position dependency contradicts the requested exposure")
+
+    def upsert(self, position: Position) -> Position:
+        candidate = position_record_from_domain(position)
+        self._require_dependencies(position, candidate)
+        stored = self._find(candidate)
+        if stored is None:
+            _insert_ignoring_unique_conflicts(self._session, PositionRecord.__table__, candidate)
+            self._session.flush()
+            stored = self._find(candidate)
+        if stored is None:
+            raise PersistenceError("position insert produced no persisted record")
+        if not _same_record_fields(stored, candidate, self._IMMUTABLE_FIELDS):
+            raise ContradictoryFactError("stored position contradicts immutable exposure fields")
+        if _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return position_from_record(stored, position.run)
+        if (
+            stored.state != PositionState.OPEN.value
+            or candidate.state != PositionState.CLOSED.value
+        ):
+            raise ContradictoryFactError("stored position cannot be replaced or regressed")
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(PositionRecord)
+                .where(
+                    PositionRecord.position_id == candidate.position_id,
+                    PositionRecord.state == PositionState.OPEN.value,
+                )
+                .values(state=candidate.state, closed_at=candidate.closed_at)
+            ),
+        )
+        if result.rowcount == 1:
+            self._session.flush()
+        self._session.expire_all()
+        stored = self._find(candidate)
+        if stored is not None and _same_record_fields(stored, candidate, self._STATE_FIELDS):
+            return position_from_record(stored, position.run)
+        raise ContradictoryFactError("stored position conflicts with requested closed state")
+
+    def get(self, position_id: PositionId) -> Position | None:
+        record = self._session.get(PositionRecord, str(position_id))
+        if record is None:
+            return None
+        run = self._load_run(record.run_id)
+        if run is None:
+            raise PersistenceDependencyError("position references missing run provenance")
+        return position_from_record(record, run)
