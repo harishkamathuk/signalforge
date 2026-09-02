@@ -256,6 +256,7 @@ def _inject_after(monkeypatch: pytest.MonkeyPatch, *, after: int, names: tuple[s
             if name
             not in {
                 "PostgresArmedSetupRepository",
+                "PostgresIndicatorCheckpointRepository",
                 "PostgresTradeRepository",
                 "PostgresPositionRepository",
             }
@@ -278,6 +279,7 @@ def _inject_after(monkeypatch: pytest.MonkeyPatch, *, after: int, names: tuple[s
             if name
             not in {
                 "PostgresArmedSetupRepository",
+                "PostgresIndicatorCheckpointRepository",
                 "PostgresTradeRepository",
                 "PostgresPositionRepository",
             }
@@ -1587,3 +1589,94 @@ def test_indicator_checkpoint_postgres_resume_is_exact(postgres_engine: Engine) 
     for index in range(55, 70):
         assert engine_a.update(candle(index)) == engine_b.update(candle(index))
         assert engine_a.state == engine_b.state
+
+
+@pytest.mark.parametrize("after", (1, 2))
+def test_coordinator_completed_evaluation_rolls_back_checkpoint_and_evaluation(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf047-completed-{after}-{uuid4().hex}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        setup_session.commit()
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresIndicatorCheckpointRepository",
+            "PostgresStrategyEvaluationRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_completed_evaluation(
+                run=value.run, state=state, evaluation=value.evaluation
+            )
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyEvaluationRepository(observer).get(
+                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            )
+            is None
+        )
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4, 5))
+def test_coordinator_checkpointed_arming_rolls_back_every_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf047-arming-{after}-{uuid4().hex}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="none",
+        after="armed",
+        cause_type="strategy_evaluation",
+        cause_id="evaluation",
+        occurred_at=value.setup.armed_at,
+    )
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        setup_session.commit()
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresIndicatorCheckpointRepository",
+            "PostgresStrategyEvaluationRepository",
+            "PostgresSignalRepository",
+            "PostgresArmedSetupRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_actionable_evaluation(
+                evaluation=value.evaluation,
+                signal=value.signal,
+                setup=value.setup,
+                setup_transition=transition,
+                checkpoint=state,
+            )
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyEvaluationRepository(observer).get(
+                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            )
+            is None
+        )
