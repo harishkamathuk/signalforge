@@ -1680,3 +1680,83 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
             )
             is None
         )
+
+
+def test_indicator_checkpoint_postgres_forward_and_conflict_rules(postgres_engine: Engine) -> None:
+    value = facts(f"cp-fwd-{uuid4().hex[:8]}")
+    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+
+    def candle(index: int) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        close = Decimal("100") + Decimal(index) / Decimal("7")
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(close),
+            high=Price(close + Decimal("1.234567890123456789")),
+            low=Price(close - Decimal("0.987654321098765432")),
+            close=Price(close + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-forward-test",
+            source_event_count=1,
+        )
+
+    empty = engine.state
+    engine.update(candle(0))
+    first = engine.state
+    engine.update(candle(1))
+    second = engine.state
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, empty) == empty
+        assert repo.upsert(value.run, first) == first
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, first) == first
+        assert repo.upsert(value.run, second) == second
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, first)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, empty)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, replace(second, calculation_version="checkpoint-v2"))
+        inconsistent = replace(
+            second,
+            ema9=replace(second.ema9, seed_sum=second.ema9.seed_sum + Decimal("1")),
+        )
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, inconsistent)
+        assert repo.upsert(value.run, replace(second, continuity=IndicatorContinuity.BROKEN))
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, second)
+    with Session(postgres_engine) as observer:
+        stored = PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        )
+        assert stored == replace(second, continuity=IndicatorContinuity.BROKEN)
+
+
+def test_indicator_checkpoint_requires_persisted_run(postgres_engine: Engine) -> None:
+    value = facts(f"cp-missing-{uuid4().hex[:8]}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    with Session(postgres_engine) as session:
+        with pytest.raises(PersistenceDependencyError):
+            PostgresIndicatorCheckpointRepository(session).upsert(value.run, state)
+        session.rollback()
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
