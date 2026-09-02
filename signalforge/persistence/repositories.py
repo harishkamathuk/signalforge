@@ -26,12 +26,14 @@ from signalforge.domain.ids import (
     FillId,
     InstrumentId,
     PositionId,
+    PositionOpenOutcomeId,
     RunId,
     SignalId,
     StateTransitionId,
     TradeId,
     TriggerEventId,
 )
+from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
@@ -53,6 +55,8 @@ from signalforge.persistence.mappers import (
     fill_from_record,
     fill_record_from_domain,
     position_from_record,
+    position_open_outcome_from_record,
+    position_open_outcome_record_from_domain,
     position_record_from_domain,
     run_identity_from_records,
     run_record_from_domain,
@@ -73,6 +77,7 @@ from signalforge.persistence.models import (
     EntryIntentRecord,
     ExitRecord,
     FillRecord,
+    PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
     SignalRecord,
@@ -438,6 +443,53 @@ class PostgresFillRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("fill references missing run provenance")
         return fill_from_record(record, run)
+
+
+class PostgresPositionOpenOutcomeRepository(_PostgresRepository):
+    """Persist one immutable completed open outcome for each entry Fill."""
+
+    def _find(self, outcome: PositionOpenOutcome) -> PositionOpenOutcomeRecord | None:
+        records = self._session.scalars(
+            sa.select(PositionOpenOutcomeRecord).where(
+                sa.or_(
+                    PositionOpenOutcomeRecord.outcome_id == str(outcome.outcome_id),
+                    PositionOpenOutcomeRecord.fill_id == str(outcome.fill_id),
+                )
+            )
+        ).all()
+        return _single_collision(records, fact_name="position open outcome")
+
+    def append(self, outcome: PositionOpenOutcome) -> PositionOpenOutcome:
+        run = self._require_run(outcome.run)
+        fill = self._require_record(FillRecord, str(outcome.fill_id), name="fill")
+        signal = self._require_record(SignalRecord, str(outcome.signal_id), name="signal")
+        if signal.run_id != str(outcome.run.run_id):
+            raise ContradictoryFactError("position open outcome contradicts signal provenance")
+        if fill.signal_id != str(outcome.signal_id):
+            raise ContradictoryFactError("position open outcome contradicts fill signal")
+        if fill.run_id != str(outcome.run.run_id):
+            raise ContradictoryFactError("position open outcome contradicts fill provenance")
+        candidate = position_open_outcome_record_from_domain(outcome)
+        return _append_immutable(
+            session=self._session,
+            table=PositionOpenOutcomeRecord.__table__,
+            record=candidate,
+            requested=outcome,
+            find_existing=lambda: self._find(outcome),
+            hydrate=lambda record: position_open_outcome_from_record(record, run),
+            fact_name="position open outcome",
+        )
+
+    def get(self, outcome_id: PositionOpenOutcomeId) -> PositionOpenOutcome | None:
+        record = self._session.get(PositionOpenOutcomeRecord, str(outcome_id))
+        if record is None:
+            return None
+        run = self._load_run(record.run_id)
+        if run is None:
+            raise PersistenceDependencyError(
+                "position open outcome references missing run provenance"
+            )
+        return position_open_outcome_from_record(record, run)
 
 
 class PostgresExitRepository(_PostgresRepository):
