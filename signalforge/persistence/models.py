@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -470,53 +469,65 @@ class StateTransitionRecord(Base):
 
 
 class IndicatorCheckpointRecord(Base):
-    """Authoritative current incremental-indicator checkpoint per run/instrument."""
+    """Authoritative lossless current indicator state per run/instrument."""
 
     __tablename__ = "indicator_checkpoints"
     __table_args__ = (
         PrimaryKeyConstraint("run_id", "instrument_id", name="pk_indicator_checkpoints"),
-        CheckConstraint("interval_end > interval_start", name="ck_indicator_interval_order"),
         CheckConstraint("completed_candle_count >= 0", name="ck_indicator_count_nonnegative"),
         CheckConstraint(
-            "continuity_state IN ('healthy', 'broken')",
-            name="ck_indicator_continuity_state",
+            "continuity_state IN ('healthy', 'broken')", name="ck_indicator_continuity_state"
+        ),
+        CheckConstraint("adx_dx_seed_count >= 0", name="ck_indicator_dx_seed_count_nonnegative"),
+        CheckConstraint(
+            "(completed_candle_count = 0 AND last_interval_start IS NULL AND "
+            "last_interval_end IS NULL) OR (completed_candle_count > 0 AND "
+            "last_interval_start IS NOT NULL AND last_interval_end IS NOT NULL AND "
+            "last_interval_end > last_interval_start)",
         ),
     )
-
     run_id: Mapped[str] = mapped_column(
         ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
     )
     instrument_id: Mapped[str] = mapped_column(String(INSTRUMENT_LENGTH), nullable=False)
-    interval_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    interval_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     calculation_version: Mapped[str] = mapped_column(String(128), nullable=False)
     continuity_state: Mapped[str] = mapped_column(String(STATE_LENGTH), nullable=False)
+    last_interval_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_interval_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     completed_candle_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    ema9: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    ema20: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    ema50: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    rsi14: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    adx14: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    macd_line: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    macd_signal: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    macd_histogram: Mapped[Decimal | None] = mapped_column(
-        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
-    )
-    state_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    ema9_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    ema9_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    ema20_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    ema20_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    ema50_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    ema50_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    rsi_previous_close: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    rsi_seed_gain_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    rsi_seed_loss_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    rsi_average_gain: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    rsi_average_loss: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_previous_high: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_previous_low: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_previous_close: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_seed_tr_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    adx_seed_plus_dm_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    adx_seed_minus_dm_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    adx_smoothed_tr: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_smoothed_plus_dm: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_smoothed_minus_dm: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    adx_dx_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    adx_dx_seed_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    adx: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    macd_fast_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    macd_fast_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    macd_slow_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    macd_slow_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    macd_signal_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    macd_signal_seed_sum: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
 
 
 class LifecycleStateRecord(Base):

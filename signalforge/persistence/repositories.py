@@ -54,6 +54,8 @@ from signalforge.persistence.mappers import (
     exit_record_from_domain,
     fill_from_record,
     fill_record_from_domain,
+    indicator_checkpoint_record_from_state,
+    indicator_checkpoint_state_from_record,
     position_from_record,
     position_open_outcome_from_record,
     position_open_outcome_record_from_domain,
@@ -77,6 +79,7 @@ from signalforge.persistence.models import (
     EntryIntentRecord,
     ExitRecord,
     FillRecord,
+    IndicatorCheckpointRecord,
     PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
@@ -87,6 +90,7 @@ from signalforge.persistence.models import (
     TradeRecord,
     TriggerEventRecord,
 )
+from signalforge.runtime.indicators import IndicatorEngineState
 
 
 def _insert_ignoring_unique_conflicts(
@@ -794,3 +798,81 @@ class PostgresPositionRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("position references missing run provenance")
         return position_from_record(record, run)
+
+
+class PostgresIndicatorCheckpointRepository(_PostgresRepository):
+    """Authoritative lossless current checkpoint per run/instrument."""
+
+    def upsert(self, run: RunIdentity, state: IndicatorEngineState) -> IndicatorEngineState:
+        self._require_run(run)
+        candidate = indicator_checkpoint_record_from_state(run, state)
+        existing = self._session.get(
+            IndicatorCheckpointRecord, (str(run.run_id), str(state.instrument_id))
+        )
+        if existing is None:
+            self._session.add(candidate)
+            self._session.flush()
+            return state
+        persisted = indicator_checkpoint_state_from_record(existing)
+        if persisted == state:
+            return persisted
+        if persisted.calculation_version != state.calculation_version:
+            raise ContradictoryFactError("indicator checkpoint calculation version changed")
+        if persisted.continuity.value == "broken" and state.continuity.value == "healthy":
+            raise ContradictoryFactError("indicator checkpoint cannot restore broken continuity")
+        old_samples = persisted.ema9.samples
+        new_samples = state.ema9.samples
+        same_interval = persisted.last_interval == state.last_interval
+        breaks_continuity = (
+            same_interval
+            and persisted.continuity.value == "healthy"
+            and state.continuity.value == "broken"
+        )
+        if not breaks_continuity:
+            if new_samples <= old_samples:
+                raise ContradictoryFactError(
+                    "indicator checkpoint is stale or contradicts current state"
+                )
+            if (
+                persisted.last_interval is not None
+                and state.last_interval is not None
+                and state.last_interval.end <= persisted.last_interval.end
+            ):
+                raise ContradictoryFactError("indicator checkpoint interval regresses")
+        values = {
+            column.name: getattr(candidate, column.name)
+            for column in IndicatorCheckpointRecord.__table__.columns
+            if column.name not in {"run_id", "instrument_id"}
+        }
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(IndicatorCheckpointRecord)
+                .where(
+                    IndicatorCheckpointRecord.run_id == existing.run_id,
+                    IndicatorCheckpointRecord.instrument_id == existing.instrument_id,
+                    IndicatorCheckpointRecord.calculation_version == existing.calculation_version,
+                    IndicatorCheckpointRecord.completed_candle_count
+                    == existing.completed_candle_count,
+                    IndicatorCheckpointRecord.last_interval_start == existing.last_interval_start,
+                    IndicatorCheckpointRecord.last_interval_end == existing.last_interval_end,
+                    IndicatorCheckpointRecord.continuity_state == existing.continuity_state,
+                )
+                .values(**values)
+            ),
+        )
+        self._session.expire_all()
+        stored = self._session.get(
+            IndicatorCheckpointRecord, (str(run.run_id), str(state.instrument_id))
+        )
+        if result.rowcount == 1:
+            if stored is None:
+                raise PersistenceError("indicator checkpoint update produced no persisted record")
+            return indicator_checkpoint_state_from_record(stored)
+        if stored is not None and indicator_checkpoint_state_from_record(stored) == state:
+            return state
+        raise ContradictoryFactError("indicator checkpoint advanced concurrently or conflicts")
+
+    def get(self, run_id: RunId, instrument_id: InstrumentId) -> IndicatorEngineState | None:
+        record = self._session.get(IndicatorCheckpointRecord, (str(run_id), str(instrument_id)))
+        return None if record is None else indicator_checkpoint_state_from_record(record)

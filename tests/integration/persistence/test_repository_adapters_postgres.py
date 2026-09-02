@@ -18,6 +18,7 @@ from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId, SignalId
+from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
@@ -40,6 +41,7 @@ from signalforge.persistence.repositories import (
     PostgresEntryIntentRepository,
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresIndicatorCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
@@ -48,6 +50,11 @@ from signalforge.persistence.repositories import (
     PostgresStrategyEvaluationRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
+)
+from signalforge.runtime.indicators import (
+    IndicatorContinuity,
+    IndicatorEngine,
+    IndicatorEngineState,
 )
 
 AT = datetime(2026, 9, 1, 10, 0, tzinfo=IST)
@@ -253,6 +260,7 @@ def _inject_after(monkeypatch: pytest.MonkeyPatch, *, after: int, names: tuple[s
             if name
             not in {
                 "PostgresArmedSetupRepository",
+                "PostgresIndicatorCheckpointRepository",
                 "PostgresTradeRepository",
                 "PostgresPositionRepository",
             }
@@ -275,6 +283,7 @@ def _inject_after(monkeypatch: pytest.MonkeyPatch, *, after: int, names: tuple[s
             if name
             not in {
                 "PostgresArmedSetupRepository",
+                "PostgresIndicatorCheckpointRepository",
                 "PostgresTradeRepository",
                 "PostgresPositionRepository",
             }
@@ -1519,3 +1528,316 @@ def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
             PostgresStateTransitionRepository(observer).get(position_transition.transition_id)
             is None
         )
+
+
+def test_indicator_checkpoint_postgres_idempotency_and_rollback(postgres_engine: Engine) -> None:
+    value = facts(f"checkpoint-{uuid4().hex}")
+    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    state = engine.state
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        session.commit()
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, state) == state
+        assert repo.upsert(value.run, state) == state
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, state) == state
+        assert repo.get(value.run.run_id, state.instrument_id) == state
+        broken = replace(state, continuity=IndicatorContinuity.BROKEN)
+        assert repo.upsert(value.run, broken) == broken
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, state)
+        session.rollback()
+    with Session(postgres_engine) as session:
+        stored = PostgresIndicatorCheckpointRepository(session).get(
+            value.run.run_id, state.instrument_id
+        )
+        assert stored == state
+
+
+def test_indicator_checkpoint_postgres_resume_is_exact(postgres_engine: Engine) -> None:
+    value = facts(f"checkpoint-resume-{uuid4().hex}")
+    engine_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+
+    def candle(index: int) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        base = Decimal("100") + Decimal(index) / Decimal("7")
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(base),
+            high=Price(base + Decimal("1.234567890123456789")),
+            low=Price(base - Decimal("0.987654321098765432")),
+            close=Price(base + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-test",
+            source_event_count=1,
+        )
+
+    for index in range(55):
+        engine_a.update(candle(index))
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        PostgresIndicatorCheckpointRepository(session).upsert(value.run, engine_a.state)
+        session.commit()
+    with Session(postgres_engine) as session:
+        restored_state = PostgresIndicatorCheckpointRepository(session).get(
+            value.run.run_id, value.signal.instrument_id
+        )
+        assert restored_state == engine_a.state
+    engine_b = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=restored_state)
+    for index in range(55, 70):
+        assert engine_a.update(candle(index)) == engine_b.update(candle(index))
+        assert engine_a.state == engine_b.state
+
+
+@pytest.mark.parametrize("after", (1, 2))
+def test_coordinator_completed_evaluation_rolls_back_checkpoint_and_evaluation(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf047-completed-{after}-{uuid4().hex}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        setup_session.commit()
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresIndicatorCheckpointRepository",
+            "PostgresStrategyEvaluationRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_completed_evaluation(
+                run=value.run, state=state, evaluation=value.evaluation
+            )
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyEvaluationRepository(observer).get(
+                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            )
+            is None
+        )
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4, 5))
+def test_coordinator_checkpointed_arming_rolls_back_every_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf047-arming-{after}-{uuid4().hex}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="none",
+        after="armed",
+        cause_type="strategy_evaluation",
+        cause_id="evaluation",
+        occurred_at=value.setup.armed_at,
+    )
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        setup_session.commit()
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresIndicatorCheckpointRepository",
+            "PostgresStrategyEvaluationRepository",
+            "PostgresSignalRepository",
+            "PostgresArmedSetupRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_actionable_evaluation(
+                evaluation=value.evaluation,
+                signal=value.signal,
+                setup=value.setup,
+                setup_transition=transition,
+                checkpoint=state,
+            )
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyEvaluationRepository(observer).get(
+                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            )
+            is None
+        )
+
+
+def test_indicator_checkpoint_postgres_forward_and_conflict_rules(postgres_engine: Engine) -> None:
+    value = facts(f"cp-fwd-{uuid4().hex[:8]}")
+    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+
+    def candle(index: int) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        close = Decimal("100") + Decimal(index) / Decimal("7")
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(close),
+            high=Price(close + Decimal("1.234567890123456789")),
+            low=Price(close - Decimal("0.987654321098765432")),
+            close=Price(close + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-forward-test",
+            source_event_count=1,
+        )
+
+    empty = engine.state
+    engine.update(candle(0))
+    first = engine.state
+    engine.update(candle(1))
+    second = engine.state
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, empty) == empty
+        assert repo.upsert(value.run, first) == first
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, first) == first
+        assert repo.upsert(value.run, second) == second
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, first)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, empty)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, replace(second, calculation_version="checkpoint-v2"))
+        inconsistent = replace(
+            second,
+            ema9=replace(second.ema9, seed_sum=second.ema9.seed_sum + Decimal("1")),
+        )
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, inconsistent)
+        assert repo.upsert(value.run, replace(second, continuity=IndicatorContinuity.BROKEN))
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, second)
+    with Session(postgres_engine) as observer:
+        stored = PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        )
+        assert stored == replace(second, continuity=IndicatorContinuity.BROKEN)
+
+
+def test_indicator_checkpoint_requires_persisted_run(postgres_engine: Engine) -> None:
+    value = facts(f"cp-missing-{uuid4().hex[:8]}")
+    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    with Session(postgres_engine) as session:
+        with pytest.raises(PersistenceDependencyError):
+            PostgresIndicatorCheckpointRepository(session).upsert(value.run, state)
+        session.rollback()
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                value.run.run_id, value.signal.instrument_id
+            )
+            is None
+        )
+
+
+def _checkpoint_race_states(
+    value: Facts,
+) -> tuple[IndicatorEngineState, IndicatorEngineState, IndicatorEngineState]:
+    def candle(index: int, *, variation: Decimal = Decimal("0")) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        close = Decimal("100") + Decimal(index) / Decimal("7") + variation
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(close),
+            high=Price(close + Decimal("1.234567890123456789")),
+            low=Price(close - Decimal("0.987654321098765432")),
+            close=Price(close + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-race-test",
+            source_event_count=1,
+        )
+
+    source = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    source.update(candle(0))
+    initial = source.state
+    writer_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=initial)
+    writer_b = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=initial)
+    writer_a.update(candle(1))
+    writer_b.update(candle(1, variation=Decimal("2")))
+    return initial, writer_a.state, writer_b.state
+
+
+def test_indicator_checkpoint_stale_writer_is_rejected(postgres_engine: Engine) -> None:
+    value = facts(f"cp-race-{uuid4().hex[:8]}")
+    initial, committed, stale = _checkpoint_race_states(value)
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        PostgresIndicatorCheckpointRepository(setup_session).upsert(value.run, initial)
+        setup_session.commit()
+    with Session(postgres_engine) as session_a, Session(postgres_engine) as session_b:
+        repo_a = PostgresIndicatorCheckpointRepository(session_a)
+        repo_b = PostgresIndicatorCheckpointRepository(session_b)
+        assert repo_a.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_b.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_a.upsert(value.run, committed) == committed
+        session_a.commit()
+        with pytest.raises(ContradictoryFactError):
+            repo_b.upsert(value.run, stale)
+        session_b.rollback()
+    with Session(postgres_engine) as observer:
+        assert PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        ) == committed
+
+
+def test_indicator_checkpoint_stale_exact_retry_reuses_committed_state(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"cp-race-retry-{uuid4().hex[:8]}")
+    initial, committed, _ = _checkpoint_race_states(value)
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        PostgresIndicatorCheckpointRepository(setup_session).upsert(value.run, initial)
+        setup_session.commit()
+    with Session(postgres_engine) as session_a, Session(postgres_engine) as session_b:
+        repo_a = PostgresIndicatorCheckpointRepository(session_a)
+        repo_b = PostgresIndicatorCheckpointRepository(session_b)
+        assert repo_a.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_b.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_a.upsert(value.run, committed) == committed
+        session_a.commit()
+        assert repo_b.upsert(value.run, committed) == committed
+        session_b.commit()
+    with Session(postgres_engine) as observer:
+        assert PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        ) == committed
