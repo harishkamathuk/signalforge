@@ -7,9 +7,20 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from signalforge.persistence.repositories import PostgresRunProvenanceRepository
+from signalforge.domain.armed import ArmedSetupState
+from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
+from signalforge.domain.positions import PositionState
+from signalforge.domain.trades import TradeState
+from signalforge.persistence.repositories import (
+    PostgresPositionOpenOutcomeRepository,
+    PostgresRunProvenanceRepository,
+)
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
-from tests.integration.persistence.test_repository_adapters_postgres import facts
+from tests.integration.persistence.test_repository_adapters_postgres import (
+    _commit_armed_setup,
+    _commit_open_position,
+    facts,
+)
 
 
 @pytest.fixture(scope="module")
@@ -45,3 +56,39 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
         assert result.disposition is RecoveryDisposition.RESUMABLE
         assert result.indicator_state is None
         assert not session.new and not session.dirty
+
+
+def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engine) -> None:
+    armed = facts(f"recovery-armed-{uuid4().hex[:8]}")
+    _commit_armed_setup(postgres_engine, armed)
+    with Session(postgres_engine) as session:
+        result = RecoveryBootstrap().inspect(
+            session=session, requested_run=armed.run, instrument_id=armed.signal.instrument_id
+        )
+        assert result.lifecycle.setup is not None
+        assert result.lifecycle.setup.state is ArmedSetupState.ARMED
+        assert result.lifecycle.signal == armed.signal
+    opened = facts(f"recovery-open-{uuid4().hex[:8]}")
+    _commit_open_position(postgres_engine, opened)
+    outcome = PositionOpenOutcome.create(
+        fill_id=opened.fill.fill_id,
+        signal_id=opened.signal.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=opened.fill.filled_at,
+        run=opened.run,
+    )
+    with Session(postgres_engine) as session:
+        PostgresPositionOpenOutcomeRepository(session).append(outcome)
+        session.commit()
+    with Session(postgres_engine) as session:
+        result = RecoveryBootstrap().inspect(
+            session=session, requested_run=opened.run, instrument_id=opened.signal.instrument_id
+        )
+        assert (
+            result.lifecycle.trade is not None and result.lifecycle.trade.state is TradeState.OPEN
+        )
+        assert (
+            result.lifecycle.position is not None
+            and result.lifecycle.position.state is PositionState.OPEN
+        )
+        assert result.lifecycle.outcome is not None
