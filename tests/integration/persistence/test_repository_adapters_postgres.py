@@ -51,7 +51,11 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
-from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
+from signalforge.runtime.indicators import (
+    IndicatorContinuity,
+    IndicatorEngine,
+    IndicatorEngineState,
+)
 
 AT = datetime(2026, 9, 1, 10, 0, tzinfo=IST)
 INSTRUMENT = InstrumentId("NSE:SF045B")
@@ -1760,3 +1764,80 @@ def test_indicator_checkpoint_requires_persisted_run(postgres_engine: Engine) ->
             )
             is None
         )
+
+
+def _checkpoint_race_states(
+    value: Facts,
+) -> tuple[IndicatorEngineState, IndicatorEngineState, IndicatorEngineState]:
+    def candle(index: int, *, variation: Decimal = Decimal("0")) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        close = Decimal("100") + Decimal(index) / Decimal("7") + variation
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(close),
+            high=Price(close + Decimal("1.234567890123456789")),
+            low=Price(close - Decimal("0.987654321098765432")),
+            close=Price(close + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-race-test",
+            source_event_count=1,
+        )
+
+    source = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    source.update(candle(0))
+    initial = source.state
+    writer_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=initial)
+    writer_b = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=initial)
+    writer_a.update(candle(1))
+    writer_b.update(candle(1, variation=Decimal("2")))
+    return initial, writer_a.state, writer_b.state
+
+
+def test_indicator_checkpoint_stale_writer_is_rejected(postgres_engine: Engine) -> None:
+    value = facts(f"cp-race-{uuid4().hex[:8]}")
+    initial, committed, stale = _checkpoint_race_states(value)
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        PostgresIndicatorCheckpointRepository(setup_session).upsert(value.run, initial)
+        setup_session.commit()
+    with Session(postgres_engine) as session_a, Session(postgres_engine) as session_b:
+        repo_a = PostgresIndicatorCheckpointRepository(session_a)
+        repo_b = PostgresIndicatorCheckpointRepository(session_b)
+        assert repo_a.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_b.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_a.upsert(value.run, committed) == committed
+        session_a.commit()
+        with pytest.raises(ContradictoryFactError):
+            repo_b.upsert(value.run, stale)
+        session_b.rollback()
+    with Session(postgres_engine) as observer:
+        assert PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        ) == committed
+
+
+def test_indicator_checkpoint_stale_exact_retry_reuses_committed_state(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"cp-race-retry-{uuid4().hex[:8]}")
+    initial, committed, _ = _checkpoint_race_states(value)
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        PostgresIndicatorCheckpointRepository(setup_session).upsert(value.run, initial)
+        setup_session.commit()
+    with Session(postgres_engine) as session_a, Session(postgres_engine) as session_b:
+        repo_a = PostgresIndicatorCheckpointRepository(session_a)
+        repo_b = PostgresIndicatorCheckpointRepository(session_b)
+        assert repo_a.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_b.get(value.run.run_id, value.signal.instrument_id) == initial
+        assert repo_a.upsert(value.run, committed) == committed
+        session_a.commit()
+        assert repo_b.upsert(value.run, committed) == committed
+        session_b.commit()
+    with Session(postgres_engine) as observer:
+        assert PostgresIndicatorCheckpointRepository(observer).get(
+            value.run.run_id, value.signal.instrument_id
+        ) == committed

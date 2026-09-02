@@ -823,28 +823,55 @@ class PostgresIndicatorCheckpointRepository(_PostgresRepository):
         old_samples = persisted.ema9.samples
         new_samples = state.ema9.samples
         same_interval = persisted.last_interval == state.last_interval
-        if (
+        breaks_continuity = (
             same_interval
             and persisted.continuity.value == "healthy"
             and state.continuity.value == "broken"
-        ):
-            existing.continuity_state = state.continuity.value
-            self._session.flush()
+        )
+        if not breaks_continuity:
+            if new_samples <= old_samples:
+                raise ContradictoryFactError(
+                    "indicator checkpoint is stale or contradicts current state"
+                )
+            if (
+                persisted.last_interval is not None
+                and state.last_interval is not None
+                and state.last_interval.end <= persisted.last_interval.end
+            ):
+                raise ContradictoryFactError("indicator checkpoint interval regresses")
+        values = {
+            column.name: getattr(candidate, column.name)
+            for column in IndicatorCheckpointRecord.__table__.columns
+            if column.name not in {"run_id", "instrument_id"}
+        }
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(IndicatorCheckpointRecord)
+                .where(
+                    IndicatorCheckpointRecord.run_id == existing.run_id,
+                    IndicatorCheckpointRecord.instrument_id == existing.instrument_id,
+                    IndicatorCheckpointRecord.calculation_version == existing.calculation_version,
+                    IndicatorCheckpointRecord.completed_candle_count
+                    == existing.completed_candle_count,
+                    IndicatorCheckpointRecord.last_interval_start == existing.last_interval_start,
+                    IndicatorCheckpointRecord.last_interval_end == existing.last_interval_end,
+                    IndicatorCheckpointRecord.continuity_state == existing.continuity_state,
+                )
+                .values(**values)
+            ),
+        )
+        self._session.expire_all()
+        stored = self._session.get(
+            IndicatorCheckpointRecord, (str(run.run_id), str(state.instrument_id))
+        )
+        if result.rowcount == 1:
+            if stored is None:
+                raise PersistenceError("indicator checkpoint update produced no persisted record")
+            return indicator_checkpoint_state_from_record(stored)
+        if stored is not None and indicator_checkpoint_state_from_record(stored) == state:
             return state
-        if new_samples <= old_samples:
-            raise ContradictoryFactError(
-                "indicator checkpoint is stale or contradicts current state"
-            )
-        if (
-            persisted.last_interval is not None
-            and state.last_interval is not None
-            and state.last_interval.end <= persisted.last_interval.end
-        ):
-            raise ContradictoryFactError("indicator checkpoint interval regresses")
-        for column in IndicatorCheckpointRecord.__table__.columns:
-            setattr(existing, column.name, getattr(candidate, column.name))
-        self._session.flush()
-        return state
+        raise ContradictoryFactError("indicator checkpoint advanced concurrently or conflicts")
 
     def get(self, run_id: RunId, instrument_id: InstrumentId) -> IndicatorEngineState | None:
         record = self._session.get(IndicatorCheckpointRecord, (str(run_id), str(instrument_id)))
