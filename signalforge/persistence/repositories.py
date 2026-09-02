@@ -167,6 +167,12 @@ class _PostgresRepository:
             )
         return persisted
 
+    def _require_run_by_id(self, run_id: RunId) -> RunIdentity:
+        run = self._load_run(run_id)
+        if run is None:
+            raise PersistenceDependencyError(f"run provenance {run_id!s} must be persisted first")
+        return run
+
     def _require_record[RecordT](
         self, model: type[RecordT], identity: str, *, name: str
     ) -> RecordT:
@@ -334,6 +340,17 @@ class PostgresSignalRepository(_PostgresRepository):
             raise PersistenceDependencyError("signal references missing run provenance")
         return signal_from_record(record, run)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Signal, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(SignalRecord).where(
+                SignalRecord.run_id == str(run_id), SignalRecord.instrument_id == str(instrument_id)
+            )
+        ).all()
+        return tuple(signal_from_record(record, run) for record in records)
+
 
 class PostgresTriggerEventRepository(_PostgresRepository):
     def append(self, event: TriggerEvent) -> TriggerEvent:
@@ -448,6 +465,17 @@ class PostgresFillRepository(_PostgresRepository):
             raise PersistenceDependencyError("fill references missing run provenance")
         return fill_from_record(record, run)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Fill, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(FillRecord).where(
+                FillRecord.run_id == str(run_id), FillRecord.instrument_id == str(instrument_id)
+            )
+        ).all()
+        return tuple(fill_from_record(record, run) for record in records)
+
 
 class PostgresPositionOpenOutcomeRepository(_PostgresRepository):
     """Persist one immutable completed open outcome for each entry Fill."""
@@ -495,6 +523,20 @@ class PostgresPositionOpenOutcomeRepository(_PostgresRepository):
             )
         return position_open_outcome_from_record(record, run)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[PositionOpenOutcome, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(PositionOpenOutcomeRecord)
+            .join(FillRecord, PositionOpenOutcomeRecord.fill_id == FillRecord.fill_id)
+            .where(
+                PositionOpenOutcomeRecord.run_id == str(run_id),
+                FillRecord.instrument_id == str(instrument_id),
+            )
+        ).all()
+        return tuple(position_open_outcome_from_record(record, run) for record in records)
+
 
 class PostgresExitRepository(_PostgresRepository):
     def _find(self, exit_fact: Exit) -> ExitRecord | None:
@@ -533,6 +575,19 @@ class PostgresExitRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("exit references missing run provenance")
         return exit_from_record(record, run)
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Exit, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(ExitRecord)
+            .join(TradeRecord, ExitRecord.trade_id == TradeRecord.trade_id)
+            .where(
+                ExitRecord.run_id == str(run_id), TradeRecord.instrument_id == str(instrument_id)
+            )
+        ).all()
+        return tuple(exit_from_record(record, run) for record in records)
 
 
 class PostgresStateTransitionRepository(_PostgresRepository):
@@ -628,6 +683,19 @@ class PostgresArmedSetupRepository(_PostgresRepository):
         record = self._session.get(ArmedSetupRecord, str(signal_id))
         return None if record is None else armed_setup_from_record(record)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[ArmedSetup, ...]:
+        records = self._session.scalars(
+            sa.select(ArmedSetupRecord)
+            .join(SignalRecord, ArmedSetupRecord.signal_id == SignalRecord.signal_id)
+            .where(
+                ArmedSetupRecord.run_id == str(run_id),
+                SignalRecord.instrument_id == str(instrument_id),
+            )
+        ).all()
+        return tuple(armed_setup_from_record(record) for record in records)
+
 
 class PostgresTradeRepository(_PostgresRepository):
     """Persist authoritative Trade state while freezing entry economics."""
@@ -720,6 +788,17 @@ class PostgresTradeRepository(_PostgresRepository):
             raise PersistenceDependencyError("trade references missing run provenance")
         return trade_from_record(record, run)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Trade, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(TradeRecord).where(
+                TradeRecord.run_id == str(run_id), TradeRecord.instrument_id == str(instrument_id)
+            )
+        ).all()
+        return tuple(trade_from_record(record, run) for record in records)
+
 
 class PostgresPositionRepository(_PostgresRepository):
     """Persist authoritative Position state while freezing MVP exposure facts."""
@@ -798,6 +877,18 @@ class PostgresPositionRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("position references missing run provenance")
         return position_from_record(record, run)
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Position, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(PositionRecord).where(
+                PositionRecord.run_id == str(run_id),
+                PositionRecord.instrument_id == str(instrument_id),
+            )
+        ).all()
+        return tuple(position_from_record(record, run) for record in records)
 
 
 class PostgresIndicatorCheckpointRepository(_PostgresRepository):

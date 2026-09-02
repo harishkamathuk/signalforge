@@ -57,11 +57,19 @@ class SignalRepository(Protocol):
 
     def get(self, signal_id: SignalId) -> Signal | None: ...
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Signal, ...]: ...
+
 
 class ArmedSetupRepository(Protocol):
     def upsert(self, run_id: RunId, setup: ArmedSetup) -> ArmedSetup: ...
 
     def get(self, signal_id: SignalId) -> ArmedSetup | None: ...
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[ArmedSetup, ...]: ...
 
 
 class TriggerEventRepository(Protocol):
@@ -81,11 +89,19 @@ class FillRepository(Protocol):
 
     def get(self, fill_id: FillId) -> Fill | None: ...
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Fill, ...]: ...
+
 
 class TradeRepository(Protocol):
     def upsert(self, trade: Trade) -> Trade: ...
 
     def get(self, trade_id: TradeId) -> Trade | None: ...
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Trade, ...]: ...
 
 
 class PositionRepository(Protocol):
@@ -93,17 +109,29 @@ class PositionRepository(Protocol):
 
     def get(self, position_id: PositionId) -> Position | None: ...
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Position, ...]: ...
+
 
 class PositionOpenOutcomeRepository(Protocol):
     def append(self, outcome: PositionOpenOutcome) -> PositionOpenOutcome: ...
 
     def get(self, outcome_id: PositionOpenOutcomeId) -> PositionOpenOutcome | None: ...
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[PositionOpenOutcome, ...]: ...
+
 
 class ExitRepository(Protocol):
     def append(self, exit_fact: Exit) -> Exit: ...
 
     def get(self, exit_id: ExitId) -> Exit | None: ...
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[Exit, ...]: ...
 
 
 class IndicatorCheckpointRepository(Protocol):
