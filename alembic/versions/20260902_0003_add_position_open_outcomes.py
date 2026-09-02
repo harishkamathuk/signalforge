@@ -21,8 +21,10 @@ def upgrade() -> None:
         "position_open_outcomes",
         sa.Column("outcome_id", sa.String(length=64), nullable=False),
         sa.Column("fill_id", sa.String(length=64), nullable=False),
+        sa.Column("signal_id", sa.String(length=64), nullable=False),
         sa.Column("run_id", sa.String(length=64), nullable=False),
         sa.Column("outcome", sa.String(length=64), nullable=False),
+        sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "outcome IN ('opened', 'rejected_non_positive_risk')",
             name="ck_position_open_outcomes_outcome",
@@ -31,6 +33,13 @@ def upgrade() -> None:
             ["fill_id"],
             ["fills.fill_id"],
             name="fk_position_open_outcomes_fill_id_fills",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["signal_id"],
+            ["signals.signal_id"],
+            name="fk_position_open_outcomes_signal_id_signals",
+            ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["run_id"],

@@ -334,8 +334,10 @@ def position_open_outcome_record_from_domain(
     return PositionOpenOutcomeRecord(
         outcome_id=str(outcome.outcome_id),
         fill_id=str(outcome.fill_id),
+        signal_id=str(outcome.signal_id),
         run_id=str(outcome.run.run_id),
         outcome=outcome.outcome.value,
+        decided_at=outcome.decided_at,
     )
 
 
@@ -345,7 +347,9 @@ def position_open_outcome_from_record(
     return PositionOpenOutcome(
         outcome_id=PositionOpenOutcomeId(record.outcome_id),
         fill_id=FillId(record.fill_id),
+        signal_id=SignalId(record.signal_id),
         outcome=PositionOpenOutcomeType(record.outcome),
+        decided_at=record.decided_at,
         run=run,
     )
 

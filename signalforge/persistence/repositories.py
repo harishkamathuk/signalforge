@@ -462,6 +462,11 @@ class PostgresPositionOpenOutcomeRepository(_PostgresRepository):
     def append(self, outcome: PositionOpenOutcome) -> PositionOpenOutcome:
         run = self._require_run(outcome.run)
         fill = self._require_record(FillRecord, str(outcome.fill_id), name="fill")
+        signal = self._require_record(SignalRecord, str(outcome.signal_id), name="signal")
+        if signal.run_id != str(outcome.run.run_id):
+            raise ContradictoryFactError("position open outcome contradicts signal provenance")
+        if fill.signal_id != str(outcome.signal_id):
+            raise ContradictoryFactError("position open outcome contradicts fill signal")
         if fill.run_id != str(outcome.run.run_id):
             raise ContradictoryFactError("position open outcome contradicts fill provenance")
         candidate = position_open_outcome_record_from_domain(outcome)

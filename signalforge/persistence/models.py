@@ -293,10 +293,14 @@ class PositionOpenOutcomeRecord(Base):
     fill_id: Mapped[str] = mapped_column(
         ForeignKey("fills.fill_id", ondelete="RESTRICT"), nullable=False
     )
+    signal_id: Mapped[str] = mapped_column(
+        ForeignKey("signals.signal_id", ondelete="RESTRICT"), nullable=False
+    )
     run_id: Mapped[str] = mapped_column(
         ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
     )
     outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class TradeRecord(Base):

@@ -9,6 +9,7 @@ from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, Trigg
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, InstrumentId, RunId
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
@@ -31,6 +32,8 @@ from signalforge.persistence.mappers import (
     fill_from_record,
     fill_record_from_domain,
     position_from_record,
+    position_open_outcome_from_record,
+    position_open_outcome_record_from_domain,
     position_record_from_domain,
     run_identity_from_records,
     run_record_from_domain,
@@ -168,6 +171,20 @@ def test_business_fact_and_current_state_mappers_round_trip() -> None:
     fill_record = fill_record_from_domain(fill)
     restored_fill = fill_from_record(fill_record, run)
     assert _record_values(fill_record_from_domain(restored_fill)) == _record_values(fill_record)
+
+    outcome = PositionOpenOutcome.create(
+        fill_id=fill.fill_id,
+        signal_id=fill.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=fill.filled_at,
+        run=run,
+    )
+    outcome_record = position_open_outcome_record_from_domain(outcome)
+    restored_outcome = position_open_outcome_from_record(outcome_record, run)
+    assert restored_outcome.decided_at.tzinfo is not None
+    assert _record_values(position_open_outcome_record_from_domain(restored_outcome)) == (
+        _record_values(outcome_record)
+    )
 
     trade = Trade.open_from_fill(
         entry_fill=fill,

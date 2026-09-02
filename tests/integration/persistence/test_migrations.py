@@ -77,6 +77,21 @@ def test_alembic_head_creates_canonical_runtime_schema(postgres_engine: Engine) 
     created_at_type = signal_columns["created_at"]["type"]
     assert isinstance(created_at_type, sa.DateTime)
     assert created_at_type.timezone is True
+    outcome_columns = {
+        column["name"]: column for column in inspector.get_columns("position_open_outcomes")
+    }
+    assert {"signal_id", "decided_at"} <= set(outcome_columns)
+    decided_at_type = outcome_columns["decided_at"]["type"]
+    assert isinstance(decided_at_type, sa.DateTime)
+    assert decided_at_type.timezone is True
+    outcome_fks = {
+        constraint["name"]: constraint
+        for constraint in inspector.get_foreign_keys("position_open_outcomes")
+    }
+    assert (
+        outcome_fks["fk_position_open_outcomes_fill_id_fills"]["options"]["ondelete"] == "RESTRICT"
+    )
+    assert outcome_fks["fk_position_open_outcomes_signal_id_signals"]["referred_table"] == "signals"
 
 
 def test_schema_enforces_core_lifecycle_constraints(postgres_engine: Engine) -> None:

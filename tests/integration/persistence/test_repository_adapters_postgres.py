@@ -17,7 +17,7 @@ from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
-from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId
+from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId, SignalId
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
@@ -431,7 +431,11 @@ def test_coordinator_opened_entry_boundary_rolls_back_each_write(
     value = facts(f"sf046-open-{after}-{uuid4().hex}", at=AT + timedelta(days=130 + after))
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
-        fill_id=value.fill.fill_id, outcome=PositionOpenOutcomeType.OPENED, run=value.run
+        fill_id=value.fill.fill_id,
+        signal_id=value.fill.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=value.fill.filled_at,
+        run=value.run,
     )
     trade_transition = _transition(
         value,
@@ -497,6 +501,8 @@ def test_coordinator_rejected_entry_boundary_rolls_back_each_write(
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
+        signal_id=value.fill.signal_id,
+        decided_at=value.fill.filled_at,
         outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
         run=value.run,
     )
@@ -826,6 +832,8 @@ def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: 
     repository = PostgresPositionOpenOutcomeRepository(session)
     opened = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
+        signal_id=value.fill.signal_id,
+        decided_at=value.fill.filled_at,
         outcome=PositionOpenOutcomeType.OPENED,
         run=value.run,
     )
@@ -835,6 +843,8 @@ def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: 
 
     rejected = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
+        signal_id=value.fill.signal_id,
+        decided_at=value.fill.filled_at,
         outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
         run=value.run,
     )
@@ -842,16 +852,55 @@ def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: 
         repository.append(rejected)
     assert opened.outcome_id == rejected.outcome_id
     assert repository.get(opened.outcome_id) == opened
+    stored_opened = repository.get(opened.outcome_id)
+    assert stored_opened is not None
+    assert stored_opened.signal_id == value.fill.signal_id
+    assert stored_opened.decided_at == value.fill.filled_at
+    assert stored_opened.decided_at.tzinfo is not None
+
+    missing_signal = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=SignalId("sf046-missing-signal"),
+        decided_at=value.fill.filled_at,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=value.run,
+    )
+    with pytest.raises(PersistenceDependencyError):
+        repository.append(missing_signal)
+
+    other_interval = CandleInterval.five_minutes(value.signal.created_at + timedelta(minutes=5))
+    other_signal = Signal.create(
+        instrument_id=value.signal.instrument_id,
+        interval=other_interval,
+        signal_close=value.signal.signal_close,
+        signal_low=value.signal.signal_low,
+        run=value.run,
+        created_at=other_interval.end,
+    )
+    assert PostgresSignalRepository(session).append(other_signal) == other_signal
+    mismatched_signal = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=other_signal.signal_id,
+        decided_at=value.fill.filled_at,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=value.run,
+    )
+    with pytest.raises(ContradictoryFactError):
+        repository.append(mismatched_signal)
 
     reverse = facts("position-open-outcome-reverse", at=AT + timedelta(hours=14))
     persist_graph(session, reverse)
     reverse_rejected = PositionOpenOutcome.create(
         fill_id=reverse.fill.fill_id,
+        signal_id=reverse.fill.signal_id,
+        decided_at=reverse.fill.filled_at,
         outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
         run=reverse.run,
     )
     reverse_opened = PositionOpenOutcome.create(
         fill_id=reverse.fill.fill_id,
+        signal_id=reverse.fill.signal_id,
+        decided_at=reverse.fill.filled_at,
         outcome=PositionOpenOutcomeType.OPENED,
         run=reverse.run,
     )
@@ -864,6 +913,8 @@ def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: 
     missing_fill = facts("position-open-outcome-missing-fill", at=AT + timedelta(hours=15))
     missing_outcome = PositionOpenOutcome.create(
         fill_id=missing_fill.fill.fill_id,
+        signal_id=missing_fill.fill.signal_id,
+        decided_at=missing_fill.fill.filled_at,
         outcome=PositionOpenOutcomeType.OPENED,
         run=missing_fill.run,
     )
@@ -1103,11 +1154,14 @@ def test_coordinator_exact_and_committed_retries_for_all_boundaries(
             )
             is not None
         )
-
     opened = facts(f"retry-open-{uuid4().hex}", at=AT + timedelta(days=303))
     _commit_trigger_intent(postgres_engine, opened)
     opened_outcome = PositionOpenOutcome.create(
-        fill_id=opened.fill.fill_id, outcome=PositionOpenOutcomeType.OPENED, run=opened.run
+        fill_id=opened.fill.fill_id,
+        signal_id=opened.fill.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=opened.fill.filled_at,
+        run=opened.run,
     )
     trade_open = _transition(
         opened,
@@ -1177,6 +1231,8 @@ def test_coordinator_exact_and_committed_retries_for_all_boundaries(
     _commit_trigger_intent(postgres_engine, rejected)
     rejected_outcome = PositionOpenOutcome.create(
         fill_id=rejected.fill.fill_id,
+        signal_id=rejected.fill.signal_id,
+        decided_at=rejected.fill.filled_at,
         outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
         run=rejected.run,
     )
@@ -1361,6 +1417,8 @@ def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
     _commit_trigger_intent(postgres_engine, exact)
     exact_outcome = PositionOpenOutcome.create(
         fill_id=exact.fill.fill_id,
+        signal_id=exact.fill.signal_id,
+        decided_at=exact.fill.filled_at,
         outcome=PositionOpenOutcomeType.OPENED,
         run=exact.run,
     )
@@ -1404,11 +1462,15 @@ def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
     _commit_trigger_intent(postgres_engine, conflicting)
     rejected = PositionOpenOutcome.create(
         fill_id=conflicting.fill.fill_id,
+        signal_id=conflicting.fill.signal_id,
+        decided_at=conflicting.fill.filled_at,
         outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
         run=conflicting.run,
     )
     conflicting_opened = PositionOpenOutcome.create(
         fill_id=conflicting.fill.fill_id,
+        signal_id=conflicting.fill.signal_id,
+        decided_at=conflicting.fill.filled_at,
         outcome=PositionOpenOutcomeType.OPENED,
         run=conflicting.run,
     )
