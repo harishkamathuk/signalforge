@@ -47,6 +47,8 @@ _DECIMAL_COLUMNS = (
 )
 _REQUIRED_DECIMALS = {name for name in _DECIMAL_COLUMNS if "seed" in name}
 
+_REQUIRED_DECIMALS.update({"adx_seed_tr_sum", "adx_seed_plus_dm_sum", "adx_seed_minus_dm_sum"})
+
 
 def upgrade() -> None:
     # Placeholder rows are absent; rounded/JSON state is deliberately not converted.
@@ -62,9 +64,7 @@ def upgrade() -> None:
         sa.Column("completed_candle_count", sa.BigInteger(), nullable=False),
         sa.Column("adx_dx_seed_count", sa.BigInteger(), nullable=False),
         *(
-            sa.Column(
-                name, sa.Numeric(), nullable=not name.endswith(("seed_sum", "gain_sum", "loss_sum"))
-            )
+            sa.Column(name, sa.Numeric(), nullable=name not in _REQUIRED_DECIMALS)
             for name in _DECIMAL_COLUMNS
         ),
         sa.CheckConstraint("completed_candle_count >= 0", name="ck_indicator_count_nonnegative"),
@@ -72,6 +72,13 @@ def upgrade() -> None:
             "continuity_state IN ('healthy', 'broken')", name="ck_indicator_continuity_state"
         ),
         sa.CheckConstraint("adx_dx_seed_count >= 0", name="ck_indicator_dx_seed_count_nonnegative"),
+        sa.CheckConstraint(
+            "(completed_candle_count = 0 AND last_interval_start IS NULL AND "
+            "last_interval_end IS NULL) OR (completed_candle_count > 0 AND "
+            "last_interval_start IS NOT NULL AND last_interval_end IS NOT NULL AND "
+            "last_interval_end > last_interval_start)",
+            name="ck_indicator_interval_presence",
+        ),
         sa.ForeignKeyConstraint(
             ["run_id"],
             ["runs.run_id"],
