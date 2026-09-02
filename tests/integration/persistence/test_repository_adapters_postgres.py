@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -288,7 +289,7 @@ def test_coordinator_arming_boundary_rolls_back_each_write(
     monkeypatch: pytest.MonkeyPatch,
     after: int,
 ) -> None:
-    value = facts(f"sf046-arm-{after}", at=AT + timedelta(days=after))
+    value = facts(f"sf046-arm-{after}-{uuid4().hex}", at=AT + timedelta(days=after))
     transition = _transition(
         value,
         entity=TransitionEntityType.ARMED_SETUP,
@@ -338,7 +339,7 @@ def _commit_armed_setup(postgres_engine: Engine, value: Facts) -> None:
 def test_coordinator_trigger_boundary_rolls_back_each_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
-    value = facts(f"sf046-trigger-{after}", at=AT + timedelta(days=10 + after))
+    value = facts(f"sf046-trigger-{after}-{uuid4().hex}", at=AT + timedelta(days=10 + after))
     _commit_armed_setup(postgres_engine, value)
     triggered = replace(value.setup)
     triggered.trigger(at=value.trigger.observed_at)
@@ -382,7 +383,7 @@ def test_coordinator_trigger_boundary_rolls_back_each_write(
 def test_coordinator_expiry_boundary_rolls_back_each_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
-    value = facts(f"sf046-expiry-{after}", at=AT + timedelta(days=20 + after))
+    value = facts(f"sf046-expiry-{after}-{uuid4().hex}", at=AT + timedelta(days=20 + after))
     _commit_armed_setup(postgres_engine, value)
     expired = replace(value.setup)
     expired.expire(at=expired.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
@@ -427,7 +428,7 @@ def _commit_trigger_intent(postgres_engine: Engine, value: Facts) -> None:
 def test_coordinator_opened_entry_boundary_rolls_back_each_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
-    value = facts(f"sf046-open-v2-{after}", at=AT + timedelta(days=130 + after))
+    value = facts(f"sf046-open-{after}-{uuid4().hex}", at=AT + timedelta(days=130 + after))
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id, outcome=PositionOpenOutcomeType.OPENED, run=value.run
@@ -492,7 +493,7 @@ def test_coordinator_opened_entry_boundary_rolls_back_each_write(
 def test_coordinator_rejected_entry_boundary_rolls_back_each_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
-    value = facts(f"sf046-reject-v2-{after}", at=AT + timedelta(days=140 + after))
+    value = facts(f"sf046-reject-{after}-{uuid4().hex}", at=AT + timedelta(days=140 + after))
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
@@ -527,7 +528,7 @@ def _commit_open_position(postgres_engine: Engine, value: Facts) -> None:
 def test_coordinator_exit_boundary_rolls_back_each_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
-    value = facts(f"sf046-exit-v2-{after}", at=AT + timedelta(days=150 + after))
+    value = facts(f"sf046-exit-{after}-{uuid4().hex}", at=AT + timedelta(days=150 + after))
     _commit_open_position(postgres_engine, value)
     closed_trade = replace(value.trade)
     closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
