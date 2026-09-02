@@ -1,13 +1,17 @@
 import os
+import sys
 from collections.abc import Iterator
 from dataclasses import replace
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from alembic.config import Config
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from alembic import command
 from signalforge.domain.armed import ArmedSetupState
 from signalforge.domain.audit import TransitionEntityType
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
@@ -30,6 +34,7 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import IndicatorEngine
+from tests.integration.persistence.test_migrations import EXPECTED_TABLES
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _transition,
     facts,
@@ -219,3 +224,29 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
             PostgresStateTransitionRepository(observer).get(item.transition_id) == item
             for item in (arm, trigger, trade_open, position_open, trade_close, position_close)
         )
+
+
+def test_m6_fresh_database_reproducibility(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = Config("alembic.ini")
+
+    def run_clean() -> dict[str, tuple[str, ...]]:
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "uuid4",
+            lambda: SimpleNamespace(hex="m6repro000000000000000000000000"),
+        )
+        test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine)
+        with postgres_engine.connect() as connection:
+            projection = {}
+            for table in sorted(EXPECTED_TABLES):
+                rows = connection.execute(sa.text(f"SELECT * FROM {table}")).mappings().all()
+                projection[table] = tuple(sorted(repr(dict(row)) for row in rows))
+            return projection
+
+    first = run_clean()
+    second = run_clean()
+    assert second == first
