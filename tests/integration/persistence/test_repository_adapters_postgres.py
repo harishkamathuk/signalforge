@@ -840,6 +840,35 @@ def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: 
     )
     with pytest.raises(ContradictoryFactError):
         repository.append(rejected)
+    assert opened.outcome_id == rejected.outcome_id
+    assert repository.get(opened.outcome_id) == opened
+
+    reverse = facts("position-open-outcome-reverse", at=AT + timedelta(hours=14))
+    persist_graph(session, reverse)
+    reverse_rejected = PositionOpenOutcome.create(
+        fill_id=reverse.fill.fill_id,
+        outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
+        run=reverse.run,
+    )
+    reverse_opened = PositionOpenOutcome.create(
+        fill_id=reverse.fill.fill_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=reverse.run,
+    )
+    assert reverse_rejected.outcome_id == reverse_opened.outcome_id
+    assert repository.append(reverse_rejected) == reverse_rejected
+    with pytest.raises(ContradictoryFactError):
+        repository.append(reverse_opened)
+    assert repository.get(reverse_rejected.outcome_id) == reverse_rejected
+
+    missing_fill = facts("position-open-outcome-missing-fill", at=AT + timedelta(hours=15))
+    missing_outcome = PositionOpenOutcome.create(
+        fill_id=missing_fill.fill.fill_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=missing_fill.run,
+    )
+    with pytest.raises(PersistenceDependencyError):
+        repository.append(missing_outcome)
 
 
 def test_authoritative_repositories_reject_conflicts_and_keep_outer_transaction_usable(
@@ -936,3 +965,495 @@ def test_authoritative_repositories_require_persisted_dependencies(session: Sess
         PostgresTradeRepository(session).upsert(value.trade)
     with pytest.raises(PersistenceDependencyError):
         PostgresPositionRepository(session).upsert(value.position)
+
+
+def test_coordinator_exact_and_committed_retries_for_all_boundaries(
+    postgres_engine: Engine,
+) -> None:
+    """Coordinator retries preserve deterministic rows for all accepted cases."""
+    arm = facts(f"retry-arm-{uuid4().hex}", at=AT + timedelta(days=300))
+    arm_transition = _transition(
+        arm,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(arm.signal.signal_id),
+        before="none",
+        after="armed",
+        cause_type="strategy_evaluation",
+        cause_id="evaluation",
+        occurred_at=arm.setup.armed_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(arm.run)
+        session.commit()
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_actionable_evaluation(
+            evaluation=arm.evaluation,
+            signal=arm.signal,
+            setup=arm.setup,
+            setup_transition=arm_transition,
+        )
+        assert first[0] == arm.evaluation
+        assert first[1] == arm.signal
+        assert first[2].signal_id == arm.setup.signal_id
+        assert first[2].state is ArmedSetupState.ARMED
+        assert first[2].armed_at == arm.setup.armed_at
+        assert first[3].transition_id == arm_transition.transition_id
+        assert (
+            coordinator.persist_actionable_evaluation(
+                evaluation=arm.evaluation,
+                signal=arm.signal,
+                setup=arm.setup,
+                setup_transition=arm_transition,
+            )
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_actionable_evaluation(
+                evaluation=arm.evaluation,
+                signal=arm.signal,
+                setup=arm.setup,
+                setup_transition=arm_transition,
+            )
+            is not None
+        )
+
+    trigger = facts(f"retry-trigger-{uuid4().hex}", at=AT + timedelta(days=301))
+    _commit_armed_setup(postgres_engine, trigger)
+    triggered = replace(trigger.setup)
+    triggered.trigger(at=trigger.trigger.observed_at)
+    trigger_transition = _transition(
+        trigger,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(trigger.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(trigger.trigger.trigger_event_id),
+        occurred_at=trigger.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_trigger_intent(
+            trigger=trigger.trigger,
+            intent=trigger.intent,
+            setup=triggered,
+            setup_transition=trigger_transition,
+        )
+        assert first[0] == trigger.trigger
+        assert first[1] == trigger.intent
+        assert first[2].signal_id == trigger.setup.signal_id
+        assert first[2].state is ArmedSetupState.TRIGGERED
+        assert first[2].terminal_at == triggered.terminal_at
+        assert first[3].transition_id == trigger_transition.transition_id
+        assert (
+            coordinator.persist_trigger_intent(
+                trigger=trigger.trigger,
+                intent=trigger.intent,
+                setup=triggered,
+                setup_transition=trigger_transition,
+            )
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_trigger_intent(
+                trigger=trigger.trigger,
+                intent=trigger.intent,
+                setup=triggered,
+                setup_transition=trigger_transition,
+            )
+            is not None
+        )
+
+    expired = facts(f"retry-expiry-{uuid4().hex}", at=AT + timedelta(days=302))
+    _commit_armed_setup(postgres_engine, expired)
+    expired_setup = replace(expired.setup)
+    expired_setup.expire(at=expired_setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
+    expiry_transition = _transition(
+        expired,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(expired.signal.signal_id),
+        before="armed",
+        after="expired",
+        cause_type="completed_candle",
+        cause_id="candle",
+        occurred_at=expired_setup.valid_until,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_expiry(
+            run_id=expired.run.run_id, setup=expired_setup, setup_transition=expiry_transition
+        )
+        assert first[0].signal_id == expired.setup.signal_id
+        assert first[0].state is ArmedSetupState.EXPIRED
+        assert first[0].terminal_at == expired_setup.terminal_at
+        assert first[0].expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
+        assert first[1].transition_id == expiry_transition.transition_id
+        assert (
+            coordinator.persist_expiry(
+                run_id=expired.run.run_id, setup=expired_setup, setup_transition=expiry_transition
+            )
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_expiry(
+                run_id=expired.run.run_id, setup=expired_setup, setup_transition=expiry_transition
+            )
+            is not None
+        )
+
+    opened = facts(f"retry-open-{uuid4().hex}", at=AT + timedelta(days=303))
+    _commit_trigger_intent(postgres_engine, opened)
+    opened_outcome = PositionOpenOutcome.create(
+        fill_id=opened.fill.fill_id, outcome=PositionOpenOutcomeType.OPENED, run=opened.run
+    )
+    trade_open = _transition(
+        opened,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(opened.trade.trade_id),
+        before="none",
+        after="open",
+        cause_type="fill",
+        cause_id=str(opened.fill.fill_id),
+        occurred_at=opened.trade.opened_at,
+    )
+    position_open = _transition(
+        opened,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(opened.position.position_id),
+        before="none",
+        after="open",
+        cause_type="trade",
+        cause_id=str(opened.trade.trade_id),
+        occurred_at=opened.position.opened_at,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_opened_entry(
+            fill=opened.fill,
+            outcome=opened_outcome,
+            trade=opened.trade,
+            position=opened.position,
+            trade_transition=trade_open,
+            position_transition=position_open,
+        )
+        assert first[0] == opened.fill
+        assert first[1] == opened_outcome
+        assert first[2].trade_id == opened.trade.trade_id
+        assert first[2].state is TradeState.OPEN
+        assert first[2].opened_at == opened.trade.opened_at
+        assert first[3].position_id == opened.position.position_id
+        assert first[3].state is PositionState.OPEN
+        assert first[3].opened_at == opened.position.opened_at
+        assert first[4].transition_id == trade_open.transition_id
+        assert first[5].transition_id == position_open.transition_id
+        assert (
+            coordinator.persist_opened_entry(
+                fill=opened.fill,
+                outcome=opened_outcome,
+                trade=opened.trade,
+                position=opened.position,
+                trade_transition=trade_open,
+                position_transition=position_open,
+            )
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_opened_entry(
+                fill=opened.fill,
+                outcome=opened_outcome,
+                trade=opened.trade,
+                position=opened.position,
+                trade_transition=trade_open,
+                position_transition=position_open,
+            )
+            is not None
+        )
+
+    rejected = facts(f"retry-reject-{uuid4().hex}", at=AT + timedelta(days=304))
+    _commit_trigger_intent(postgres_engine, rejected)
+    rejected_outcome = PositionOpenOutcome.create(
+        fill_id=rejected.fill.fill_id,
+        outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
+        run=rejected.run,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_rejected_entry(fill=rejected.fill, outcome=rejected_outcome)
+        assert first[0] == rejected.fill
+        assert first[1] == rejected_outcome
+        assert (
+            coordinator.persist_rejected_entry(fill=rejected.fill, outcome=rejected_outcome)
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_rejected_entry(
+                fill=rejected.fill, outcome=rejected_outcome
+            )
+            is not None
+        )
+
+    exiting = facts(f"retry-exit-{uuid4().hex}", at=AT + timedelta(days=305))
+    _commit_open_position(postgres_engine, exiting)
+    closed_trade = replace(exiting.trade)
+    closed_trade.close(exit_id=exiting.exit_fact.exit_id, at=exiting.exit_fact.exited_at)
+    closed_position = replace(exiting.position)
+    closed_position.close(at=exiting.exit_fact.exited_at)
+    trade_close = _transition(
+        exiting,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(exiting.trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(exiting.exit_fact.exit_id),
+        occurred_at=exiting.exit_fact.exited_at,
+    )
+    position_close = _transition(
+        exiting,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(exiting.position.position_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(exiting.exit_fact.exit_id),
+        occurred_at=exiting.exit_fact.exited_at,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        first = coordinator.persist_exit(
+            exit_fact=exiting.exit_fact,
+            trade=closed_trade,
+            position=closed_position,
+            trade_transition=trade_close,
+            position_transition=position_close,
+        )
+        assert first[0] == exiting.exit_fact
+        assert first[1].trade_id == exiting.trade.trade_id
+        assert first[1].state is TradeState.CLOSED
+        assert first[1].closed_at == exiting.exit_fact.exited_at
+        assert first[1].exit_id == exiting.exit_fact.exit_id
+        assert first[2].position_id == exiting.position.position_id
+        assert first[2].state is PositionState.CLOSED
+        assert first[2].closed_at == exiting.exit_fact.exited_at
+        assert first[3].transition_id == trade_close.transition_id
+        assert first[4].transition_id == position_close.transition_id
+        assert (
+            coordinator.persist_exit(
+                exit_fact=exiting.exit_fact,
+                trade=closed_trade,
+                position=closed_position,
+                trade_transition=trade_close,
+                position_transition=position_close,
+            )
+            is not None
+        )
+    with Session(postgres_engine) as session:
+        assert (
+            PersistenceCoordinator(session).persist_exit(
+                exit_fact=exiting.exit_fact,
+                trade=closed_trade,
+                position=closed_position,
+                trade_transition=trade_close,
+                position_transition=position_close,
+            )
+            is not None
+        )
+
+    # A separate Session sees the same deterministic logical identities and no
+    # different terminal/current state after each committed retry.
+    with Session(postgres_engine) as observer:
+        stored_arm = PostgresArmedSetupRepository(observer).get(arm.setup.signal_id)
+        assert stored_arm is not None
+        assert stored_arm.state is ArmedSetupState.ARMED
+        assert stored_arm.armed_at == arm.setup.armed_at
+        assert (
+            PostgresStateTransitionRepository(observer).get(arm_transition.transition_id)
+            == arm_transition
+        )
+
+        stored_trigger = PostgresArmedSetupRepository(observer).get(trigger.setup.signal_id)
+        assert stored_trigger is not None
+        assert stored_trigger.state is ArmedSetupState.TRIGGERED
+        assert stored_trigger.terminal_at == triggered.terminal_at
+        assert (
+            PostgresTriggerEventRepository(observer).get(trigger.trigger.trigger_event_id)
+            == trigger.trigger
+        )
+        assert (
+            PostgresEntryIntentRepository(observer).get(trigger.intent.entry_intent_id)
+            == trigger.intent
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(trigger_transition.transition_id)
+            == trigger_transition
+        )
+
+        stored_expiry = PostgresArmedSetupRepository(observer).get(expired.setup.signal_id)
+        assert stored_expiry is not None
+        assert stored_expiry.state is ArmedSetupState.EXPIRED
+        assert stored_expiry.terminal_at == expired_setup.terminal_at
+        assert stored_expiry.expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
+        assert (
+            PostgresStateTransitionRepository(observer).get(expiry_transition.transition_id)
+            == expiry_transition
+        )
+
+        stored_trade = PostgresTradeRepository(observer).get(opened.trade.trade_id)
+        stored_position = PostgresPositionRepository(observer).get(opened.position.position_id)
+        assert stored_trade is not None and stored_trade.state is TradeState.OPEN
+        assert stored_position is not None and stored_position.state is PositionState.OPEN
+        assert stored_trade.opened_at == opened.trade.opened_at
+        assert stored_position.opened_at == opened.position.opened_at
+        assert PostgresFillRepository(observer).get(opened.fill.fill_id) == opened.fill
+        assert (
+            PostgresPositionOpenOutcomeRepository(observer).get(opened_outcome.outcome_id)
+            == opened_outcome
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(trade_open.transition_id) == trade_open
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(position_open.transition_id)
+            == position_open
+        )
+
+        assert PostgresFillRepository(observer).get(rejected.fill.fill_id) == rejected.fill
+        assert (
+            PostgresPositionOpenOutcomeRepository(observer).get(rejected_outcome.outcome_id)
+            == rejected_outcome
+        )
+        assert PostgresTradeRepository(observer).get(rejected.trade.trade_id) is None
+        assert PostgresPositionRepository(observer).get(rejected.position.position_id) is None
+
+        stored_closed_trade = PostgresTradeRepository(observer).get(exiting.trade.trade_id)
+        stored_closed_position = PostgresPositionRepository(observer).get(
+            exiting.position.position_id
+        )
+        assert stored_closed_trade is not None and stored_closed_trade.state is TradeState.CLOSED
+        assert (
+            stored_closed_position is not None
+            and stored_closed_position.state is PositionState.CLOSED
+        )
+        assert stored_closed_trade.closed_at == exiting.exit_fact.exited_at
+        assert stored_closed_trade.exit_id == exiting.exit_fact.exit_id
+        assert stored_closed_position.closed_at == exiting.exit_fact.exited_at
+        assert PostgresExitRepository(observer).get(exiting.exit_fact.exit_id) == exiting.exit_fact
+        assert (
+            PostgresStateTransitionRepository(observer).get(trade_close.transition_id)
+            == trade_close
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(position_close.transition_id)
+            == position_close
+        )
+
+
+def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
+    postgres_engine: Engine,
+) -> None:
+    """Exact Fill-only partials complete; conflicting outcome partials do not."""
+    exact = facts(f"partial-exact-{uuid4().hex}", at=AT + timedelta(days=306))
+    _commit_trigger_intent(postgres_engine, exact)
+    exact_outcome = PositionOpenOutcome.create(
+        fill_id=exact.fill.fill_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=exact.run,
+    )
+    exact_trade_transition = _transition(
+        exact,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(exact.trade.trade_id),
+        before="none",
+        after="open",
+        cause_type="fill",
+        cause_id=str(exact.fill.fill_id),
+        occurred_at=exact.trade.opened_at,
+    )
+    exact_position_transition = _transition(
+        exact,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(exact.position.position_id),
+        before="none",
+        after="open",
+        cause_type="trade",
+        cause_id=str(exact.trade.trade_id),
+        occurred_at=exact.position.opened_at,
+    )
+    with Session(postgres_engine) as session:
+        assert PostgresFillRepository(session).append(exact.fill) == exact.fill
+        session.commit()
+    with Session(postgres_engine) as session:
+        persisted = PersistenceCoordinator(session).persist_opened_entry(
+            fill=exact.fill,
+            outcome=exact_outcome,
+            trade=exact.trade,
+            position=exact.position,
+            trade_transition=exact_trade_transition,
+            position_transition=exact_position_transition,
+        )
+        assert persisted[1] == exact_outcome
+        assert persisted[2].trade_id == exact.trade.trade_id
+        assert persisted[3].position_id == exact.position.position_id
+
+    conflicting = facts(f"partial-conflict-{uuid4().hex}", at=AT + timedelta(days=307))
+    _commit_trigger_intent(postgres_engine, conflicting)
+    rejected = PositionOpenOutcome.create(
+        fill_id=conflicting.fill.fill_id,
+        outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
+        run=conflicting.run,
+    )
+    conflicting_opened = PositionOpenOutcome.create(
+        fill_id=conflicting.fill.fill_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=conflicting.run,
+    )
+    trade_transition = _transition(
+        conflicting,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(conflicting.trade.trade_id),
+        before="none",
+        after="open",
+        cause_type="fill",
+        cause_id=str(conflicting.fill.fill_id),
+        occurred_at=conflicting.trade.opened_at,
+    )
+    position_transition = _transition(
+        conflicting,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(conflicting.position.position_id),
+        before="none",
+        after="open",
+        cause_type="trade",
+        cause_id=str(conflicting.trade.trade_id),
+        occurred_at=conflicting.position.opened_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresFillRepository(session).append(conflicting.fill)
+        PostgresPositionOpenOutcomeRepository(session).append(rejected)
+        session.commit()
+    with Session(postgres_engine) as session:
+        with pytest.raises(ContradictoryFactError):
+            PersistenceCoordinator(session).persist_opened_entry(
+                fill=conflicting.fill,
+                outcome=conflicting_opened,
+                trade=conflicting.trade,
+                position=conflicting.position,
+                trade_transition=trade_transition,
+                position_transition=position_transition,
+            )
+    with Session(postgres_engine) as observer:
+        assert PostgresPositionOpenOutcomeRepository(observer).get(rejected.outcome_id) == rejected
+        assert PostgresTradeRepository(observer).get(conflicting.trade.trade_id) is None
+        assert PostgresPositionRepository(observer).get(conflicting.position.position_id) is None
+        assert (
+            PostgresStateTransitionRepository(observer).get(trade_transition.transition_id) is None
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(position_transition.transition_id)
+            is None
+        )
