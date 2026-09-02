@@ -18,6 +18,7 @@ from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId, SignalId
+from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
@@ -1548,3 +1549,41 @@ def test_indicator_checkpoint_postgres_idempotency_and_rollback(postgres_engine:
             value.run.run_id, state.instrument_id
         )
         assert stored == state
+
+
+def test_indicator_checkpoint_postgres_resume_is_exact(postgres_engine: Engine) -> None:
+    value = facts(f"checkpoint-resume-{uuid4().hex}")
+    engine_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+
+    def candle(index: int) -> CompletedCandle:
+        start = AT + timedelta(minutes=5 * index)
+        interval = CandleInterval.five_minutes(start)
+        base = Decimal("100") + Decimal(index) / Decimal("7")
+        return CompletedCandle(
+            instrument_id=value.signal.instrument_id,
+            interval=interval,
+            quality=CandleQuality.VALID,
+            open=Price(base),
+            high=Price(base + Decimal("1.234567890123456789")),
+            low=Price(base - Decimal("0.987654321098765432")),
+            close=Price(base + Decimal("0.123456789012345678")),
+            volume=1000,
+            source="checkpoint-test",
+            source_event_count=1,
+        )
+
+    for index in range(55):
+        engine_a.update(candle(index))
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        PostgresIndicatorCheckpointRepository(session).upsert(value.run, engine_a.state)
+        session.commit()
+    with Session(postgres_engine) as session:
+        restored_state = PostgresIndicatorCheckpointRepository(session).get(
+            value.run.run_id, value.signal.instrument_id
+        )
+        assert restored_state == engine_a.state
+    engine_b = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=restored_state)
+    for index in range(55, 70):
+        assert engine_a.update(candle(index)) == engine_b.update(candle(index))
+        assert engine_a.state == engine_b.state
