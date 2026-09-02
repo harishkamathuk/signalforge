@@ -14,12 +14,14 @@ from signalforge.domain.ids import (
     FillId,
     InstrumentId,
     PositionId,
+    PositionOpenOutcomeId,
     RunId,
     SignalId,
     StateTransitionId,
     TradeId,
     TriggerEventId,
 )
+from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
@@ -89,6 +91,12 @@ class PositionRepository(Protocol):
     def upsert(self, position: Position) -> Position: ...
 
     def get(self, position_id: PositionId) -> Position | None: ...
+
+
+class PositionOpenOutcomeRepository(Protocol):
+    def append(self, outcome: PositionOpenOutcome) -> PositionOpenOutcome: ...
+
+    def get(self, outcome_id: PositionOpenOutcomeId) -> PositionOpenOutcome | None: ...
 
 
 class ExitRepository(Protocol):

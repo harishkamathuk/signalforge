@@ -17,6 +17,7 @@ from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, Trigg
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
@@ -36,6 +37,7 @@ from signalforge.persistence.repositories import (
     PostgresEntryIntentRepository,
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
@@ -441,6 +443,28 @@ def test_authoritative_repositories_apply_forward_transitions_and_terminal_retri
     stored_expired = setups.get(expired.signal_id)
     assert stored_expired is not None
     assert stored_expired.state is ArmedSetupState.EXPIRED
+
+
+def test_position_open_outcome_is_exactly_one_idempotent_fact_per_fill(session: Session) -> None:
+    value = facts("position-open-outcome", at=AT + timedelta(hours=13))
+    persist_graph(session, value)
+    repository = PostgresPositionOpenOutcomeRepository(session)
+    opened = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        run=value.run,
+    )
+
+    assert repository.append(opened) == opened
+    assert repository.append(opened) == opened
+
+    rejected = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
+        run=value.run,
+    )
+    with pytest.raises(ContradictoryFactError):
+        repository.append(rejected)
 
 
 def test_authoritative_repositories_reject_conflicts_and_keep_outer_transaction_usable(

@@ -13,6 +13,7 @@ from signalforge.domain.ids import (
     FillId,
     InstrumentId,
     PositionId,
+    PositionOpenOutcomeId,
     RunId,
     SignalId,
     StateTransitionId,
@@ -20,6 +21,7 @@ from signalforge.domain.ids import (
     TriggerEventId,
 )
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
@@ -37,6 +39,7 @@ from signalforge.persistence.models import (
     EntryIntentRecord,
     ExitRecord,
     FillRecord,
+    PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
     SignalRecord,
@@ -322,6 +325,28 @@ def position_from_record(record: PositionRecord, run: RunIdentity) -> Position:
         run=run,
         state=PositionState(record.state),
         closed_at=record.closed_at,
+    )
+
+
+def position_open_outcome_record_from_domain(
+    outcome: PositionOpenOutcome,
+) -> PositionOpenOutcomeRecord:
+    return PositionOpenOutcomeRecord(
+        outcome_id=str(outcome.outcome_id),
+        fill_id=str(outcome.fill_id),
+        run_id=str(outcome.run.run_id),
+        outcome=outcome.outcome.value,
+    )
+
+
+def position_open_outcome_from_record(
+    record: PositionOpenOutcomeRecord, run: RunIdentity
+) -> PositionOpenOutcome:
+    return PositionOpenOutcome(
+        outcome_id=PositionOpenOutcomeId(record.outcome_id),
+        fill_id=FillId(record.fill_id),
+        outcome=PositionOpenOutcomeType(record.outcome),
+        run=run,
     )
 
 

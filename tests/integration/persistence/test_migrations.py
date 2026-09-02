@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "indicator_checkpoints",
     "lifecycle_state",
     "positions",
+    "position_open_outcomes",
     "runs",
     "signals",
     "state_transitions",

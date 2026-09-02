@@ -278,6 +278,27 @@ class FillRecord(Base):
     filled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PositionOpenOutcomeRecord(Base):
+    """Immutable completed business outcome for one accepted entry fill."""
+
+    __tablename__ = "position_open_outcomes"
+    __table_args__ = (
+        UniqueConstraint("fill_id", name="uq_position_open_outcomes_fill"),
+        CheckConstraint(
+            "outcome IN ('opened', 'rejected_non_positive_risk')",
+            name="ck_position_open_outcomes_outcome",
+        ),
+    )
+    outcome_id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True)
+    fill_id: Mapped[str] = mapped_column(
+        ForeignKey("fills.fill_id", ondelete="RESTRICT"), nullable=False
+    )
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class TradeRecord(Base):
     """Authoritative trade economics and current trade lifecycle state."""
 

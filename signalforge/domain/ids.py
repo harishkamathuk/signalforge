@@ -61,6 +61,11 @@ class PositionId(_IdBase):
 
 
 @dataclass(frozen=True, slots=True)
+class PositionOpenOutcomeId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class ExitId(_IdBase):
     pass
 
