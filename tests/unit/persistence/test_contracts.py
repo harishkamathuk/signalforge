@@ -16,6 +16,7 @@ EXPECTED_CONTRACTS = {
     "PositionRepository",
     "ExitRepository",
     "StateTransitionRepository",
+    "IndicatorCheckpointRepository",
 }
 
 
@@ -25,4 +26,4 @@ def test_repository_contract_inventory_is_complete_and_sql_free() -> None:
     assert "sqlalchemy" not in source.lower()
     assert "postgresql" not in source.lower()
     assert "list_all" not in source
-    assert "CheckpointRepository" not in source
+    assert "IndicatorCheckpointRepository" in source

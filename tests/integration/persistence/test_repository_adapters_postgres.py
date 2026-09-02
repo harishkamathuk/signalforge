@@ -40,6 +40,7 @@ from signalforge.persistence.repositories import (
     PostgresEntryIntentRepository,
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresIndicatorCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
@@ -49,6 +50,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 
 AT = datetime(2026, 9, 1, 10, 0, tzinfo=IST)
 INSTRUMENT = InstrumentId("NSE:SF045B")
@@ -1519,3 +1521,30 @@ def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
             PostgresStateTransitionRepository(observer).get(position_transition.transition_id)
             is None
         )
+
+
+def test_indicator_checkpoint_postgres_idempotency_and_rollback(postgres_engine: Engine) -> None:
+    value = facts(f"checkpoint-{uuid4().hex}")
+    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    state = engine.state
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        session.commit()
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, state) == state
+        assert repo.upsert(value.run, state) == state
+        session.commit()
+    with Session(postgres_engine) as session:
+        repo = PostgresIndicatorCheckpointRepository(session)
+        assert repo.upsert(value.run, state) == state
+        assert repo.get(value.run.run_id, state.instrument_id) == state
+        broken = replace(state, continuity=IndicatorContinuity.BROKEN)
+        assert repo.upsert(value.run, broken) == broken
+        with pytest.raises(ContradictoryFactError):
+            repo.upsert(value.run, state)
+        session.rollback()
+    with Session(postgres_engine) as session:
+        stored = PostgresIndicatorCheckpointRepository(session).get(
+            value.run.run_id, state.instrument_id
+        )
+        assert stored == state

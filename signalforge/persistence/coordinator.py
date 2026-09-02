@@ -11,6 +11,7 @@ from signalforge.domain.exits import Exit
 from signalforge.domain.ids import RunId
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position
+from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.domain.trades import Trade
@@ -19,6 +20,7 @@ from signalforge.persistence.repositories import (
     PostgresEntryIntentRepository,
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresIndicatorCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresSignalRepository,
@@ -27,10 +29,21 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.indicators import IndicatorEngineState
 
 
 class PersistenceCoordinator:
     """Commit one accepted lifecycle boundary with one caller-provided Session."""
+
+    def persist_completed_evaluation(
+        self, *, run: RunIdentity, state: IndicatorEngineState, evaluation: StrategyEvaluation
+    ) -> tuple[IndicatorEngineState, StrategyEvaluation]:
+        with self._session.begin():
+            checkpoint = PostgresIndicatorCheckpointRepository(self._session).upsert(run, state)
+            evaluation = PostgresStrategyEvaluationRepository(self._session).append(
+                run.run_id, evaluation
+            )
+        return checkpoint, evaluation
 
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -42,8 +55,11 @@ class PersistenceCoordinator:
         signal: Signal,
         setup: ArmedSetup,
         setup_transition: StateTransition,
+        checkpoint: IndicatorEngineState | None = None,
     ) -> tuple[StrategyEvaluation, Signal, ArmedSetup, StateTransition]:
         with self._session.begin():
+            if checkpoint is not None:
+                PostgresIndicatorCheckpointRepository(self._session).upsert(signal.run, checkpoint)
             evaluation = PostgresStrategyEvaluationRepository(self._session).append(
                 signal.run.run_id, evaluation
             )
@@ -70,8 +86,8 @@ class PersistenceCoordinator:
     def persist_expiry(
         self,
         *,
-        run_id: RunId,
         setup: ArmedSetup,
+        run_id: RunId,
         setup_transition: StateTransition,
     ) -> tuple[ArmedSetup, StateTransition]:
         with self._session.begin():

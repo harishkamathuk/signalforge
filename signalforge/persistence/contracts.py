@@ -28,6 +28,7 @@ from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import Trade
+from signalforge.runtime.indicators import IndicatorEngineState
 
 
 class RunProvenanceRepository(Protocol):
@@ -103,6 +104,12 @@ class ExitRepository(Protocol):
     def append(self, exit_fact: Exit) -> Exit: ...
 
     def get(self, exit_id: ExitId) -> Exit | None: ...
+
+
+class IndicatorCheckpointRepository(Protocol):
+    def upsert(self, run: RunIdentity, state: IndicatorEngineState) -> IndicatorEngineState: ...
+
+    def get(self, run_id: RunId, instrument_id: InstrumentId) -> IndicatorEngineState | None: ...
 
 
 class StateTransitionRepository(Protocol):

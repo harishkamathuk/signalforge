@@ -39,6 +39,7 @@ from signalforge.persistence.models import (
     EntryIntentRecord,
     ExitRecord,
     FillRecord,
+    IndicatorCheckpointRecord,
     PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
@@ -49,6 +50,11 @@ from signalforge.persistence.models import (
     TradeRecord,
     TriggerEventRecord,
 )
+from signalforge.runtime.adx import AdxState
+from signalforge.runtime.ema import EmaState
+from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngineState
+from signalforge.runtime.macd import MacdState
+from signalforge.runtime.rsi import RsiState
 
 
 def strategy_config_record_from_domain(run: RunIdentity) -> StrategyConfigRecord:
@@ -420,4 +426,103 @@ def state_transition_from_record(
         cause_id=record.cause_id,
         occurred_at=record.occurred_at,
         run=run,
+    )
+
+
+def indicator_checkpoint_record_from_state(
+    run: RunIdentity, state: IndicatorEngineState
+) -> IndicatorCheckpointRecord:
+    interval = state.last_interval
+    return IndicatorCheckpointRecord(
+        run_id=str(run.run_id),
+        instrument_id=str(state.instrument_id),
+        calculation_version=state.calculation_version,
+        continuity_state=state.continuity.value,
+        last_interval_start=None if interval is None else interval.start,
+        last_interval_end=None if interval is None else interval.end,
+        completed_candle_count=state.ema9.samples,
+        ema9_value=state.ema9.value,
+        ema9_seed_sum=state.ema9.seed_sum,
+        ema20_value=state.ema20.value,
+        ema20_seed_sum=state.ema20.seed_sum,
+        ema50_value=state.ema50.value,
+        ema50_seed_sum=state.ema50.seed_sum,
+        rsi_previous_close=state.rsi14.previous_close,
+        rsi_seed_gain_sum=state.rsi14.seed_gain_sum,
+        rsi_seed_loss_sum=state.rsi14.seed_loss_sum,
+        rsi_average_gain=state.rsi14.average_gain,
+        rsi_average_loss=state.rsi14.average_loss,
+        adx_previous_high=state.adx14.previous_high,
+        adx_previous_low=state.adx14.previous_low,
+        adx_previous_close=state.adx14.previous_close,
+        adx_seed_tr_sum=state.adx14.seed_tr_sum,
+        adx_seed_plus_dm_sum=state.adx14.seed_plus_dm_sum,
+        adx_seed_minus_dm_sum=state.adx14.seed_minus_dm_sum,
+        adx_smoothed_tr=state.adx14.smoothed_tr,
+        adx_smoothed_plus_dm=state.adx14.smoothed_plus_dm,
+        adx_smoothed_minus_dm=state.adx14.smoothed_minus_dm,
+        adx_dx_seed_sum=state.adx14.dx_seed_sum,
+        adx_dx_seed_count=state.adx14.dx_seed_count,
+        adx=state.adx14.adx,
+        macd_fast_value=state.macd.fast_ema.value,
+        macd_fast_seed_sum=state.macd.fast_ema.seed_sum,
+        macd_slow_value=state.macd.slow_ema.value,
+        macd_slow_seed_sum=state.macd.slow_ema.seed_sum,
+        macd_signal_value=state.macd.signal_ema.value,
+        macd_signal_seed_sum=state.macd.signal_ema.seed_sum,
+    )
+
+
+def indicator_checkpoint_state_from_record(
+    record: IndicatorCheckpointRecord,
+) -> IndicatorEngineState:
+    samples = record.completed_candle_count
+    if record.last_interval_start is None:
+        interval = None
+    else:
+        assert record.last_interval_end is not None
+        interval = CandleInterval(record.last_interval_start, record.last_interval_end)
+    ema9 = EmaState(9, samples, record.ema9_value, record.ema9_seed_sum)
+    ema20 = EmaState(20, samples, record.ema20_value, record.ema20_seed_sum)
+    ema50 = EmaState(50, samples, record.ema50_value, record.ema50_seed_sum)
+    rsi = RsiState(
+        samples,
+        record.rsi_previous_close,
+        record.rsi_seed_gain_sum,
+        record.rsi_seed_loss_sum,
+        record.rsi_average_gain,
+        record.rsi_average_loss,
+    )
+    adx = AdxState(
+        samples,
+        record.adx_previous_high,
+        record.adx_previous_low,
+        record.adx_previous_close,
+        record.adx_seed_tr_sum,
+        record.adx_seed_plus_dm_sum,
+        record.adx_seed_minus_dm_sum,
+        record.adx_smoothed_tr,
+        record.adx_smoothed_plus_dm,
+        record.adx_smoothed_minus_dm,
+        record.adx_dx_seed_sum,
+        record.adx_dx_seed_count,
+        record.adx,
+    )
+    macd = MacdState(
+        samples,
+        EmaState(12, samples, record.macd_fast_value, record.macd_fast_seed_sum),
+        EmaState(26, samples, record.macd_slow_value, record.macd_slow_seed_sum),
+        EmaState(9, max(0, samples - 25), record.macd_signal_value, record.macd_signal_seed_sum),
+    )
+    return IndicatorEngineState(
+        InstrumentId(record.instrument_id),
+        record.calculation_version,
+        IndicatorContinuity(record.continuity_state),
+        interval,
+        ema9,
+        ema20,
+        ema50,
+        rsi,
+        adx,
+        macd,
     )
