@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+import signalforge.persistence.coordinator as coordinator_module
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
@@ -30,6 +31,7 @@ from signalforge.domain.strategy import (
 )
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import Trade, TradeState
+from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError, PersistenceDependencyError
 from signalforge.persistence.models import RunRecord, StrategyConfigRecord
 from signalforge.persistence.repositories import (
@@ -49,6 +51,10 @@ from signalforge.persistence.repositories import (
 
 AT = datetime(2026, 9, 1, 10, 0, tzinfo=IST)
 INSTRUMENT = InstrumentId("NSE:SF045B")
+
+
+class InjectedFailure(RuntimeError):
+    pass
 
 
 @pytest.fixture(scope="module")
@@ -212,6 +218,374 @@ def persist_graph(session: Session, value: Facts) -> None:
     assert PostgresPositionRepository(session).upsert(value.position).state is PositionState.OPEN
     assert PostgresExitRepository(session).append(value.exit_fact) == value.exit_fact
     assert PostgresStateTransitionRepository(session).append(value.transition) == value.transition
+
+
+def _transition(
+    value: Facts,
+    *,
+    entity: TransitionEntityType,
+    entity_id: str,
+    before: str,
+    after: str,
+    cause_type: str,
+    cause_id: str,
+    occurred_at: datetime,
+) -> StateTransition:
+    return StateTransition.create(
+        entity_type=entity,
+        entity_id=entity_id,
+        from_state=before,
+        to_state=after,
+        cause_type=cause_type,
+        cause_id=cause_id,
+        occurred_at=occurred_at,
+        run=value.run,
+    )
+
+
+def _inject_after(monkeypatch: pytest.MonkeyPatch, *, after: int, names: tuple[str, ...]) -> None:
+    count = 0
+    for name in names:
+        repository = getattr(coordinator_module, name)
+        original = (
+            repository.append
+            if name
+            not in {
+                "PostgresArmedSetupRepository",
+                "PostgresTradeRepository",
+                "PostgresPositionRepository",
+            }
+            else repository.upsert
+        )
+
+        def wrapped(
+            self: object, *args: object, _original: object = original, **kwargs: object
+        ) -> object:
+            nonlocal count
+            result = _original(self, *args, **kwargs)  # type: ignore[operator]
+            count += 1
+            if count == after:
+                raise InjectedFailure
+            return result
+
+        monkeypatch.setattr(
+            repository,
+            "append"
+            if name
+            not in {
+                "PostgresArmedSetupRepository",
+                "PostgresTradeRepository",
+                "PostgresPositionRepository",
+            }
+            else "upsert",
+            wrapped,
+        )
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4))
+def test_coordinator_arming_boundary_rolls_back_each_write(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    after: int,
+) -> None:
+    value = facts(f"sf046-arm-{after}", at=AT + timedelta(days=after))
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="none",
+        after="armed",
+        cause_type="strategy_evaluation",
+        cause_id="evaluation",
+        occurred_at=value.setup.armed_at,
+    )
+    with Session(postgres_engine) as setup_session:
+        PostgresRunProvenanceRepository(setup_session).add(value.run)
+        setup_session.commit()
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresStrategyEvaluationRepository",
+            "PostgresSignalRepository",
+            "PostgresArmedSetupRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_actionable_evaluation(
+                evaluation=value.evaluation,
+                signal=value.signal,
+                setup=value.setup,
+                setup_transition=transition,
+            )
+    with Session(postgres_engine) as observer:
+        assert PostgresSignalRepository(observer).get(value.signal.signal_id) is None
+        assert PostgresArmedSetupRepository(observer).get(value.signal.signal_id) is None
+        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) is None
+
+
+def _commit_armed_setup(postgres_engine: Engine, value: Facts) -> None:
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        PostgresSignalRepository(session).append(value.signal)
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, value.setup)
+        session.commit()
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4))
+def test_coordinator_trigger_boundary_rolls_back_each_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf046-trigger-{after}", at=AT + timedelta(days=10 + after))
+    _commit_armed_setup(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresTriggerEventRepository",
+            "PostgresEntryIntentRepository",
+            "PostgresArmedSetupRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_trigger_intent(
+                trigger=value.trigger,
+                intent=value.intent,
+                setup=triggered,
+                setup_transition=transition,
+            )
+    with Session(postgres_engine) as observer:
+        stored = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
+        assert stored is not None and stored.state is ArmedSetupState.ARMED
+        assert PostgresTriggerEventRepository(observer).get(value.trigger.trigger_event_id) is None
+        assert PostgresEntryIntentRepository(observer).get(value.intent.entry_intent_id) is None
+        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) is None
+
+
+@pytest.mark.parametrize("after", (1, 2))
+def test_coordinator_expiry_boundary_rolls_back_each_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf046-expiry-{after}", at=AT + timedelta(days=20 + after))
+    _commit_armed_setup(postgres_engine, value)
+    expired = replace(value.setup)
+    expired.expire(at=expired.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="expired",
+        cause_type="completed_candle",
+        cause_id="candle",
+        occurred_at=expired.terminal_at or expired.valid_until,
+    )
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=("PostgresArmedSetupRepository", "PostgresStateTransitionRepository"),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_expiry(
+                run_id=value.run.run_id, setup=expired, setup_transition=transition
+            )
+    with Session(postgres_engine) as observer:
+        stored = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
+        assert stored is not None and stored.state is ArmedSetupState.ARMED
+        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) is None
+
+
+def _commit_trigger_intent(postgres_engine: Engine, value: Facts) -> None:
+    _commit_armed_setup(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    with Session(postgres_engine) as session:
+        PostgresTriggerEventRepository(session).append(value.trigger)
+        PostgresEntryIntentRepository(session).append(value.intent)
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, triggered)
+        session.commit()
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4, 5, 6))
+def test_coordinator_opened_entry_boundary_rolls_back_each_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf046-open-v2-{after}", at=AT + timedelta(days=130 + after))
+    _commit_trigger_intent(postgres_engine, value)
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id, outcome=PositionOpenOutcomeType.OPENED, run=value.run
+    )
+    trade_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="none",
+        after="open",
+        cause_type="fill",
+        cause_id=str(value.fill.fill_id),
+        occurred_at=value.trade.opened_at,
+    )
+    position_transition = _transition(
+        value,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(value.position.position_id),
+        before="none",
+        after="open",
+        cause_type="trade",
+        cause_id=str(value.trade.trade_id),
+        occurred_at=value.position.opened_at,
+    )
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresFillRepository",
+            "PostgresPositionOpenOutcomeRepository",
+            "PostgresTradeRepository",
+            "PostgresPositionRepository",
+            "PostgresStateTransitionRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_opened_entry(
+                fill=value.fill,
+                outcome=outcome,
+                trade=value.trade,
+                position=value.position,
+                trade_transition=trade_transition,
+                position_transition=position_transition,
+            )
+    with Session(postgres_engine) as observer:
+        assert PostgresFillRepository(observer).get(value.fill.fill_id) is None
+        assert PostgresPositionOpenOutcomeRepository(observer).get(outcome.outcome_id) is None
+        assert PostgresTradeRepository(observer).get(value.trade.trade_id) is None
+        assert PostgresPositionRepository(observer).get(value.position.position_id) is None
+        assert (
+            PostgresStateTransitionRepository(observer).get(trade_transition.transition_id) is None
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(position_transition.transition_id)
+            is None
+        )
+
+
+@pytest.mark.parametrize("after", (1, 2))
+def test_coordinator_rejected_entry_boundary_rolls_back_each_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf046-reject-v2-{after}", at=AT + timedelta(days=140 + after))
+    _commit_trigger_intent(postgres_engine, value)
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        outcome=PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK,
+        run=value.run,
+    )
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=("PostgresFillRepository", "PostgresPositionOpenOutcomeRepository"),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_rejected_entry(fill=value.fill, outcome=outcome)
+    with Session(postgres_engine) as observer:
+        assert PostgresFillRepository(observer).get(value.fill.fill_id) is None
+        assert PostgresPositionOpenOutcomeRepository(observer).get(outcome.outcome_id) is None
+        assert PostgresTradeRepository(observer).get(value.trade.trade_id) is None
+        assert PostgresPositionRepository(observer).get(value.position.position_id) is None
+
+
+def _commit_open_position(postgres_engine: Engine, value: Facts) -> None:
+    _commit_trigger_intent(postgres_engine, value)
+    with Session(postgres_engine) as session:
+        PostgresFillRepository(session).append(value.fill)
+        PostgresTradeRepository(session).upsert(value.trade)
+        PostgresPositionRepository(session).upsert(value.position)
+        session.commit()
+
+
+@pytest.mark.parametrize("after", (1, 2, 3, 4, 5))
+def test_coordinator_exit_boundary_rolls_back_each_write(
+    postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    value = facts(f"sf046-exit-v2-{after}", at=AT + timedelta(days=150 + after))
+    _commit_open_position(postgres_engine, value)
+    closed_trade = replace(value.trade)
+    closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
+    closed_position = replace(value.position)
+    closed_position.close(at=value.exit_fact.exited_at)
+    trade_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(value.exit_fact.exit_id),
+        occurred_at=value.exit_fact.exited_at,
+    )
+    position_transition = _transition(
+        value,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(value.position.position_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(value.exit_fact.exit_id),
+        occurred_at=value.exit_fact.exited_at,
+    )
+    _inject_after(
+        monkeypatch,
+        after=after,
+        names=(
+            "PostgresExitRepository",
+            "PostgresTradeRepository",
+            "PostgresPositionRepository",
+            "PostgresStateTransitionRepository",
+            "PostgresStateTransitionRepository",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(InjectedFailure):
+            PersistenceCoordinator(session).persist_exit(
+                exit_fact=value.exit_fact,
+                trade=closed_trade,
+                position=closed_position,
+                trade_transition=trade_transition,
+                position_transition=position_transition,
+            )
+    with Session(postgres_engine) as observer:
+        assert PostgresExitRepository(observer).get(value.exit_fact.exit_id) is None
+        trade = PostgresTradeRepository(observer).get(value.trade.trade_id)
+        position = PostgresPositionRepository(observer).get(value.position.position_id)
+        assert trade is not None and trade.state is TradeState.OPEN
+        assert position is not None and position.state is PositionState.OPEN
+        assert (
+            PostgresStateTransitionRepository(observer).get(trade_transition.transition_id) is None
+        )
+        assert (
+            PostgresStateTransitionRepository(observer).get(position_transition.transition_id)
+            is None
+        )
 
 
 def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Session) -> None:
