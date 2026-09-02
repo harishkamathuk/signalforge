@@ -11,12 +11,13 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.positions import Position
+from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import (
@@ -27,21 +28,20 @@ from signalforge.domain.strategy import (
     TrendResult,
 )
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.domain.trades import Trade
-from signalforge.persistence.errors import ContradictoryFactError
-from signalforge.persistence.mappers import (
-    position_record_from_domain,
-    trade_record_from_domain,
-)
+from signalforge.domain.trades import Trade, TradeState
+from signalforge.persistence.errors import ContradictoryFactError, PersistenceDependencyError
 from signalforge.persistence.models import RunRecord, StrategyConfigRecord
 from signalforge.persistence.repositories import (
+    PostgresArmedSetupRepository,
     PostgresEntryIntentRepository,
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresPositionRepository,
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
     PostgresStrategyEvaluationRepository,
+    PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
 
@@ -75,6 +75,7 @@ class Facts:
     run: RunIdentity
     evaluation: StrategyEvaluation
     signal: Signal
+    setup: ArmedSetup
     trigger: TriggerEvent
     intent: EntryIntent
     fill: Fill
@@ -110,6 +111,14 @@ def facts(suffix: str = "base", *, at: datetime = AT) -> Facts:
         signal_low=Price(Decimal("100.00")),
         run=run,
         created_at=interval.end,
+    )
+    setup = ArmedSetup(
+        signal_id=signal.signal_id,
+        raw_trigger=Price(Decimal("101.15")),
+        tradable_trigger=Price(Decimal("101.15")),
+        signal_low=signal.signal_low,
+        armed_at=interval.end,
+        valid_until=interval.end + timedelta(minutes=5),
     )
     trigger = TriggerEvent.create(
         signal_id=signal.signal_id,
@@ -172,6 +181,7 @@ def facts(suffix: str = "base", *, at: datetime = AT) -> Facts:
         run,
         evaluation,
         signal,
+        setup,
         trigger,
         intent,
         fill,
@@ -185,24 +195,21 @@ def facts(suffix: str = "base", *, at: datetime = AT) -> Facts:
 def persist_graph(session: Session, value: Facts) -> None:
     assert PostgresRunProvenanceRepository(session).add(value.run) == value.run
     assert (
-        PostgresStrategyEvaluationRepository(session).append(
-            value.run.run_id, value.evaluation
-        )
+        PostgresStrategyEvaluationRepository(session).append(value.run.run_id, value.evaluation)
         == value.evaluation
     )
     assert PostgresSignalRepository(session).append(value.signal) == value.signal
     assert PostgresTriggerEventRepository(session).append(value.trigger) == value.trigger
     assert PostgresEntryIntentRepository(session).append(value.intent) == value.intent
     assert PostgresFillRepository(session).append(value.fill) == value.fill
-    session.add(trade_record_from_domain(value.trade))
-    session.flush()
-    session.add(position_record_from_domain(value.position))
-    session.flush()
-    assert PostgresExitRepository(session).append(value.exit_fact) == value.exit_fact
     assert (
-        PostgresStateTransitionRepository(session).append(value.transition)
-        == value.transition
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, value.setup).state
+        is ArmedSetupState.ARMED
     )
+    assert PostgresTradeRepository(session).upsert(value.trade).state is TradeState.OPEN
+    assert PostgresPositionRepository(session).upsert(value.position).state is PositionState.OPEN
+    assert PostgresExitRepository(session).append(value.exit_fact) == value.exit_fact
+    assert PostgresStateTransitionRepository(session).append(value.transition) == value.transition
 
 
 def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Session) -> None:
@@ -221,8 +228,7 @@ def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Sessio
     assert provenance.add(value.run) == provenance.get(value.run.run_id) == value.run
     assert evaluations.append(value.run.run_id, value.evaluation) == value.evaluation
     assert (
-        evaluations.get(value.run.run_id, INSTRUMENT, value.evaluation.interval)
-        == value.evaluation
+        evaluations.get(value.run.run_id, INSTRUMENT, value.evaluation.interval) == value.evaluation
     )
     assert signals.append(value.signal) == signals.get(value.signal.signal_id) == value.signal
     assert (
@@ -230,26 +236,19 @@ def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Sessio
         == triggers.get(value.trigger.trigger_event_id)
         == value.trigger
     )
-    assert (
-        intents.append(value.intent)
-        == intents.get(value.intent.entry_intent_id)
-        == value.intent
-    )
+    assert intents.append(value.intent) == intents.get(value.intent.entry_intent_id) == value.intent
     assert fills.append(value.fill) == fills.get(value.fill.fill_id) == value.fill
-    assert (
-        exits.append(value.exit_fact)
-        == exits.get(value.exit_fact.exit_id)
-        == value.exit_fact
-    )
+    assert exits.append(value.exit_fact) == exits.get(value.exit_fact.exit_id) == value.exit_fact
     assert (
         transitions.append(value.transition)
         == transitions.get(value.transition.transition_id)
         == value.transition
     )
-    assert exits.get(value.exit_fact.exit_id).realised_r.as_tuple() == (
-        value.exit_fact.realised_r.as_tuple()
-    )
-    assert signals.get(value.signal.signal_id).created_at == value.signal.created_at
+    stored_exit = exits.get(value.exit_fact.exit_id)
+    stored_signal = signals.get(value.signal.signal_id)
+    assert stored_exit is not None and stored_signal is not None
+    assert stored_exit.realised_r.as_tuple() == value.exit_fact.realised_r.as_tuple()
+    assert stored_signal.created_at == value.signal.created_at
 
 
 def test_contradictory_reuse_is_typed_and_outer_transaction_remains_usable(
@@ -394,3 +393,147 @@ def test_duplicate_from_prior_committed_transaction_is_idempotent(
                 )
             )
             cleanup.commit()
+
+
+def test_authoritative_repositories_apply_forward_transitions_and_terminal_retries(
+    session: Session,
+) -> None:
+    value = facts("authoritative", at=AT + timedelta(hours=7))
+    persist_graph(session, value)
+
+    setups = PostgresArmedSetupRepository(session)
+    trades = PostgresTradeRepository(session)
+    positions = PostgresPositionRepository(session)
+
+    assert setups.upsert(value.run.run_id, value.setup).state is ArmedSetupState.ARMED
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.setup.armed_at + timedelta(minutes=1))
+    assert triggered.terminal_at is not None
+    assert setups.upsert(value.run.run_id, triggered).terminal_at == triggered.terminal_at
+    assert setups.upsert(value.run.run_id, triggered).terminal_at == triggered.terminal_at
+    stored_triggered = setups.get(value.setup.signal_id)
+    assert stored_triggered is not None
+    assert stored_triggered.state is ArmedSetupState.TRIGGERED
+
+    closed_trade = replace(value.trade)
+    closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
+    assert closed_trade.closed_at is not None
+    closed_position = replace(value.position)
+    closed_position.close(at=value.exit_fact.exited_at)
+    assert closed_position.closed_at is not None
+    assert trades.upsert(closed_trade).closed_at == closed_trade.closed_at
+    assert trades.upsert(closed_trade).closed_at == closed_trade.closed_at
+    assert positions.upsert(closed_position).closed_at == closed_position.closed_at
+    assert positions.upsert(closed_position).closed_at == closed_position.closed_at
+
+    expired_value = facts("expired", at=AT + timedelta(hours=8))
+    persist_graph(session, expired_value)
+    expired = replace(expired_value.setup)
+    expired.expire(at=expired.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
+    assert (
+        setups.upsert(expired_value.run.run_id, expired).expiry_reason
+        is ExpiryReason.VALIDITY_WINDOW_END
+    )
+    assert (
+        setups.upsert(expired_value.run.run_id, expired).expiry_reason
+        is ExpiryReason.VALIDITY_WINDOW_END
+    )
+    stored_expired = setups.get(expired.signal_id)
+    assert stored_expired is not None
+    assert stored_expired.state is ArmedSetupState.EXPIRED
+
+
+def test_authoritative_repositories_reject_conflicts_and_keep_outer_transaction_usable(
+    session: Session,
+) -> None:
+    value = facts("state-conflict", at=AT + timedelta(hours=9))
+    persist_graph(session, value)
+    setups = PostgresArmedSetupRepository(session)
+    trades = PostgresTradeRepository(session)
+    positions = PostgresPositionRepository(session)
+
+    with pytest.raises(ContradictoryFactError):
+        setups.upsert(value.run.run_id, replace(value.setup, raw_trigger=Price(Decimal("101.14"))))
+
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.setup.armed_at + timedelta(minutes=1))
+    assert triggered.terminal_at is not None
+    assert setups.upsert(value.run.run_id, triggered).terminal_at == triggered.terminal_at
+    with pytest.raises(ContradictoryFactError):
+        setups.upsert(value.run.run_id, value.setup)
+    with pytest.raises(ContradictoryFactError):
+        setups.upsert(
+            value.run.run_id,
+            replace(triggered, terminal_at=triggered.terminal_at + timedelta(seconds=1)),
+        )
+    with pytest.raises(ContradictoryFactError):
+        setups.upsert(
+            value.run.run_id,
+            replace(
+                triggered,
+                state=ArmedSetupState.EXPIRED,
+                expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
+            ),
+        )
+
+    changed_economics = replace(
+        value.trade,
+        stop_price=Price(Decimal("100.10")),
+        risk_per_share=Price(Decimal("1.10")),
+        raw_target_price=Price(Decimal("102.85")),
+        tradable_target_price=Price(Decimal("102.85")),
+    )
+    with pytest.raises(ContradictoryFactError):
+        trades.upsert(changed_economics)
+
+    closed_trade = replace(value.trade)
+    closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
+    assert closed_trade.closed_at is not None
+    assert trades.upsert(closed_trade).closed_at == closed_trade.closed_at
+    with pytest.raises(ContradictoryFactError):
+        trades.upsert(value.trade)
+    with pytest.raises(ContradictoryFactError):
+        trades.upsert(
+            replace(closed_trade, closed_at=closed_trade.closed_at + timedelta(seconds=1))
+        )
+
+    with pytest.raises(ContradictoryFactError):
+        positions.upsert(replace(value.position, average_entry_price=Price(Decimal("101.25"))))
+    closed_position = replace(value.position)
+    closed_position.close(at=value.exit_fact.exited_at)
+    assert closed_position.closed_at is not None
+    assert positions.upsert(closed_position).closed_at == closed_position.closed_at
+    with pytest.raises(ContradictoryFactError):
+        positions.upsert(value.position)
+    with pytest.raises(ContradictoryFactError):
+        positions.upsert(
+            replace(closed_position, closed_at=closed_position.closed_at + timedelta(seconds=1))
+        )
+
+    follow_up = facts("after-state-conflict", at=AT + timedelta(hours=10))
+    persist_graph(session, follow_up)
+
+
+def test_authoritative_repository_writes_are_owned_by_caller_rollback(
+    postgres_engine: Engine,
+) -> None:
+    value = facts("state-rollback", at=AT + timedelta(hours=11))
+    with Session(postgres_engine) as caller_session:
+        persist_graph(caller_session, value)
+        caller_session.rollback()
+
+    with Session(postgres_engine) as observer:
+        assert PostgresArmedSetupRepository(observer).get(value.setup.signal_id) is None
+        assert PostgresTradeRepository(observer).get(value.trade.trade_id) is None
+        assert PostgresPositionRepository(observer).get(value.position.position_id) is None
+
+
+def test_authoritative_repositories_require_persisted_dependencies(session: Session) -> None:
+    value = facts("missing-dependencies", at=AT + timedelta(hours=12))
+
+    with pytest.raises(PersistenceDependencyError):
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, value.setup)
+    with pytest.raises(PersistenceDependencyError):
+        PostgresTradeRepository(session).upsert(value.trade)
+    with pytest.raises(PersistenceDependencyError):
+        PostgresPositionRepository(session).upsert(value.position)
