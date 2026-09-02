@@ -135,6 +135,16 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
             setup_transition=arm,
             checkpoint=checkpoint,
         )
+        coordinator.persist_actionable_evaluation(
+            evaluation=value.evaluation,
+            signal=value.signal,
+            setup=value.setup,
+            setup_transition=arm,
+            checkpoint=checkpoint,
+        )
+        coordinator.persist_trigger_intent(
+            trigger=value.trigger, intent=value.intent, setup=setup, setup_transition=trigger
+        )
         coordinator.persist_trigger_intent(
             trigger=value.trigger, intent=value.intent, setup=setup, setup_transition=trigger
         )
@@ -145,6 +155,21 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
             position=value.position,
             trade_transition=trade_open,
             position_transition=position_open,
+        )
+        coordinator.persist_opened_entry(
+            fill=value.fill,
+            outcome=outcome,
+            trade=value.trade,
+            position=value.position,
+            trade_transition=trade_open,
+            position_transition=position_open,
+        )
+        coordinator.persist_exit(
+            exit_fact=value.exit_fact,
+            trade=trade,
+            position=position,
+            trade_transition=trade_close,
+            position_transition=position_close,
         )
         coordinator.persist_exit(
             exit_fact=value.exit_fact,
