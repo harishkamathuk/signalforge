@@ -615,6 +615,13 @@ class PostgresStateTransitionRepository(_PostgresRepository):
             raise PersistenceDependencyError("state transition references missing run provenance")
         return state_transition_from_record(record, run)
 
+    def find_for_run(self, run_id: RunId) -> tuple[StateTransition, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(StateTransitionRecord).where(StateTransitionRecord.run_id == str(run_id))
+        ).all()
+        return tuple(state_transition_from_record(record, run) for record in records)
+
 
 class PostgresArmedSetupRepository(_PostgresRepository):
     """Persist authoritative ArmedSetup state with caller-owned transactions."""

@@ -6,6 +6,7 @@ from enum import StrEnum
 from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState
+from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
@@ -23,6 +24,7 @@ from signalforge.persistence.repositories import (
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
+    PostgresStateTransitionRepository,
     PostgresTradeRepository,
 )
 from signalforge.runtime.indicators import IndicatorEngineState
@@ -110,6 +112,11 @@ class RecoveryBootstrap:
             if run
             else None
         )
+        transitions = (
+            PostgresStateTransitionRepository(session).find_for_run(requested_run.run_id)
+            if run
+            else ()
+        )
         if run is None:
             return RecoveryResult(
                 RecoveryDisposition.NEW,
@@ -119,6 +126,8 @@ class RecoveryBootstrap:
             )
         if run != requested_run:
             raise ContradictoryFactError("persisted run provenance differs from requested runtime")
+        if any(item.run != run or item.instrument_id != instrument_id for item in signals):
+            raise ContradictoryFactError("persisted signal lineage contradicts requested runtime")
         if checkpoint is not None and (
             checkpoint.instrument_id != instrument_id
             or checkpoint.calculation_version != requested_run.engine_calculation_version
@@ -147,6 +156,31 @@ class RecoveryBootstrap:
         if bool(closed_trades) != bool(closed_positions) or len(closed_trades) != len(exits):
             raise ContradictoryFactError(
                 "persisted CLOSED lifecycle lacks matching trade, position, or exit"
+            )
+
+        for closed_trade in closed_trades:
+            matching_exit = next(
+                (item for item in exits if item.trade_id == closed_trade.trade_id), None
+            )
+            if matching_exit is None or closed_trade.exit_id != matching_exit.exit_id:
+                raise ContradictoryFactError("closed trade lacks a matching immutable exit")
+            _require_close_transition(
+                transitions,
+                entity_type=TransitionEntityType.TRADE,
+                entity_id=str(closed_trade.trade_id),
+                exit_fact=matching_exit,
+            )
+        for closed_position in closed_positions:
+            matching_exit = next(
+                (item for item in exits if item.position_id == closed_position.position_id), None
+            )
+            if matching_exit is None:
+                raise ContradictoryFactError("closed position lacks a matching immutable exit")
+            _require_close_transition(
+                transitions,
+                entity_type=TransitionEntityType.POSITION,
+                entity_id=str(closed_position.position_id),
+                exit_fact=matching_exit,
             )
 
         if bool(open_trades) != bool(open_positions):
@@ -186,3 +220,26 @@ class RecoveryBootstrap:
             checkpoint,
             RecoveredLifecycle(setup, signal, outcome, trade, position, exit_fact),
         )
+
+
+def _require_close_transition(
+    transitions: tuple[StateTransition, ...],
+    *,
+    entity_type: TransitionEntityType,
+    entity_id: str,
+    exit_fact: Exit,
+) -> None:
+    matches = tuple(
+        item
+        for item in transitions
+        if item.entity_type is entity_type
+        and item.entity_id == entity_id
+        and item.from_state == "open"
+        and item.to_state == "closed"
+    )
+    if (
+        len(matches) != 1
+        or matches[0].cause_type != "exit"
+        or matches[0].cause_id != str(exit_fact.exit_id)
+    ):
+        raise ContradictoryFactError("closed lifecycle lacks a matching close transition")
