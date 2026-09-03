@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
@@ -8,9 +9,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetupState
+from signalforge.domain.audit import TransitionEntityType
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import PositionState
 from signalforge.domain.trades import TradeState
+from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.repositories import (
     PostgresPositionOpenOutcomeRepository,
     PostgresRunProvenanceRepository,
@@ -19,6 +22,7 @@ from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _commit_armed_setup,
     _commit_open_position,
+    _transition,
     facts,
 )
 
@@ -92,3 +96,56 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
             and result.lifecycle.position.state is PositionState.OPEN
         )
         assert result.lifecycle.outcome is not None
+
+
+def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -> None:
+    value = facts(f"recovery-closed-{uuid4().hex[:8]}")
+    _commit_open_position(postgres_engine, value)
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=value.signal.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=value.fill.filled_at,
+        run=value.run,
+    )
+    closed_trade = replace(value.trade)
+    closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
+    closed_position = replace(value.position)
+    closed_position.close(at=value.exit_fact.exited_at)
+    trade_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(value.exit_fact.exit_id),
+        occurred_at=value.exit_fact.exited_at,
+    )
+    position_transition = _transition(
+        value,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(value.position.position_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(value.exit_fact.exit_id),
+        occurred_at=value.exit_fact.exited_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresPositionOpenOutcomeRepository(session).append(outcome)
+        session.commit()
+        PersistenceCoordinator(session).persist_exit(
+            exit_fact=value.exit_fact,
+            trade=closed_trade,
+            position=closed_position,
+            trade_transition=trade_transition,
+            position_transition=position_transition,
+        )
+    with Session(postgres_engine) as session:
+        result = RecoveryBootstrap().inspect(
+            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+        )
+        assert result.lifecycle.trade is None
+        assert result.lifecycle.position is None
+        assert result.lifecycle.exit_fact == value.exit_fact
