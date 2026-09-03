@@ -210,8 +210,16 @@ def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -
         result = RecoveryBootstrap().inspect(
             session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
         )
-        assert result.lifecycle.trade is None
-        assert result.lifecycle.position is None
+        assert result.lifecycle.trade is not None
+        assert result.lifecycle.trade.state is TradeState.CLOSED
+        assert result.lifecycle.trade.trade_id == closed_trade.trade_id
+        assert result.lifecycle.trade.exit_id == value.exit_fact.exit_id
+        assert result.lifecycle.position is not None
+        assert result.lifecycle.position.state is PositionState.CLOSED
+        assert result.lifecycle.position.position_id == closed_position.position_id
+        assert result.lifecycle.position.trade_id == closed_trade.trade_id
+        assert result.lifecycle.outcome == outcome
+        assert result.lifecycle.signal == value.signal
         assert result.lifecycle.exit_fact == value.exit_fact
 
 

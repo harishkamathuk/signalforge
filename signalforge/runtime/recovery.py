@@ -185,8 +185,12 @@ class RecoveryBootstrap:
 
         if bool(open_trades) != bool(open_positions):
             raise ContradictoryFactError("persisted trade and position active states conflict")
-        trade = open_trades[0] if open_trades else None
-        position = open_positions[0] if open_positions else None
+        trade = open_trades[0] if open_trades else (closed_trades[0] if closed_trades else None)
+        position = (
+            open_positions[0]
+            if open_positions
+            else (closed_positions[0] if closed_positions else None)
+        )
         outcome = next(
             (
                 item
