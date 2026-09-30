@@ -22,6 +22,9 @@ from signalforge.runtime.ema import Ema, EmaState
 from signalforge.runtime.macd import Macd12269, MacdState
 from signalforge.runtime.rsi import Rsi14, RsiState
 
+# Historical M6 checkpoints used this fixed shape implicitly. Keep this
+# compatibility set for legacy hydration/tests only; new engine construction
+# must receive requirements explicitly from the configured strategy.
 V1_INDICATOR_REQUIREMENTS = IndicatorRequirements.of(
     EmaRequirement(9),
     EmaRequirement(20),
