@@ -54,6 +54,7 @@ from signalforge.persistence.repositories import (
 from signalforge.runtime.indicators import (
     IndicatorContinuity,
     IndicatorEngine,
+    V1_INDICATOR_REQUIREMENTS,
     IndicatorEngineState,
 )
 
@@ -1533,7 +1534,11 @@ def test_coordinator_opened_entry_classifies_partial_graphs_explicitly(
 
 def test_indicator_checkpoint_postgres_idempotency_and_rollback(postgres_engine: Engine) -> None:
     value = facts(f"checkpoint-{uuid4().hex}")
-    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
     state = engine.state
     with Session(postgres_engine) as session:
         PostgresRunProvenanceRepository(session).add(value.run)
@@ -1560,7 +1565,11 @@ def test_indicator_checkpoint_postgres_idempotency_and_rollback(postgres_engine:
 
 def test_indicator_checkpoint_postgres_resume_is_exact(postgres_engine: Engine) -> None:
     value = facts(f"checkpoint-resume-{uuid4().hex}")
-    engine_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    engine_a = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
 
     def candle(index: int) -> CompletedCandle:
         start = AT + timedelta(minutes=5 * index)
@@ -1601,7 +1610,11 @@ def test_coordinator_completed_evaluation_rolls_back_checkpoint_and_evaluation(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
     value = facts(f"sf047-completed-{after}-{uuid4().hex}")
-    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    state = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    ).state
     with Session(postgres_engine) as setup_session:
         PostgresRunProvenanceRepository(setup_session).add(value.run)
         setup_session.commit()
@@ -1638,7 +1651,11 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch, after: int
 ) -> None:
     value = facts(f"sf047-arming-{after}-{uuid4().hex}")
-    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    state = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    ).state
     transition = _transition(
         value,
         entity=TransitionEntityType.ARMED_SETUP,
@@ -1689,7 +1706,11 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
 
 def test_indicator_checkpoint_postgres_forward_and_conflict_rules(postgres_engine: Engine) -> None:
     value = facts(f"cp-fwd-{uuid4().hex[:8]}")
-    engine = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
 
     def candle(index: int) -> CompletedCandle:
         start = AT + timedelta(minutes=5 * index)
@@ -1758,7 +1779,11 @@ def test_indicator_checkpoint_postgres_forward_and_conflict_rules(postgres_engin
 
 def test_indicator_checkpoint_requires_persisted_run(postgres_engine: Engine) -> None:
     value = facts(f"cp-missing-{uuid4().hex[:8]}")
-    state = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    state = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    ).state
     with Session(postgres_engine) as session:
         with pytest.raises(PersistenceDependencyError):
             PostgresIndicatorCheckpointRepository(session).upsert(value.run, state)
@@ -1792,7 +1817,11 @@ def _checkpoint_race_states(
             source_event_count=1,
         )
 
-    source = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1")
+    source = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
     source.update(candle(0))
     initial = source.state
     writer_a = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1", state=initial)
