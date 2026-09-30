@@ -115,7 +115,15 @@ class LifecycleCoordinator:
             raise ValueError("Actionable strategy decision must be qualified")
 
         before = self.signal_lifecycle.active
-        intent = self.strategy.arm_intent(candle, decision) if decision.actionable else None
+        if decision.actionable:
+            compulsory_exit_at = self.position_manager.forced_exit_at(candle.interval.end)
+            if candle.interval.end >= compulsory_exit_at:
+                raise ValueError(
+                    "Actionable strategy decision cannot arm at or after compulsory session exit"
+                )
+            intent = self.strategy.arm_intent(candle, decision)
+        else:
+            intent = None
         arming = self.signal_lifecycle.arm_if_actionable(
             candle,
             decision,
@@ -152,7 +160,7 @@ class LifecycleCoordinator:
             return self.snapshot()
 
         prior_state = arming.armed_setup.state
-        forced_exit_at = self.position_manager.forced_exit_at(event.exchange_timestamp)
+        forced_exit_at = self.position_manager.forced_exit_at(arming.armed_setup.armed_at)
         if event.exchange_timestamp >= forced_exit_at:
             policy = ArmedEventDecision(
                 ArmedEventAction.EXPIRE,
@@ -235,7 +243,7 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        forced_exit_at = self.position_manager.forced_exit_at(at)
+        forced_exit_at = self.position_manager.forced_exit_at(arming.armed_setup.armed_at)
         if at >= forced_exit_at:
             policy = ArmedEventDecision(
                 ArmedEventAction.EXPIRE,
