@@ -9,10 +9,10 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
     IndicatorContinuity,
     IndicatorContinuityBroken,
     IndicatorEngine,
-    V1_INDICATOR_REQUIREMENTS,
 )
 
 _INSTRUMENT = InstrumentId("NSE:TEST")
