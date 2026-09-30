@@ -16,8 +16,8 @@ from signalforge.domain.money import Price
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
-from signalforge.runtime.strategy import PositionEconomics
 from signalforge.domain.trades import Trade, TradeState
+from signalforge.runtime.strategy import PositionEconomics
 
 _FORCED_EXIT_TIME = time(15, 15)
 
