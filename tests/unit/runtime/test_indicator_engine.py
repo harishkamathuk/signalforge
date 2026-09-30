@@ -12,6 +12,7 @@ from signalforge.runtime.indicators import (
     IndicatorContinuity,
     IndicatorContinuityBroken,
     IndicatorEngine,
+    V1_INDICATOR_REQUIREMENTS,
 )
 
 _INSTRUMENT = InstrumentId("NSE:TEST")
@@ -56,7 +57,7 @@ def _candle(
 
 
 def test_partial_and_full_readiness_boundaries() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     snapshots = [engine.update(_candle(i)) for i in range(50)]
 
     assert snapshots[24].macd_line is None
@@ -74,7 +75,7 @@ def test_partial_and_full_readiness_boundaries() -> None:
 
 
 def test_invalid_candle_breaks_continuity_without_advancing_components() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     engine.update(_candle(0))
     before = engine.state
 
@@ -92,7 +93,7 @@ def test_invalid_candle_breaks_continuity_without_advancing_components() -> None
 
 
 def test_explicit_upstream_break_does_not_advance() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     engine.update(_candle(0))
     before = engine.state
 
@@ -104,7 +105,7 @@ def test_explicit_upstream_break_does_not_advance() -> None:
 
 
 def test_out_of_order_interval_breaks_continuity() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     engine.update(_candle(1))
 
     with pytest.raises(IndicatorContinuityBroken):
@@ -114,7 +115,7 @@ def test_out_of_order_interval_breaks_continuity() -> None:
 
 
 def test_legitimate_cross_session_gap_can_continue() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     first = _candle(0)
     engine.update(first)
     next_session = datetime(2026, 8, 4, 3, 45, tzinfo=UTC)
@@ -127,7 +128,7 @@ def test_legitimate_cross_session_gap_can_continue() -> None:
 
 
 def test_cross_instrument_candle_is_rejected_without_breaking_state() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
 
     with pytest.raises(ValueError, match="instrument"):
         engine.update(_candle(0, instrument_id=InstrumentId("NSE:OTHER")))
@@ -138,11 +139,11 @@ def test_cross_instrument_candle_is_rejected_without_breaking_state() -> None:
 
 def test_checkpoint_restore_matches_uninterrupted_before_and_after_readiness() -> None:
     candles = [_candle(i) for i in range(65)]
-    uninterrupted = IndicatorEngine(_INSTRUMENT, _VERSION)
+    uninterrupted = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     expected = [uninterrupted.update(candle) for candle in candles]
 
     for split in (20, 55):
-        first = IndicatorEngine(_INSTRUMENT, _VERSION)
+        first = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
         for candle in candles[:split]:
             first.update(candle)
         restored = IndicatorEngine(_INSTRUMENT, _VERSION, state=first.state)
@@ -153,8 +154,8 @@ def test_checkpoint_restore_matches_uninterrupted_before_and_after_readiness() -
 
 def test_batch_and_incremental_outputs_are_identical() -> None:
     candles = [_candle(i) for i in range(60)]
-    engine_a = IndicatorEngine(_INSTRUMENT, _VERSION)
-    engine_b = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine_a = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
+    engine_b = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
 
     outputs_a = [engine_a.update(candle) for candle in candles]
     outputs_b = []
@@ -166,7 +167,7 @@ def test_batch_and_incremental_outputs_are_identical() -> None:
 
 
 def test_checkpoint_rejects_mismatched_engine_identity() -> None:
-    engine = IndicatorEngine(_INSTRUMENT, _VERSION)
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
     engine.update(_candle(0))
 
     with pytest.raises(ValueError, match="instrument"):
