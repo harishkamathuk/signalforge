@@ -9,9 +9,8 @@ from typing import Protocol
 
 from signalforge.config.identity import ConfigIdentity
 from signalforge.domain.armed import ArmedSetupState, ExpiryReason
-from signalforge.domain.ids import SignalId
 from signalforge.domain.execution import Fill
-from signalforge.domain.ids import InstrumentId
+from signalforge.domain.ids import InstrumentId, SignalId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
