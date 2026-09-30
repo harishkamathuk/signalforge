@@ -467,3 +467,26 @@ def test_generic_lifecycle_uses_strategy_supplied_trigger_not_v1_formula() -> No
     assert result.armed_setup.raw_trigger == Price(Decimal("123.456"))
     assert result.armed_setup.tradable_trigger == Price(Decimal("123.50"))
     assert result.armed_setup.valid_until == candle.interval.end + timedelta(minutes=7)
+
+
+
+def test_same_signal_with_changed_intent_is_rejected() -> None:
+    candle = _candle()
+    evaluation = _evaluation(candle)
+    manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
+    original = _arm_intent(candle, evaluation)
+    first = manager.arm_if_actionable(candle, evaluation, original)
+    assert first is not None
+
+    changed = ArmIntent(
+        raw_trigger=Price(original.raw_trigger.value + Decimal("0.50")),
+        stop_price=original.stop_price,
+        valid_until=original.valid_until,
+    )
+
+    try:
+        manager.arm_if_actionable(candle, evaluation, changed)
+    except ValueError as exc:
+        assert "different strategy intent" in str(exc)
+    else:
+        raise AssertionError("Expected changed logical arming intent to be rejected")
