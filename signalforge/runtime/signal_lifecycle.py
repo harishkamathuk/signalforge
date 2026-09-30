@@ -12,7 +12,7 @@ from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import ceil_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import require_aware
+from signalforge.domain.time import IST, require_aware
 from signalforge.runtime.strategy import (
     ArmIntent,
     ArmedEventAction,
@@ -31,8 +31,6 @@ class SignalArmingResult:
     def __post_init__(self) -> None:
         if self.armed_setup.signal_id != self.signal.signal_id:
             raise ValueError("ArmedSetup must belong to the produced Signal")
-        if self.armed_setup.signal_low != self.signal.signal_low:
-            raise ValueError("ArmedSetup stop anchor must match the produced Signal")
 
 
 class SignalLifecycleManager:
@@ -75,8 +73,8 @@ class SignalLifecycleManager:
             return None
         if intent is None:
             raise ValueError("Actionable strategy decision requires ArmIntent")
-        if candle.close is None:
-            raise ValueError("Actionable evaluation requires signal candle close")
+        if candle.close is None or candle.low is None:
+            raise ValueError("Actionable evaluation requires signal candle close and low")
         if intent.valid_until <= candle.interval.end:
             raise ValueError("ArmIntent validity must extend beyond signal candle completion")
 
@@ -175,11 +173,11 @@ class SignalLifecycleManager:
             instrument_id=candle.instrument_id,
             interval=candle.interval,
             signal_close=candle.close,
-            signal_low=intent.stop_price,
+            signal_low=candle.low,
             run=self.run,
             created_at=created_at,
         )
-        trading_date = candle.interval.end.date()
+        trading_date = candle.interval.end.astimezone(IST).date()
         tick_size = self.tick_schedule.tick_size_on(trading_date)
         tradable_trigger = ceil_to_tick(intent.raw_trigger, tick_size)
         armed_setup = ArmedSetup(
