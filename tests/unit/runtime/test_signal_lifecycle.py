@@ -429,10 +429,20 @@ def test_wrong_instrument_market_event_is_rejected() -> None:
     assert manager.active is not None
     at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
 
+    foreign_event = _event(
+        at=at,
+        price="100.30",
+        instrument=InstrumentId("NSE:TCS"),
+    )
+    active = manager.active
+    assert active is not None
+    policy = _strategy().evaluate_armed_market_event(
+        active.signal,
+        active.armed_setup,
+        foreign_event,
+    )
     try:
-        manager.process_market_event(
-            _event(at=at, price="100.30", instrument=InstrumentId("NSE:TCS"))
-        )
+        manager.process_market_event(foreign_event, policy)
     except ValueError as exc:
         assert "MarketEvent instrument" in str(exc)
     else:
