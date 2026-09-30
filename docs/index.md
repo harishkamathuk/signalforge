@@ -5,6 +5,7 @@ This site combines human-maintained architecture and engineering documentation w
 ## Documentation sources
 
 - Architecture decisions remain canonical under `docs/architecture/decisions/`.
+- Implementation work must satisfy the [Engineering Definition of Done](engineering-definition-of-done.md).
 - Python documentation follows the [Python Documentation Standard](python-documentation-standard.md).
 - API pages are generated from source docstrings and type signatures using MkDocs and mkdocstrings.
 

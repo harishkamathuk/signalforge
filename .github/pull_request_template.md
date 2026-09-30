@@ -1,0 +1,91 @@
+## Work item
+
+- Issue / work item:
+- Applicable ADR(s) / normative specification:
+- Branch:
+- Strategy semantics changed: **No / Yes**
+- Schema or migration changed: **No / Yes**
+
+## Scope
+
+Describe what this PR implements.
+
+### Explicit non-goals
+
+State relevant work deliberately not included.
+
+## Cross-cutting engineering review
+
+- [ ] Applicable ADRs, strategy specifications and engineering standards were read.
+- [ ] No unapproved strategy-semantic change was introduced.
+- [ ] Strategy/shared-runtime ownership boundaries remain correct.
+- [ ] Domain and persistence invariants remain aligned.
+- [ ] Lifecycle/state-transition ordering was reviewed.
+- [ ] Restart/recovery and idempotency implications were reviewed where applicable.
+- [ ] Session/execution safety implications were reviewed where applicable.
+- [ ] Public Python APIs have required Google-style docstrings.
+- [ ] Mandatory rationale comments were added for non-obvious invariants/orderings.
+- [ ] Generated API documentation was updated where applicable.
+- [ ] Scope does not pull later milestone work forward without an accepted reason.
+
+If an item is not applicable, explain why below rather than silently ignoring it.
+
+## Adversarial review findings
+
+Record every material finding discovered during implementation or review.
+
+For each finding:
+
+**Finding:**
+
+**Risk:**
+
+**Correction:**
+
+**Evidence / test:**
+
+**Permanent record:** ADR / PR / source comment+test / strategy specification / not applicable
+
+If none:
+
+`No material adversarial findings.`
+
+## Documentation impact
+
+Describe:
+
+- public API/docstring changes;
+- rationale comments added;
+- MkDocs/mkdocstrings pages added or changed;
+- ADR/engineering-standard changes.
+
+If none, explain why documentation is unaffected.
+
+## Persistence / recovery impact
+
+Describe any durable-state, migration, recovery, idempotency or restart implications.
+
+If none:
+
+`No persistence/recovery impact.`
+
+## Validation
+
+- [ ] Focused tests passed
+- [ ] Full pytest suite passed
+- [ ] Ruff passed
+- [ ] strict mypy passed
+- [ ] `mkdocs build --strict` passed
+- [ ] `git diff --check` passed
+- [ ] Alembic checks passed where applicable
+- [ ] Replay/golden tests passed where applicable
+
+Evidence / counts:
+
+## Completion statement
+
+Confirm either:
+
+`Acceptance criteria satisfied; no unresolved architectural or strategy blocker.`
+
+or describe the remaining blocker explicitly.

@@ -64,6 +64,8 @@ SignalForge uses a lightweight GitFlow-style branch model:
 
 Normal feature work should enter `develop` through pull requests.
 
+Every implementation work item must satisfy the repository [Engineering Definition of Done](docs/engineering-definition-of-done.md) in addition to its issue-specific acceptance criteria. Pull requests must retain adversarial findings, validation evidence and any durable architectural clarification rather than leaving material rationale only in chat.
+
 Python source documentation follows the repository [Python Documentation Standard](docs/python-documentation-standard.md): Google-style docstrings for public APIs and mandatory rationale comments for non-obvious ordering, invariants, safety boundaries and persistence/recovery behaviour.
 
 Generated documentation uses MkDocs + mkdocstrings. Install `.[docs]` and run `mkdocs build --strict` to build the site locally.
