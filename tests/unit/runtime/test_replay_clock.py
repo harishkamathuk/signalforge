@@ -6,12 +6,12 @@ import pytest
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.exits import ExitReason
-from signalforge.domain.ids import ConfigId, InstrumentId, RunId
+from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
@@ -19,17 +19,19 @@ from signalforge.runtime.lifecycle import LifecycleState
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_clock import ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
+from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext, StrategyEvaluator
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 
 
-def _run() -> RunIdentity:
+def _run(strategy: IntradayMomentumV1Strategy) -> RunIdentity:
     return RunIdentity(
         run_id=RunId("run-041"),
-        strategy=StrategyIdentity("intraday_momentum_v1", "1.0.0"),
-        config_id=ConfigId("config-041"),
-        config_hash="hash-041",
+        strategy=strategy.identity,
+        config_id=strategy.config_identity.config_id,
+        config_hash=strategy.config_identity.config_hash,
         engine_calculation_version="engine-v1",
     )
 
@@ -54,8 +56,8 @@ def _event(hour: int, minute: int, price: str) -> MarketEvent:
     )
 
 
-def _context_factory(_candle: CompletedCandle) -> StrategyEvaluationContext:
-    return StrategyEvaluationContext(
+def _context_factory(_candle: CompletedCandle) -> StrategyRuntimeFacts:
+    return StrategyRuntimeFacts(
         completed_regular_session_candles=250,
         continuity=IndicatorContinuity.HEALTHY,
         feed_state=MarketDataFeedState.HEALTHY,
@@ -63,12 +65,13 @@ def _context_factory(_candle: CompletedCandle) -> StrategyEvaluationContext:
 
 
 def _runtime(events: tuple[MarketEvent, ...]) -> ReplayRuntime:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
     return ReplayRuntime(
         source=InMemoryReplaySource(instrument_id=INSTRUMENT, events=events),
-        run=_run(),
+        run=_run(strategy),
         tick_schedule=_schedule(),
         quantity=Quantity(10),
-        strategy_config=StrategyV1EvaluationConfig(),
+        strategy=strategy,
         evaluation_context_factory=_context_factory,
     )
 
@@ -107,7 +110,11 @@ def _actionable(candle: CompletedCandle):
     return StrategyEvaluator(StrategyV1EvaluationConfig()).evaluate(
         candle,
         snapshot,
-        _context_factory(candle),
+        StrategyEvaluationContext(
+            completed_regular_session_candles=250,
+            continuity=IndicatorContinuity.HEALTHY,
+            feed_state=MarketDataFeedState.HEALTHY,
+        ),
     )
 
 

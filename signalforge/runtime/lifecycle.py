@@ -19,7 +19,7 @@ from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
 from signalforge.runtime.signal_lifecycle import SignalArmingResult, SignalLifecycleManager
-from signalforge.runtime.strategy_evaluator import StrategyEvaluatorResult
+from signalforge.runtime.strategy import StrategyDecision
 
 
 class LifecycleState(StrEnum):
@@ -98,14 +98,17 @@ class LifecycleCoordinator:
     def process_evaluation(
         self,
         candle: CompletedCandle,
-        evaluator_result: StrategyEvaluatorResult,
+        decision: StrategyDecision,
     ) -> LifecycleSnapshot:
         """Route one already-computed strategy evaluation into Signal/ARMED creation."""
+
+        if decision.actionable and not decision.qualified:
+            raise ValueError("Actionable strategy decision must be qualified")
 
         before = self.signal_lifecycle.active
         arming = self.signal_lifecycle.arm_if_actionable(
             candle,
-            evaluator_result,
+            decision,
             open_position=self.state is LifecycleState.OPEN,
         )
         if arming is not None:
@@ -121,7 +124,7 @@ class LifecycleCoordinator:
                     from_state="none",
                     to_state=ArmedSetupState.ARMED.value,
                     cause_type="strategy_evaluation",
-                    cause_id=self._evaluation_cause_id(evaluator_result),
+                    cause_id=self._evaluation_cause_id(decision),
                     occurred_at=arming.armed_setup.armed_at,
                 )
         return self.snapshot()
@@ -283,9 +286,8 @@ class LifecycleCoordinator:
         return self._open_result.position
 
     @staticmethod
-    def _evaluation_cause_id(result: StrategyEvaluatorResult) -> str:
-        evaluation = result.evaluation
-        return f"{evaluation.instrument_id}:{evaluation.interval.start.isoformat()}"
+    def _evaluation_cause_id(decision: StrategyDecision) -> str:
+        return f"{decision.instrument_id}:{decision.interval.start.isoformat()}"
 
     @staticmethod
     def _cause_id(cause: object) -> str:

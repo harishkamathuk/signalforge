@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeSchedule
@@ -17,13 +16,14 @@ from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleSnapshot
 from signalforge.runtime.replay import ReplayInput, ReplaySource
-from signalforge.runtime.strategy_evaluator import (
-    StrategyEvaluationContext,
-    StrategyEvaluator,
-    StrategyEvaluatorResult,
+from signalforge.runtime.strategy import (
+    CompletedCandleStrategyContext,
+    Strategy,
+    StrategyDecision,
+    StrategyRuntimeFacts,
 )
 
-EvaluationContextFactory = Callable[[CompletedCandle], StrategyEvaluationContext]
+EvaluationContextFactory = Callable[[CompletedCandle], StrategyRuntimeFacts]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +33,7 @@ class ReplayRuntimeStep:
     replay_input: ReplayInput
     completed_candle: CompletedCandle | None
     indicator_snapshot: IndicatorSnapshot | None
-    evaluation: StrategyEvaluatorResult | None
+    evaluation: StrategyDecision | None
     lifecycle: LifecycleSnapshot
 
 
@@ -47,7 +47,7 @@ class ReplayRuntime:
         run: RunIdentity,
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
-        strategy_config: StrategyV1EvaluationConfig,
+        strategy: Strategy,
         evaluation_context_factory: EvaluationContextFactory,
     ) -> None:
         instrument_id = source.identity.instrument_id
@@ -57,11 +57,19 @@ class ReplayRuntime:
         self.source = source
         self.run = run
         self.candle_engine = CandleEngine(instrument_id=instrument_id)
+        if run.strategy != strategy.identity:
+            raise ValueError("Run strategy identity must match configured strategy")
+        if (
+            run.config_id != strategy.config_identity.config_id
+            or run.config_hash != strategy.config_identity.config_hash
+        ):
+            raise ValueError("Run config identity must match configured strategy")
+
         self.indicator_engine = IndicatorEngine(
             instrument_id,
             run.engine_calculation_version,
         )
-        self.strategy_evaluator = StrategyEvaluator(strategy_config)
+        self.strategy = strategy
         self.lifecycle = LifecycleCoordinator(
             run=run,
             tick_schedule=tick_schedule,
@@ -100,8 +108,16 @@ class ReplayRuntime:
 
         self.lifecycle.process_completed_candle(completed)
         snapshot = self.indicator_engine.update(completed)
-        context = self._evaluation_context_factory(completed)
-        evaluation = self.strategy_evaluator.evaluate(completed, snapshot, context)
+        facts = self._evaluation_context_factory(completed)
+        evaluation = self.strategy.evaluate_completed_candle(
+            CompletedCandleStrategyContext(
+                candle=completed,
+                indicators=snapshot,
+                completed_regular_session_candles=facts.completed_regular_session_candles,
+                continuity=facts.continuity,
+                feed_state=facts.feed_state,
+            )
+        )
         lifecycle = self.lifecycle.process_evaluation(completed, evaluation)
         return ReplayRuntimeStep(
             replay_input=replay_input,

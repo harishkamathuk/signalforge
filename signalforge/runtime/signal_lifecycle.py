@@ -14,7 +14,7 @@ from signalforge.domain.money import Price, ceil_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, require_aware
-from signalforge.runtime.strategy_evaluator import StrategyEvaluatorResult
+from signalforge.runtime.strategy import StrategyDecision
 
 _ENTRY_OFFSET = Decimal("1.001")
 _ENTRY_CUTOFF = time(15, 5)
@@ -54,7 +54,7 @@ class SignalLifecycleManager:
     def arm_if_actionable(
         self,
         candle: CompletedCandle,
-        evaluator_result: StrategyEvaluatorResult,
+        decision: StrategyDecision,
         *,
         open_position: bool = False,
     ) -> SignalArmingResult | None:
@@ -65,17 +65,16 @@ class SignalLifecycleManager:
         is blocked while another setup is ARMED or while an OPEN position exists.
         """
 
-        evaluation = evaluator_result.evaluation
-        if candle.instrument_id != evaluation.instrument_id:
+        if candle.instrument_id != decision.instrument_id:
             raise ValueError("Candle and StrategyEvaluation instruments must match")
-        if candle.interval != evaluation.interval:
+        if candle.interval != decision.interval:
             raise ValueError("Candle and StrategyEvaluation intervals must match")
         if self.tick_schedule.instrument_id != candle.instrument_id:
             raise ValueError("TickSizeSchedule instrument must match the signal candle")
         if not isinstance(open_position, bool):
             raise TypeError("open_position must be a boolean")
 
-        if not evaluation.actionable or open_position:
+        if not decision.actionable or open_position:
             return None
         if candle.close is None or candle.low is None:
             raise ValueError("Actionable evaluation requires signal candle close and low")
