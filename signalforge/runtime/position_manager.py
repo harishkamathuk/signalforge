@@ -153,7 +153,7 @@ class PositionManager:
         trade: Trade,
         event: MarketEvent,
     ) -> tuple[ExitReason, Price] | None:
-        forced_at = self._forced_exit_at(event.exchange_timestamp)
+        forced_at = self.forced_exit_at(event.exchange_timestamp)
         if event.exchange_timestamp >= forced_at:
             return ExitReason.FORCED_SESSION_EXIT, event.price
         if event.price.value <= trade.stop_price.value:
@@ -163,7 +163,7 @@ class PositionManager:
         return None
 
     @staticmethod
-    def _forced_exit_at(at: datetime) -> datetime:
+    def forced_exit_at(at: datetime) -> datetime:
         local = at.astimezone(IST)
         return datetime.combine(local.date(), _FORCED_EXIT_TIME, tzinfo=IST)
 
