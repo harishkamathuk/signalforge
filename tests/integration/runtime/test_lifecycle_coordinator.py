@@ -16,7 +16,11 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
-from signalforge.runtime.strategy import ArmIntent
+from signalforge.runtime.strategy import (
+    ArmedEventAction,
+    ArmedEventDecision,
+    ArmIntent,
+)
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
@@ -232,8 +236,6 @@ class _LateTriggerStrategy(IntradayMomentumV1Strategy):
         )
 
     def evaluate_armed_market_event(self, signal, setup, event):
-        from signalforge.runtime.strategy import ArmedEventAction, ArmedEventDecision
-
         return ArmedEventDecision(ArmedEventAction.TRIGGER, at=event.exchange_timestamp)
 
 
