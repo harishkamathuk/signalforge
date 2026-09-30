@@ -219,7 +219,7 @@ class IndicatorSnapshot:
                 raise TypeError("IndicatorSnapshot ready must be a boolean")
             if ready and any(value is None for value in legacy_values):
                 raise ValueError("Ready IndicatorSnapshot requires all indicator values")
-            readings = (
+            legacy_readings = (
                 IndicatorReading(AdxRequirement(14), adx14),
                 IndicatorReading(EmaRequirement(9), ema9),
                 IndicatorReading(EmaRequirement(20), ema20),
@@ -231,6 +231,12 @@ class IndicatorSnapshot:
                     macd_histogram,
                 ),
                 IndicatorReading(RsiRequirement(14), rsi14),
+            )
+            readings = tuple(
+                sorted(
+                    legacy_readings,
+                    key=lambda item: indicator_requirement_key(item.requirement),
+                )
             )
         object.__setattr__(self, "instrument_id", instrument_id)
         object.__setattr__(self, "interval", interval)
