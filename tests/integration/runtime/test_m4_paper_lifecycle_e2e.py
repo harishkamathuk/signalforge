@@ -294,7 +294,6 @@ def test_non_positive_risk_rejection_is_preserved_at_composed_execution_boundary
         PositionEconomics(
             stop_price=signal.signal_low,
             raw_target_price=None,
-            tradable_target_price=None,
         ),
     )
 
