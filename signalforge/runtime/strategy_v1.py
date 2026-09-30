@@ -7,16 +7,17 @@ from decimal import Decimal
 
 from signalforge.config.identity import ConfigIdentity
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
-from signalforge.domain.armed import ArmedSetup, ExpiryReason
+from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.execution import Fill
 from signalforge.domain.market import CompletedCandle, MarketEvent
-from signalforge.domain.money import Price, ceil_to_tick
+from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
 from signalforge.runtime.strategy import (
     ArmedEventAction,
     ArmedEventDecision,
+    ArmedSetupView,
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
@@ -77,7 +78,7 @@ class IntradayMomentumV1Strategy:
     def evaluate_armed_market_event(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         event: MarketEvent,
     ) -> ArmedEventDecision:
         cutoff = self._entry_cutoff(signal.interval.end)
@@ -96,7 +97,7 @@ class IntradayMomentumV1Strategy:
             )
         if event.price.value >= setup.tradable_trigger.value:
             return ArmedEventDecision(ArmedEventAction.TRIGGER, at=observed_at)
-        if event.price.value <= setup.signal_low.value:
+        if event.price.value <= setup.stop_price.value:
             return ArmedEventDecision(
                 ArmedEventAction.EXPIRE,
                 at=observed_at,
@@ -107,7 +108,7 @@ class IntradayMomentumV1Strategy:
     def evaluate_armed_completed_candle(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         candle: CompletedCandle,
     ) -> ArmedEventDecision:
         if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
@@ -128,7 +129,7 @@ class IntradayMomentumV1Strategy:
     def evaluate_armed_time(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         at: datetime,
     ) -> ArmedEventDecision:
         cutoff = self._entry_cutoff(signal.interval.end)
@@ -149,22 +150,19 @@ class IntradayMomentumV1Strategy:
     def post_fill_economics(
         self,
         fill: Fill,
-        setup: ArmedSetup,
-        tick_size: Price,
+        setup: ArmedSetupView,
     ) -> PositionEconomics:
-        stop_price = setup.signal_low
+        stop_price = setup.stop_price
         risk_value = fill.fill_price.value - stop_price.value
         if risk_value <= 0:
             return PositionEconomics(
                 stop_price=stop_price,
                 raw_target_price=None,
-                tradable_target_price=None,
             )
         raw_target = Price(fill.fill_price.value + _TARGET_R_MULTIPLE * risk_value)
         return PositionEconomics(
             stop_price=stop_price,
             raw_target_price=raw_target,
-            tradable_target_price=ceil_to_tick(raw_target, tick_size),
         )
 
     @staticmethod
