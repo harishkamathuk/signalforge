@@ -67,12 +67,10 @@ def _economics(
     *,
     stop: str = "100.00",
     raw_target: str = "102.750",
-    tradable_target: str = "102.75",
 ) -> PositionEconomics:
     return PositionEconomics(
         stop_price=Price(Decimal(stop)),
         raw_target_price=Price(Decimal(raw_target)),
-        tradable_target_price=Price(Decimal(tradable_target)),
     )
 
 
@@ -106,7 +104,7 @@ def test_position_manager_uses_supplied_stop_not_signal_low() -> None:
     result = PositionManager(tick_schedule=_schedule()).open_from_fill(
         fill,
         signal,
-        _economics(stop="100.25", raw_target="104.00", tradable_target="104.00"),
+        _economics(stop="100.25", raw_target="104.00"),
     )
 
     assert result.trade is not None
@@ -122,7 +120,6 @@ def test_non_positive_risk_is_explicitly_rejected_without_open_lifecycle() -> No
     economics = PositionEconomics(
         stop_price=Price(Decimal("101.00")),
         raw_target_price=None,
-        tradable_target_price=None,
     )
     result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal, economics)
 
@@ -152,7 +149,7 @@ def test_reference_trigger_price_does_not_drive_trade_economics() -> None:
     result = PositionManager(tick_schedule=_schedule()).open_from_fill(
         fill,
         signal,
-        _economics(stop="100.00", raw_target="103.500", tradable_target="103.50"),
+        _economics(stop="100.00", raw_target="103.500"),
     )
 
     assert fill.reference_price == Price(Decimal("101.05"))
@@ -174,3 +171,18 @@ def test_fill_and_signal_identity_mismatch_fails_fast() -> None:
         assert "identities must match" in str(exc)
     else:
         raise AssertionError("expected identity mismatch to fail")
+
+
+
+def test_position_manager_normalizes_strategy_raw_target_using_fill_date_tick_rule() -> None:
+    signal = _signal(low="99.00")
+    fill = _fill(signal, price="101.10")
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        fill,
+        signal,
+        _economics(stop="100.00", raw_target="102.751"),
+    )
+
+    assert result.trade is not None
+    assert result.trade.raw_target_price == Price(Decimal("102.751"))
+    assert result.trade.tradable_target_price == Price(Decimal("102.80"))
