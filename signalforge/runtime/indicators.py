@@ -164,7 +164,9 @@ class IndicatorEngine:
     ) -> None:
         if not calculation_version or not calculation_version.strip():
             raise ValueError("IndicatorEngine calculation_version must not be empty")
-        selected = requirements or (state.requirements if state is not None else V1_INDICATOR_REQUIREMENTS)
+        selected = requirements or (
+            state.requirements if state is not None else V1_INDICATOR_REQUIREMENTS
+        )
         if state is not None:
             if state.instrument_id != instrument_id:
                 raise ValueError("IndicatorEngine state instrument does not match engine")
@@ -187,10 +189,14 @@ class IndicatorEngine:
                 if isinstance(item, EmaRequirement)
             }
             self._rsi14 = (
-                Rsi14() if any(isinstance(item, RsiRequirement) for item in selected.items) else None
+                Rsi14()
+                if any(isinstance(item, RsiRequirement) for item in selected.items)
+                else None
             )
             self._adx14 = (
-                Adx14() if any(isinstance(item, AdxRequirement) for item in selected.items) else None
+                Adx14()
+                if any(isinstance(item, AdxRequirement) for item in selected.items)
+                else None
             )
             self._macd = (
                 Macd12269()
@@ -217,7 +223,11 @@ class IndicatorEngine:
             continuity=self._continuity,
             last_interval=self._last_interval,
             requirements=self.requirements,
-            ema_states=tuple(self._emas[item.period].state for item in self.requirements.items if isinstance(item, EmaRequirement)),
+            ema_states=tuple(
+                self._emas[item.period].state
+                for item in self.requirements.items
+                if isinstance(item, EmaRequirement)
+            ),
             rsi_state=None if self._rsi14 is None else self._rsi14.snapshot(),
             adx_state=None if self._adx14 is None else self._adx14.snapshot(),
             macd_state=None if self._macd is None else self._macd.state,
