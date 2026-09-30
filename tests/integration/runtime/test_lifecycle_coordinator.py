@@ -15,6 +15,7 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
@@ -96,7 +97,12 @@ def _event(price: str, minute: int, *, instrument: InstrumentId = INSTRUMENT) ->
 
 
 def _coordinator() -> LifecycleCoordinator:
-    return LifecycleCoordinator(run=_run(), tick_schedule=_schedule(), quantity=Quantity(10))
+    return LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=IntradayMomentumV1Strategy(StrategyV1EvaluationConfig()),
+    )
 
 
 def test_actionable_evaluation_arms_and_duplicate_is_idempotent() -> None:
