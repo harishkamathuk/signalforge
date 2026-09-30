@@ -52,9 +52,9 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
     IndicatorContinuity,
     IndicatorEngine,
-    V1_INDICATOR_REQUIREMENTS,
     IndicatorEngineState,
 )
 
