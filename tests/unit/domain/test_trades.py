@@ -222,3 +222,14 @@ def test_trade_accepts_non_v1_target_economics() -> None:
     assert trade.risk_per_share == Price(Decimal("3.35"))
     assert trade.raw_target_price == Price(Decimal("1392.00"))
     assert trade.tradable_target_price == Price(Decimal("1392.00"))
+
+
+
+def test_trade_rejects_target_at_or_below_entry_price() -> None:
+    with pytest.raises(ValueError, match="raw target must be strictly above entry"):
+        Trade.open_from_fill(
+            entry_fill=_fill(fill_price="1383.35"),
+            stop_price=Price(Decimal("1380.00")),
+            raw_target_price=Price(Decimal("1383.35")),
+            tradable_target_price=Price(Decimal("1383.35")),
+        )
