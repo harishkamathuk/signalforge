@@ -112,7 +112,10 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
     bootstrap = RecoveryBootstrap()
     with Session(postgres_engine) as session:
         result = bootstrap.inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.NEW
         assert not session.new and not session.dirty
@@ -121,7 +124,10 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
         session.commit()
     with Session(postgres_engine) as session:
         result = bootstrap.inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.RESUMABLE
         assert result.indicator_state is None
@@ -133,7 +139,10 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
     _commit_armed_setup(postgres_engine, armed)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=armed.run, instrument_id=armed.signal.instrument_id
+            session=session,
+            requested_run=armed.run,
+            instrument_id=armed.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.lifecycle.setup is not None
         assert result.lifecycle.setup.state is ArmedSetupState.ARMED
@@ -152,7 +161,10 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         session.commit()
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=opened.run, instrument_id=opened.signal.instrument_id
+            session=session,
+            requested_run=opened.run,
+            instrument_id=opened.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert (
             result.lifecycle.trade is not None and result.lifecycle.trade.state is TradeState.OPEN
@@ -210,7 +222,10 @@ def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -
         )
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.lifecycle.trade is not None
         assert result.lifecycle.trade.state is TradeState.CLOSED
@@ -234,7 +249,10 @@ def test_recovery_postgres_restores_exact_indicator_checkpoint(postgres_engine: 
         session.commit()
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
     assert result.disposition is RecoveryDisposition.RESUMABLE
     assert result.indicator_state == state
@@ -262,7 +280,10 @@ def test_recovery_postgres_inspection_does_not_change_durable_graph(
         before = _durable_counts(session)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.RESUMABLE
     with Session(postgres_engine) as session:
