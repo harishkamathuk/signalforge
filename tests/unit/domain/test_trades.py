@@ -55,7 +55,8 @@ def _trade() -> Trade:
     return Trade.open_from_fill(
         entry_fill=_fill(),
         stop_price=Price(Decimal("1379.50")),
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("1389.125")),
+        tradable_target_price=Price(Decimal("1389.15")),
     )
 
 
@@ -78,7 +79,8 @@ def test_trade_risk_uses_actual_fill_not_reference_price() -> None:
     trade = Trade.open_from_fill(
         entry_fill=_fill(fill_price="1383.35"),
         stop_price=Price(Decimal("1380.00")),
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("1388.375")),
+        tradable_target_price=Price(Decimal("1388.40")),
     )
 
     assert trade.entry_price == Price(Decimal("1383.35"))
@@ -92,14 +94,16 @@ def test_trade_rejects_zero_or_negative_risk_before_open() -> None:
         Trade.open_from_fill(
             entry_fill=_fill(fill_price="1383.35"),
             stop_price=Price(Decimal("1383.35")),
-            target_tick_size=Price(Decimal("0.05")),
+            raw_target_price=Price(Decimal("1389.125")),
+        tradable_target_price=Price(Decimal("1389.15")),
         )
 
     with pytest.raises(ValueError, match="strictly positive before OPEN"):
         Trade.open_from_fill(
             entry_fill=_fill(fill_price="1383.35"),
             stop_price=Price(Decimal("1384.00")),
-            target_tick_size=Price(Decimal("0.05")),
+            raw_target_price=Price(Decimal("1389.125")),
+        tradable_target_price=Price(Decimal("1389.15")),
         )
 
 
@@ -199,8 +203,22 @@ def test_fill_reference_is_retained() -> None:
     trade = Trade.open_from_fill(
         entry_fill=fill,
         stop_price=Price(Decimal("1379.50")),
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("1389.125")),
+        tradable_target_price=Price(Decimal("1389.15")),
     )
 
     assert trade.entry_fill_id == fill.fill_id
     assert isinstance(trade.entry_fill_id, FillId)
+
+
+def test_trade_accepts_non_v1_target_economics() -> None:
+    trade = Trade.open_from_fill(
+        entry_fill=_fill(fill_price="1383.35"),
+        stop_price=Price(Decimal("1380.00")),
+        raw_target_price=Price(Decimal("1392.00")),
+        tradable_target_price=Price(Decimal("1392.00")),
+    )
+
+    assert trade.risk_per_share == Price(Decimal("3.35"))
+    assert trade.raw_target_price == Price(Decimal("1392.00"))
+    assert trade.tradable_target_price == Price(Decimal("1392.00"))
