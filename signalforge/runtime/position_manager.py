@@ -12,7 +12,7 @@ from signalforge.domain.identity import canonical_decimal, canonical_timestamp
 from signalforge.domain.ids import FillId, TradeId, deterministic_id
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import MarketEvent
-from signalforge.domain.money import Price
+from signalforge.domain.money import Price, ceil_to_tick
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
@@ -90,13 +90,16 @@ class PositionManager:
             self._remember(fill, signal, economics, result)
             return result
 
-        if economics.raw_target_price is None or economics.tradable_target_price is None:
-            raise ValueError("Positive-risk Fill requires complete target economics")
+        if economics.raw_target_price is None:
+            raise ValueError("Positive-risk Fill requires raw target economics")
+        trading_date = fill.filled_at.astimezone(IST).date()
+        tick_size = self.tick_schedule.tick_size_on(trading_date)
+        tradable_target_price = ceil_to_tick(economics.raw_target_price, tick_size)
         trade = Trade.open_from_fill(
             entry_fill=fill,
             stop_price=economics.stop_price,
             raw_target_price=economics.raw_target_price,
-            tradable_target_price=economics.tradable_target_price,
+            tradable_target_price=tradable_target_price,
         )
         position = Position.open_from_trade(trade=trade)
         result = PositionOpenResult(trade=trade, position=position)
