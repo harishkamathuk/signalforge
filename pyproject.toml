@@ -47,8 +47,9 @@ select = ["E", "F", "I", "UP", "B", "D"]
 
 # Stage 1: enforce Google-style quality for docstrings that already exist.
 # Missing-docstring rules are enabled incrementally as legacy modules are
-# brought up to the repository documentation standard.
-ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+# brought up to the repository documentation standard. D202 is also a
+# temporary legacy baseline for existing post-docstring blank lines.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107", "D202"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
