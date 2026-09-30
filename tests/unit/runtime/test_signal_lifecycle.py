@@ -15,7 +15,7 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.signal_lifecycle import SignalLifecycleManager
-from signalforge.runtime.strategy import ArmIntent
+from signalforge.runtime.strategy import ArmedSetupView, ArmIntent
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
@@ -100,12 +100,27 @@ def _arm_intent(candle: CompletedCandle, evaluation=None) -> ArmIntent:
     return _strategy().arm_intent(candle, decision)
 
 
+def _setup_view(manager: SignalLifecycleManager) -> ArmedSetupView:
+    active = manager.active
+    assert active is not None
+    setup = active.armed_setup
+    return ArmedSetupView(
+        signal_id=setup.signal_id,
+        raw_trigger=setup.raw_trigger,
+        tradable_trigger=setup.tradable_trigger,
+        stop_price=setup.signal_low,
+        armed_at=setup.armed_at,
+        valid_until=setup.valid_until,
+        state=setup.state,
+    )
+
+
 def _process_event(manager: SignalLifecycleManager, event: MarketEvent):
     active = manager.active
     assert active is not None
     policy = _strategy().evaluate_armed_market_event(
         active.signal,
-        active.armed_setup,
+        _setup_view(manager),
         event,
     )
     return manager.process_market_event(event, policy)
@@ -116,7 +131,7 @@ def _process_completed(manager: SignalLifecycleManager, candle: CompletedCandle)
     assert active is not None
     policy = _strategy().evaluate_armed_completed_candle(
         active.signal,
-        active.armed_setup,
+        _setup_view(manager),
         candle,
     )
     manager.process_completed_candle(candle, policy)
@@ -125,7 +140,7 @@ def _process_completed(manager: SignalLifecycleManager, candle: CompletedCandle)
 def _process_time(manager: SignalLifecycleManager, at: datetime) -> None:
     active = manager.active
     assert active is not None
-    policy = _strategy().evaluate_armed_time(active.signal, active.armed_setup, at)
+    policy = _strategy().evaluate_armed_time(active.signal, _setup_view(manager), at)
     manager.process_time(at, policy)
 
 
