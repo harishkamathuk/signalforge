@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.audit import TransitionEntityType
 from signalforge.domain.ids import ConfigId, InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorSnapshot
@@ -15,6 +16,7 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
+from signalforge.runtime.strategy import ArmIntent
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
@@ -216,3 +218,83 @@ def test_new_actionable_signal_can_start_after_closed_without_losing_audit_histo
     assert snapshot.state is LifecycleState.ARMED
     assert snapshot.exit is None
     assert len(coordinator.audit_transitions) == prior_audit_count + 1
+
+
+
+class _LateTriggerStrategy(IntradayMomentumV1Strategy):
+    def arm_intent(self, candle, decision):
+        if candle.low is None:
+            raise ValueError("test candle requires low")
+        return ArmIntent(
+            raw_trigger=Price(Decimal("100.20")),
+            stop_price=candle.low,
+            valid_until=candle.interval.end.replace(hour=16, minute=0),
+        )
+
+    def evaluate_armed_market_event(self, signal, setup, event):
+        from signalforge.runtime.strategy import ArmedEventAction, ArmedEventDecision
+
+        return ArmedEventDecision(ArmedEventAction.TRIGGER, at=event.exchange_timestamp)
+
+
+class _NonPositiveRiskStrategy(IntradayMomentumV1Strategy):
+    def arm_intent(self, candle, decision):
+        return ArmIntent(
+            raw_trigger=Price(Decimal("100.20")),
+            stop_price=Price(Decimal("101.00")),
+            valid_until=candle.interval.end + timedelta(minutes=5),
+        )
+
+    def post_fill_economics(self, fill, setup, tick_size):
+        raise AssertionError("post-fill target economics must not run for non-positive risk")
+
+
+def test_shared_session_safety_blocks_strategy_trigger_after_1515() -> None:
+    strategy = _LateTriggerStrategy(StrategyV1EvaluationConfig())
+    coordinator = LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    candle = _candle()
+    coordinator.process_evaluation(candle, _evaluation(candle))
+    late_at = datetime(2026, 8, 31, 15, 16, tzinfo=IST)
+    late_event = MarketEvent(
+        instrument_id=INSTRUMENT,
+        exchange_timestamp=late_at,
+        received_timestamp=late_at,
+        price=Price(Decimal("200.00")),
+        quantity=1,
+        source="test",
+        source_event_id="late-trigger",
+    )
+
+    snapshot = coordinator.process_market_event(late_event)
+
+    assert snapshot.state is LifecycleState.EXPIRED
+    assert snapshot.execution is None
+    assert snapshot.arming is not None
+    assert snapshot.arming.armed_setup.expiry_reason is ExpiryReason.ENTRY_CUTOFF_REACHED
+    assert snapshot.arming.armed_setup.terminal_at == datetime(
+        2026, 8, 31, 15, 15, tzinfo=IST
+    )
+
+
+def test_non_positive_risk_rejects_before_post_fill_target_economics() -> None:
+    strategy = _NonPositiveRiskStrategy(StrategyV1EvaluationConfig())
+    coordinator = LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    candle = _candle()
+    coordinator.process_evaluation(candle, _evaluation(candle))
+
+    snapshot = coordinator.process_market_event(_event("100.30", 1))
+
+    assert snapshot.execution is not None
+    assert snapshot.open_result is not None
+    assert snapshot.open_result.opened is False
+    assert snapshot.open_result.rejection is not None
