@@ -163,9 +163,12 @@ class IndicatorEngine:
     ) -> None:
         if not calculation_version or not calculation_version.strip():
             raise ValueError("IndicatorEngine calculation_version must not be empty")
-        if requirements is None and state is None:
-            raise ValueError("IndicatorEngine requires explicit indicator requirements")
-        selected = state.requirements if requirements is None else requirements
+        if requirements is None:
+            if state is None:
+                raise ValueError("IndicatorEngine requires explicit indicator requirements")
+            selected = state.requirements
+        else:
+            selected = requirements
         if state is not None:
             if state.instrument_id != instrument_id:
                 raise ValueError("IndicatorEngine state instrument does not match engine")
