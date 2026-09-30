@@ -20,6 +20,7 @@ from signalforge.domain.positions import PositionState
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
+from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.persistence.models import (
     ArmedSetupRecord,
     ExitRecord,
@@ -321,7 +322,7 @@ def test_recovery_postgres_restores_rsi_only_checkpoint_and_validates_requiremen
 
     with Session(postgres_engine) as session:
         with pytest.raises(
-            Exception,
+            ContradictoryFactError,
             match="checkpoint requirements contradict requested strategy",
         ):
             RecoveryBootstrap().inspect(
