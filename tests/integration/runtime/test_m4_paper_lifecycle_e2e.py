@@ -18,6 +18,8 @@ from signalforge.runtime.execution import PaperExecutionPort
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.position_manager import PositionManager, PositionOpenRejection
+from signalforge.runtime.strategy import PositionEconomics
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext, StrategyEvaluator
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
@@ -103,7 +105,12 @@ def _event(
 
 
 def _coordinator() -> LifecycleCoordinator:
-    return LifecycleCoordinator(run=_run(), tick_schedule=_schedule(), quantity=QUANTITY)
+    return LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=QUANTITY,
+        strategy=IntradayMomentumV1Strategy(StrategyV1EvaluationConfig()),
+    )
 
 
 def test_full_happy_path_reaches_closed_with_exact_economics_and_audit() -> None:
@@ -281,7 +288,15 @@ def test_non_positive_risk_rejection_is_preserved_at_composed_execution_boundary
         run=_run(),
     )
     execution = PaperExecutionPort().execute(trigger, quantity=QUANTITY)
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(execution.fill, signal)
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        execution.fill,
+        signal,
+        PositionEconomics(
+            stop_price=signal.signal_low,
+            raw_target_price=None,
+            tradable_target_price=None,
+        ),
+    )
 
     assert result.opened is False
     assert result.rejection is PositionOpenRejection.NON_POSITIVE_RISK
