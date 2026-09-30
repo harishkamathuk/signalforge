@@ -6,7 +6,17 @@ docs_dir: docs
 nav:
   - Home: index.md
   - Python Documentation Standard: python-documentation-standard.md
+  - Engineering Guides:
+      - Persistence Development: persistence-development.md
+      - Replay CLI: replay-cli.md
   - Architecture:
+      - ADR-001 — Single-Security MVP Runtime Architecture: architecture/decisions/ADR-001-single-security-mvp-runtime-architecture.md
+      - ADR-002 — Core Domain Models & State Machines: architecture/decisions/ADR-002-core-domain-models-state-machines.md
+      - ADR-003 — Persistence, Recovery & Idempotency Contract: architecture/decisions/ADR-003-persistence-recovery-idempotency-contract.md
+      - ADR-004 — Runtime Interfaces & Component Contracts: architecture/decisions/ADR-004-runtime-interfaces-component-contracts.md
+      - ADR-005 — Market Data & Candle Contract: architecture/decisions/ADR-005-market-data-candle-contract.md
+      - ADR-006 — Indicator Engine Contract: architecture/decisions/ADR-006-indicator-engine-contract.md
+      - ADR-007 — Paper Execution & Fill Model: architecture/decisions/ADR-007-paper-execution-fill-model.md
       - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
   - API:
       - Strategy Runtime: api/strategy-runtime.md
