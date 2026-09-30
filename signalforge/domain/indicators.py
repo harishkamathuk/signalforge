@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
 
