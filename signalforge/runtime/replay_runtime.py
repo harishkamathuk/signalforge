@@ -68,6 +68,7 @@ class ReplayRuntime:
         self.indicator_engine = IndicatorEngine(
             instrument_id,
             run.engine_calculation_version,
+            requirements=strategy.indicator_requirements,
         )
         self.strategy = strategy
         self.lifecycle = LifecycleCoordinator(
