@@ -131,7 +131,8 @@ def test_complete_m1_domain_vertical() -> None:
     trade = Trade.open_from_fill(
         entry_fill=fill,
         stop_price=signal.signal_low,
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("103.500")),
+        tradable_target_price=Price(Decimal("103.50")),
     )
     position = Position.open_from_trade(trade=trade)
 
