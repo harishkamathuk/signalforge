@@ -172,7 +172,7 @@ class IndicatorReading:
         return self.value is not None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class IndicatorSnapshot:
     """Indicator values produced for one completed canonical candle.
 
@@ -185,6 +185,56 @@ class IndicatorSnapshot:
     interval: CandleInterval
     calculation_version: str
     readings: tuple[IndicatorReading, ...]
+
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        interval: CandleInterval,
+        calculation_version: str,
+        readings: tuple[IndicatorReading, ...] | None = None,
+        *,
+        ready: bool | None = None,
+        ema9: Decimal | None = None,
+        ema20: Decimal | None = None,
+        ema50: Decimal | None = None,
+        rsi14: Decimal | None = None,
+        adx14: Decimal | None = None,
+        macd_line: Decimal | None = None,
+        macd_signal: Decimal | None = None,
+        macd_histogram: Decimal | None = None,
+    ) -> None:
+        """Create generic readings, accepting the legacy V1 constructor during migration."""
+
+        if readings is not None and ready is not None:
+            raise ValueError("Explicit readings must not also provide legacy ready")
+        if readings is None:
+            legacy_values = (
+                ema9,
+                ema20,
+                ema50,
+                rsi14,
+                adx14,
+                macd_line,
+                macd_signal,
+                macd_histogram,
+            )
+            if ready is not None and not isinstance(ready, bool):
+                raise TypeError("IndicatorSnapshot ready must be a boolean")
+            if ready and any(value is None for value in legacy_values):
+                raise ValueError("Ready IndicatorSnapshot requires all indicator values")
+            readings = (
+                IndicatorReading(AdxRequirement(14), adx14),
+                IndicatorReading(EmaRequirement(9), ema9),
+                IndicatorReading(EmaRequirement(20), ema20),
+                IndicatorReading(EmaRequirement(50), ema50),
+                IndicatorReading(MacdRequirement(12, 26, 9), macd_line, macd_signal, macd_histogram),
+                IndicatorReading(RsiRequirement(14), rsi14),
+            )
+        object.__setattr__(self, "instrument_id", instrument_id)
+        object.__setattr__(self, "interval", interval)
+        object.__setattr__(self, "calculation_version", calculation_version)
+        object.__setattr__(self, "readings", readings)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if not self.calculation_version or not self.calculation_version.strip():
