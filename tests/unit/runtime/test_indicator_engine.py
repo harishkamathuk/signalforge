@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
@@ -172,3 +173,35 @@ def test_checkpoint_rejects_mismatched_engine_identity() -> None:
         IndicatorEngine(InstrumentId("NSE:OTHER"), _VERSION, state=engine.state)
     with pytest.raises(ValueError, match="version"):
         IndicatorEngine(_INSTRUMENT, "other-version", state=engine.state)
+
+
+
+def test_rsi_only_requirements_do_not_instantiate_other_indicator_state() -> None:
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=requirements)
+
+    snapshots = [engine.update(_candle(i)) for i in range(15)]
+
+    assert engine.state.requirements == requirements
+    assert engine.state.ema_states == ()
+    assert engine.state.adx_state is None
+    assert engine.state.macd_state is None
+    assert engine.state.rsi_state is not None
+    assert snapshots[-1].rsi(14) is not None
+    assert snapshots[-1].ready is True
+    with pytest.raises(KeyError, match="ema:9"):
+        snapshots[-1].ema(9)
+
+
+def test_checkpoint_restore_rejects_requirement_shape_mismatch() -> None:
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    engine = IndicatorEngine(_INSTRUMENT, _VERSION, requirements=requirements)
+    engine.update(_candle(0))
+
+    with pytest.raises(ValueError, match="requirements"):
+        IndicatorEngine(
+            _INSTRUMENT,
+            _VERSION,
+            requirements=IndicatorRequirements.of(RsiRequirement(14), EmaRequirement(9)),
+            state=engine.state,
+        )
