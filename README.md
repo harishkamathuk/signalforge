@@ -75,6 +75,15 @@ Architecture discovery is complete for the MVP. The following ADRs are accepted:
 - ADR-005 — Market Data & Candle Contract
 - ADR-006 — Indicator Engine Contract
 - ADR-007 — Paper Execution & Fill Model
+- [ADR-008 — Strategy Runtime Boundary](docs/architecture/decisions/ADR-008-strategy-runtime-boundary.md)
+
+### ADR source of truth
+
+Git is canonical for SignalForge architecture decision records from ADR-008 onward.
+
+ADR-001 through ADR-007 predate the standalone ADR-file convention. Their accepted titles are retained here and their implementation contracts remain evidenced through the corresponding GitHub issues, code and tests. They are not reconstructed unless a future concrete need requires recovery of a specific historical decision.
+
+GitHub issues and pull requests retain discussion, implementation scope and evidence. External governance or architecture documents may summarize or point to ADRs, but should not maintain a competing copy of the canonical ADR text.
 
 Current implementation milestone:
 
