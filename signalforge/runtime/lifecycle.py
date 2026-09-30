@@ -115,7 +115,8 @@ class LifecycleCoordinator:
             raise ValueError("Actionable strategy decision must be qualified")
 
         before = self.signal_lifecycle.active
-        if decision.actionable:
+        open_position = self.state is LifecycleState.OPEN
+        if decision.actionable and not open_position:
             compulsory_exit_at = self.position_manager.forced_exit_at(candle.interval.end)
             if candle.interval.end >= compulsory_exit_at:
                 raise ValueError(
@@ -128,7 +129,7 @@ class LifecycleCoordinator:
             candle,
             decision,
             intent,
-            open_position=self.state is LifecycleState.OPEN,
+            open_position=open_position,
         )
         if arming is not None:
             if before is not arming:
