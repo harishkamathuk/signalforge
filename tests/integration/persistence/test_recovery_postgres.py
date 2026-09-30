@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetupState
 from signalforge.domain.audit import TransitionEntityType
+from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
@@ -265,3 +266,70 @@ def test_recovery_postgres_inspection_does_not_change_durable_graph(
         assert result.disposition is RecoveryDisposition.RESUMABLE
     with Session(postgres_engine) as session:
         assert _durable_counts(session) == before
+
+
+
+def test_recovery_postgres_restores_rsi_only_checkpoint_and_validates_requirements(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-rsi-only-{uuid4().hex[:8]}")
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=requirements,
+    )
+    for offset in range(20):
+        close = Decimal("100.12345678901234567890") + Decimal(offset) / Decimal(
+            "10000000000000000000"
+        )
+        engine.update(
+            CompletedCandle(
+                instrument_id=value.signal.instrument_id,
+                interval=CandleInterval.five_minutes(
+                    value.evaluation.interval.start + timedelta(minutes=5 * offset)
+                ),
+                quality=CandleQuality.VALID,
+                open=Price(close),
+                high=Price(close + Decimal("0.02")),
+                low=Price(close - Decimal("0.03")),
+                close=Price(close),
+                volume=100 + offset,
+                source="recovery-rsi-only",
+                source_event_count=1,
+            )
+        )
+    state = engine.state
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        PostgresIndicatorCheckpointRepository(session).upsert(value.run, state)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        matched = RecoveryBootstrap().inspect(
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=requirements,
+        )
+        assert matched.indicator_state == state
+        assert matched.indicator_state is not None
+        assert matched.indicator_state.ema_states == ()
+        assert matched.indicator_state.adx_state is None
+        assert matched.indicator_state.macd_state is None
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            Exception,
+            match="checkpoint requirements contradict requested strategy",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=IndicatorRequirements.of(
+                    RsiRequirement(14),
+                    EmaRequirement(9),
+                ),
+            )
