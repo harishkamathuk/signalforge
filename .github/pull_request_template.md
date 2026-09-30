@@ -36,10 +36,14 @@ Record every material finding discovered during implementation or review.
 
 For each finding:
 
-**Finding:**  
-**Risk:**  
-**Correction:**  
-**Evidence / test:**  
+**Finding:**
+
+**Risk:**
+
+**Correction:**
+
+**Evidence / test:**
+
 **Permanent record:** ADR / PR / source comment+test / strategy specification / not applicable
 
 If none:
