@@ -19,13 +19,13 @@ from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
-from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
-from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext
+from signalforge.runtime.strategy import StrategyDecision, StrategyRuntimeFacts
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 
 class ReplayTickRuleConfig(BaseModel):
@@ -93,7 +93,8 @@ def _build_runtime(
         for item in parsed_events
     )
     source = InMemoryReplaySource(instrument_id=instrument_id, events=events)
-    config_identity = config.strategy.identify()
+    strategy = IntradayMomentumV1Strategy(config.strategy)
+    config_identity = strategy.config_identity
     run_id = deterministic_id(
         RunId,
         config_identity.config_hash,
@@ -102,7 +103,7 @@ def _build_runtime(
     )
     run = RunIdentity(
         run_id=run_id,
-        strategy=config.strategy.strategy_identity,
+        strategy=strategy.identity,
         config_id=config_identity.config_id,
         config_hash=config_identity.config_hash,
         engine_calculation_version=config.engine_calculation_version,
@@ -120,10 +121,10 @@ def _build_runtime(
     )
     completed_count = 0
 
-    def context_factory(_candle: object) -> StrategyEvaluationContext:
+    def context_factory(_candle: object) -> StrategyRuntimeFacts:
         nonlocal completed_count
         completed_count += 1
-        return StrategyEvaluationContext(
+        return StrategyRuntimeFacts(
             completed_regular_session_candles=completed_count,
             continuity=IndicatorContinuity.HEALTHY,
             feed_state=MarketDataFeedState.HEALTHY,
@@ -134,7 +135,7 @@ def _build_runtime(
         run=run,
         tick_schedule=tick_schedule,
         quantity=Quantity(config.quantity),
-        strategy_config=config.strategy,
+        strategy=strategy,
         evaluation_context_factory=context_factory,
     )
     return runtime, ReplaySessionClock(runtime=runtime)
@@ -144,12 +145,12 @@ def _summary(
     runtime: ReplayRuntime,
     clock_steps: tuple[ReplayClockStep, ...],
 ) -> dict[str, object]:
-    evaluations: list[StrategyEvaluation] = []
+    evaluations: list[StrategyDecision] = []
     rejection_fill_ids: set[str] = set()
     for step in clock_steps:
         runtime_step = step.runtime_step
         if runtime_step.evaluation is not None:
-            evaluations.append(runtime_step.evaluation.evaluation)
+            evaluations.append(runtime_step.evaluation)
         lifecycle = runtime_step.lifecycle
         if (
             lifecycle.open_result is not None
@@ -160,7 +161,7 @@ def _summary(
 
     reason_counts: Counter[str] = Counter()
     for evaluation in evaluations:
-        reason_counts.update(reason.value for reason in evaluation.reasons)
+        reason_counts.update(evaluation.reasons)
 
     transitions = runtime.lifecycle.audit_transitions
     signals = sum(

@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CompletedCandle
 from signalforge.domain.strategy import DecisionReason, StrategyEvaluation
+from signalforge.domain.time import CandleInterval
 from signalforge.runtime.eligibility import (
     EvaluationGuardResult,
     MarketDataFeedState,
@@ -41,6 +43,26 @@ class StrategyEvaluatorResult:
             raise ValueError(
                 "StrategyEvaluation actionability must equal qualified AND guard actionable"
             )
+
+    @property
+    def instrument_id(self) -> InstrumentId:
+        return self.evaluation.instrument_id
+
+    @property
+    def interval(self) -> CandleInterval:
+        return self.evaluation.interval
+
+    @property
+    def qualified(self) -> bool:
+        return self.evaluation.qualified
+
+    @property
+    def actionable(self) -> bool:
+        return self.evaluation.actionable
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        return tuple(reason.value for reason in self.evaluation.reasons)
 
 
 class StrategyEvaluator:

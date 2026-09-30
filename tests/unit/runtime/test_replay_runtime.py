@@ -1,31 +1,34 @@
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
+from signalforge.config.identity import identify_config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
-from signalforge.domain.ids import ConfigId, InstrumentId, RunId
+from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
-from signalforge.domain.time import IST
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleState
 from signalforge.runtime.replay import InMemoryReplaySource, ReplayInput
 from signalforge.runtime.replay_runtime import ReplayRuntime
-from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext
+from signalforge.runtime.strategy import CompletedCandleStrategyContext, StrategyRuntimeFacts
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 
 
-def _run() -> RunIdentity:
+def _run_for(strategy) -> RunIdentity:
     return RunIdentity(
         run_id=RunId("run-040"),
-        strategy=StrategyIdentity("intraday_momentum_v1", "1.0.0"),
-        config_id=ConfigId("config-040"),
-        config_hash="hash-040",
+        strategy=strategy.identity,
+        config_id=strategy.config_identity.config_id,
+        config_hash=strategy.config_identity.config_hash,
         engine_calculation_version="engine-v1",
     )
 
@@ -51,7 +54,7 @@ def _event(minute: int, price: str) -> MarketEvent:
 
 
 def _context_factory(_candle):
-    return StrategyEvaluationContext(
+    return StrategyRuntimeFacts(
         completed_regular_session_candles=250,
         continuity=IndicatorContinuity.HEALTHY,
         feed_state=MarketDataFeedState.HEALTHY,
@@ -60,12 +63,13 @@ def _context_factory(_candle):
 
 def _runtime(events: tuple[MarketEvent, ...]) -> ReplayRuntime:
     source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
     return ReplayRuntime(
         source=source,
-        run=_run(),
+        run=_run_for(strategy),
         tick_schedule=_schedule(),
         quantity=Quantity(10),
-        strategy_config=StrategyV1EvaluationConfig(),
+        strategy=strategy,
         evaluation_context_factory=_context_factory,
     )
 
@@ -108,12 +112,13 @@ def test_evaluation_context_is_requested_only_for_completed_candles() -> None:
         instrument_id=INSTRUMENT,
         events=(_event(0, "100"), _event(1, "101"), _event(5, "102")),
     )
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
     runtime = ReplayRuntime(
         source=source,
-        run=_run(),
+        run=_run_for(strategy),
         tick_schedule=_schedule(),
         quantity=Quantity(10),
-        strategy_config=StrategyV1EvaluationConfig(),
+        strategy=strategy,
         evaluation_context_factory=context_factory,
     )
 
@@ -124,14 +129,15 @@ def test_evaluation_context_is_requested_only_for_completed_candles() -> None:
 
 def test_rejects_tick_schedule_for_different_instrument() -> None:
     source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=())
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
 
     with pytest.raises(ValueError, match="tick schedule instruments must match"):
         ReplayRuntime(
             source=source,
-            run=_run(),
+            run=_run_for(strategy),
             tick_schedule=_schedule(InstrumentId("NSE:TCS")),
             quantity=Quantity(10),
-            strategy_config=StrategyV1EvaluationConfig(),
+            strategy=strategy,
             evaluation_context_factory=_context_factory,
         )
 
@@ -148,12 +154,13 @@ def test_rejects_replay_input_from_different_source_identity() -> None:
 def test_process_input_is_serial_and_does_not_consume_future_source_items() -> None:
     events = (_event(0, "100"), _event(5, "101"))
     source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
     runtime = ReplayRuntime(
         source=source,
-        run=_run(),
+        run=_run_for(strategy),
         tick_schedule=_schedule(),
         quantity=Quantity(10),
-        strategy_config=StrategyV1EvaluationConfig(),
+        strategy=strategy,
         evaluation_context_factory=_context_factory,
     )
     iterator = iter(source)
@@ -165,3 +172,55 @@ def test_process_input_is_serial_and_does_not_consume_future_source_items() -> N
     assert runtime.candle_engine.active_interval is not None
     assert runtime.indicator_engine.state.ema9.samples == 0
     assert next(iterator).sequence == 1
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeDecision:
+    instrument_id: InstrumentId
+    interval: CandleInterval
+    qualified: bool = False
+    actionable: bool = False
+    reasons: tuple[str, ...] = ("fake_not_met",)
+
+
+class _FakeStrategy:
+    def __init__(self) -> None:
+        self.identity = StrategyIdentity("test_fake_strategy", "1.0.0")
+        self.config_identity = identify_config(
+            {"strategy_id": "test_fake_strategy", "strategy_version": "1.0.0"}
+        )
+        self.contexts: list[CompletedCandleStrategyContext] = []
+
+    def evaluate_completed_candle(
+        self, context: CompletedCandleStrategyContext
+    ) -> _FakeDecision:
+        self.contexts.append(context)
+        return _FakeDecision(
+            instrument_id=context.candle.instrument_id,
+            interval=context.candle.interval,
+        )
+
+
+def test_runtime_accepts_strategy_without_v1_decomposition() -> None:
+    strategy = _FakeStrategy()
+    source = InMemoryReplaySource(
+        instrument_id=INSTRUMENT,
+        events=(_event(0, "100"), _event(5, "101")),
+    )
+    runtime = ReplayRuntime(
+        source=source,
+        run=_run_for(strategy),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+        evaluation_context_factory=_context_factory,
+    )
+
+    steps = runtime.run_all()
+
+    assert len(strategy.contexts) == 1
+    assert steps[-1].evaluation is not None
+    assert steps[-1].evaluation.reasons == ("fake_not_met",)
+    assert not hasattr(steps[-1].evaluation, "trend")
+    assert not hasattr(steps[-1].evaluation, "momentum")
+    assert not hasattr(steps[-1].evaluation, "setup")

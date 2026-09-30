@@ -10,10 +10,12 @@ from signalforge.domain.strategy import DecisionReason
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import EvaluationGuardReason, MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
+from signalforge.runtime.strategy import CompletedCandleStrategyContext
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
 )
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 
@@ -197,3 +199,27 @@ def test_insufficient_warmup_retains_qualification_but_blocks_actionability() ->
         DecisionReason.QUALIFIED_NOT_ACTIONABLE,
     )
     assert result.guard.reasons == (EvaluationGuardReason.INSUFFICIENT_WARMUP,)
+
+
+def test_v1_adapter_preserves_evaluator_output_and_identity() -> None:
+    config = StrategyV1EvaluationConfig()
+    candle = _candle()
+    snapshot = _snapshot()
+    evaluation_context = _context()
+    expected = StrategyEvaluator(config).evaluate(candle, snapshot, evaluation_context)
+    strategy = IntradayMomentumV1Strategy(config)
+
+    actual = strategy.evaluate_completed_candle(
+        CompletedCandleStrategyContext(
+            candle=candle,
+            indicators=snapshot,
+            completed_regular_session_candles=evaluation_context.completed_regular_session_candles,
+            continuity=evaluation_context.continuity,
+            feed_state=evaluation_context.feed_state,
+        )
+    )
+
+    assert actual == expected
+    assert strategy.identity == config.strategy_identity
+    assert strategy.config_identity == config.identify()
+    assert actual.reasons == tuple(reason.value for reason in expected.evaluation.reasons)
