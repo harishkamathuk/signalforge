@@ -19,8 +19,8 @@ from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.position_manager import PositionManager, PositionOpenRejection
 from signalforge.runtime.strategy import PositionEconomics
-from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext, StrategyEvaluator
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 QUANTITY = Quantity(10)
