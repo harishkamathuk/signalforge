@@ -53,7 +53,7 @@ def test_ready_snapshot_is_immutable_and_retains_version() -> None:
     assert snapshot.rsi14 == Decimal("61.5")
 
     with pytest.raises(FrozenInstanceError):
-        snapshot.ready = False  # type: ignore[misc]
+        snapshot.calculation_version = "other"  # type: ignore[misc]
 
 
 def test_unready_snapshot_may_contain_partial_seeded_values() -> None:
@@ -84,12 +84,12 @@ def test_readiness_is_derived_from_declared_requirement_values() -> None:
 
 
 def test_indicator_values_must_be_decimal_when_present() -> None:
-    with pytest.raises(TypeError, match="rsi14 must be a Decimal"):
+    with pytest.raises(TypeError, match="Indicator reading value must be a Decimal"):
         _ready_snapshot(rsi14=61.5)
 
 
 def test_indicator_values_must_be_finite() -> None:
-    with pytest.raises(ValueError, match="macd_line must be finite"):
+    with pytest.raises(ValueError, match="Indicator reading value must be finite"):
         _ready_snapshot(macd_line=Decimal("Infinity"))
 
 
