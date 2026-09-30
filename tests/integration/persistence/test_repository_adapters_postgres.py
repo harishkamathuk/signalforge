@@ -1734,12 +1734,11 @@ def test_indicator_checkpoint_postgres_forward_and_conflict_rules(postgres_engin
             repo.upsert(value.run, replace(second, calculation_version="checkpoint-v2"))
         inconsistent = replace(
             second,
-            ema_states=(
-                replace(
-                    second.ema9,
-                    seed_sum=second.ema9.seed_sum + Decimal("1"),
-                ),
-                *second.ema_states[1:],
+            ema_states=tuple(
+                replace(state, seed_sum=state.seed_sum + Decimal("1"))
+                if state.period == 9
+                else state
+                for state in second.ema_states
             ),
         )
         with pytest.raises(ContradictoryFactError):
