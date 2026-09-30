@@ -74,6 +74,7 @@ class ReplayRuntime:
             run=run,
             tick_schedule=tick_schedule,
             quantity=quantity,
+            strategy=strategy,
         )
         self._evaluation_context_factory = evaluation_context_factory
 
