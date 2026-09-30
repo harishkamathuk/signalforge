@@ -43,10 +43,20 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "D"]
+
+# Stage 1: enforce Google-style quality for docstrings that already exist.
+# Missing-docstring rules are enabled incrementally as legacy modules are
+# brought up to the repository documentation standard.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"alembic/versions/20260831_0001_initial_runtime_schema.py" = ["E501", "I001"]
+"tests/**/*.py" = ["D"]
+"alembic/**/*.py" = ["D"]
+"alembic/versions/20260831_0001_initial_runtime_schema.py" = ["E501", "I001", "D"]
 
 [tool.mypy]
 python_version = "3.12"
