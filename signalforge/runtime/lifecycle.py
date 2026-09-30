@@ -14,7 +14,7 @@ from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
-from signalforge.domain.time import require_aware
+from signalforge.domain.time import IST, require_aware
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
@@ -158,7 +158,7 @@ class LifecycleCoordinator:
 
         self._execution = self.execution_port.execute(trigger, quantity=self.quantity)
         fill = self._execution.fill
-        trading_date = fill.filled_at.date()
+        trading_date = fill.filled_at.astimezone(IST).date()
         tick_size = self.tick_schedule.tick_size_on(trading_date)
         economics = self.strategy.post_fill_economics(
             fill,
