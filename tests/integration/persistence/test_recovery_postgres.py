@@ -38,7 +38,11 @@ from signalforge.persistence.repositories import (
     PostgresPositionOpenOutcomeRepository,
     PostgresRunProvenanceRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngine, IndicatorEngineState
+from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
+    IndicatorEngine,
+    IndicatorEngineState,
+)
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import (
     Facts,
