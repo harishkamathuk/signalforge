@@ -916,10 +916,12 @@ class PostgresIndicatorCheckpointRepository(_PostgresRepository):
             return persisted
         if persisted.calculation_version != state.calculation_version:
             raise ContradictoryFactError("indicator checkpoint calculation version changed")
+        if persisted.requirements != state.requirements:
+            raise ContradictoryFactError("indicator checkpoint requirements changed")
         if persisted.continuity.value == "broken" and state.continuity.value == "healthy":
             raise ContradictoryFactError("indicator checkpoint cannot restore broken continuity")
-        old_samples = persisted.ema9.samples
-        new_samples = state.ema9.samples
+        old_samples = persisted.completed_candle_count
+        new_samples = state.completed_candle_count
         same_interval = persisted.last_interval == state.last_interval
         breaks_continuity = (
             same_interval
