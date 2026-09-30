@@ -63,7 +63,7 @@ class RecoveryBootstrap:
         session: Session,
         requested_run: RunIdentity,
         instrument_id: InstrumentId,
-        indicator_requirements: IndicatorRequirements | None = None,
+        indicator_requirements: IndicatorRequirements,
     ) -> RecoveryResult:
         """Inspect persisted state without mutation.
 
@@ -148,11 +148,7 @@ class RecoveryBootstrap:
             raise ContradictoryFactError(
                 "persisted indicator checkpoint contradicts requested runtime"
             )
-        if (
-            checkpoint is not None
-            and indicator_requirements is not None
-            and checkpoint.requirements != indicator_requirements
-        ):
+        if checkpoint is not None and checkpoint.requirements != indicator_requirements:
             raise ContradictoryFactError(
                 "persisted indicator checkpoint requirements contradict requested strategy"
             )
