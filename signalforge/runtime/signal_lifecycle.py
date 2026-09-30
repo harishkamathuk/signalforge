@@ -82,12 +82,39 @@ class SignalLifecycleManager:
 
         if self._active is not None and self._active.armed_setup.state is ArmedSetupState.ARMED:
             if self._active.signal.signal_id == candidate.signal.signal_id:
+                if not self._same_arming_facts(self._active, candidate):
+                    raise ValueError(
+                        "Logical signal was already armed with different strategy intent"
+                    )
                 return self._active
             return None
 
         self._active = candidate
         self._trigger_event = None
         return candidate
+
+    @staticmethod
+    def _same_arming_facts(
+        first: SignalArmingResult,
+        second: SignalArmingResult,
+    ) -> bool:
+        first_setup = first.armed_setup
+        second_setup = second.armed_setup
+        return first.signal == second.signal and (
+            first_setup.signal_id,
+            first_setup.raw_trigger,
+            first_setup.tradable_trigger,
+            first_setup.signal_low,
+            first_setup.armed_at,
+            first_setup.valid_until,
+        ) == (
+            second_setup.signal_id,
+            second_setup.raw_trigger,
+            second_setup.tradable_trigger,
+            second_setup.signal_low,
+            second_setup.armed_at,
+            second_setup.valid_until,
+        )
 
     def process_market_event(
         self,
