@@ -21,6 +21,7 @@ nav:
       - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
   - API:
       - Strategy Runtime: api/strategy-runtime.md
+      - Indicators: api/indicators.md
 
 plugins:
   - search
