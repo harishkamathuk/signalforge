@@ -116,6 +116,6 @@ No Strategy V1 signal, entry, stop, target, validity, exit, session-timing, or i
 
 Git is canonical for SignalForge architecture decision records from ADR-008 onward.
 
-ADR-001 through ADR-007 predate the repository's standalone ADR-file convention. Their accepted titles remain recorded in the project README and their implementation contracts are evidenced through the corresponding GitHub issues, code and tests. They are not reconstructed unless a future concrete need requires recovery of a specific historical decision.
+ADR-001 through ADR-007 predate the repository's standalone ADR-file convention. A later concrete historical-recovery need resulted in retrospective reference ADR files being reconstructed from the contemporaneous 02.01 Strategy Framework & Architecture conversation. Those files are explicitly historical references only; they do not become part of the Git-native ADR series and must not override ADR-008 or later accepted decisions, current strategy specifications, implementation contracts or tested system behaviour.
 
 GitHub issues and pull requests retain discussion, implementation scope and evidence. Google Drive governance and architecture material may summarize or point to ADRs, but must not become an independently maintained competing ADR source of truth.

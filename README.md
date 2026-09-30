@@ -68,20 +68,22 @@ Normal feature work should enter `develop` through pull requests.
 
 Architecture discovery is complete for the MVP. The following ADRs are accepted:
 
-- ADR-001 — Single-Security MVP Runtime Architecture
-- ADR-002 — Core Domain Models & State Machines
-- ADR-003 — Persistence, Recovery & Idempotency Contract
-- ADR-004 — Runtime Interfaces & Component Contracts
-- ADR-005 — Market Data & Candle Contract
-- ADR-006 — Indicator Engine Contract
-- ADR-007 — Paper Execution & Fill Model
+- [ADR-001 — Single-Security MVP Runtime Architecture](docs/architecture/decisions/ADR-001-single-security-mvp-runtime-architecture.md)
+- [ADR-002 — Core Domain Models & State Machines](docs/architecture/decisions/ADR-002-core-domain-models-state-machines.md)
+- [ADR-003 — Persistence, Recovery & Idempotency Contract](docs/architecture/decisions/ADR-003-persistence-recovery-idempotency-contract.md)
+- [ADR-004 — Runtime Interfaces & Component Contracts](docs/architecture/decisions/ADR-004-runtime-interfaces-component-contracts.md)
+- [ADR-005 — Market Data & Candle Contract](docs/architecture/decisions/ADR-005-market-data-candle-contract.md)
+- [ADR-006 — Indicator Engine Contract](docs/architecture/decisions/ADR-006-indicator-engine-contract.md)
+- [ADR-007 — Paper Execution & Fill Model](docs/architecture/decisions/ADR-007-paper-execution-fill-model.md)
 - [ADR-008 — Strategy Runtime Boundary](docs/architecture/decisions/ADR-008-strategy-runtime-boundary.md)
 
 ### ADR source of truth
 
 Git is canonical for SignalForge architecture decision records from ADR-008 onward.
 
-ADR-001 through ADR-007 predate the standalone ADR-file convention. Their accepted titles are retained here and their implementation contracts remain evidenced through the corresponding GitHub issues, code and tests. They are not reconstructed unless a future concrete need requires recovery of a specific historical decision.
+ADR-001 through ADR-007 predate the standalone ADR-file convention. Their accepted decisions have now been retrospectively reconstructed from the contemporaneous 02.01 Strategy Framework & Architecture conversation and are retained in Git as clearly marked historical-reference ADRs. They do not become part of the Git-native ADR series and must not override later accepted ADRs, current strategy specifications, implementation contracts or tested system behaviour.
+
+ADR-008 and later remain the formal Git-native ADR series.
 
 GitHub issues and pull requests retain discussion, implementation scope and evidence. External governance or architecture documents may summarize or point to ADRs, but should not maintain a competing copy of the canonical ADR text.
 
