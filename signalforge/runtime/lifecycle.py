@@ -102,6 +102,9 @@ class LifecycleCoordinator:
     ) -> LifecycleSnapshot:
         """Route one already-computed strategy evaluation into Signal/ARMED creation."""
 
+        if decision.actionable and not decision.qualified:
+            raise ValueError("Actionable strategy decision must be qualified")
+
         before = self.signal_lifecycle.active
         arming = self.signal_lifecycle.arm_if_actionable(
             candle,
