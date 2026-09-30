@@ -66,6 +66,8 @@ Normal feature work should enter `develop` through pull requests.
 
 Python source documentation follows the repository [Python Documentation Standard](docs/python-documentation-standard.md): Google-style docstrings for public APIs and mandatory rationale comments for non-obvious ordering, invariants, safety boundaries and persistence/recovery behaviour.
 
+Generated documentation uses MkDocs + mkdocstrings. Install `.[docs]` and run `mkdocs build --strict` to build the site locally.
+
 ## Current Status
 
 Architecture discovery is complete for the MVP. The following ADRs are accepted:
