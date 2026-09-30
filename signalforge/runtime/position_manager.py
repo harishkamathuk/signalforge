@@ -16,6 +16,7 @@ from signalforge.domain.money import Price
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
+from signalforge.runtime.strategy import PositionEconomics
 from signalforge.domain.trades import Trade, TradeState
 
 _FORCED_EXIT_TIME = time(15, 15)
@@ -59,38 +60,47 @@ class PositionManager:
         self.tick_schedule = tick_schedule
         self._results: dict[FillId, PositionOpenResult] = {}
         self._signals: dict[FillId, str] = {}
+        self._economics: dict[FillId, PositionEconomics] = {}
         self._exits: dict[TradeId, Exit] = {}
 
-    def open_from_fill(self, fill: Fill, signal: Signal) -> PositionOpenResult:
-        """Process one Fill idempotently using the signal-candle low as stop."""
+    def open_from_fill(
+        self,
+        fill: Fill,
+        signal: Signal,
+        economics: PositionEconomics,
+    ) -> PositionOpenResult:
+        """Process one Fill idempotently using accepted strategy economics."""
 
         self._validate_contract(fill, signal)
         prior = self._results.get(fill.fill_id)
         if prior is not None:
             if self._signals[fill.fill_id] != str(signal.signal_id):
                 raise ValueError("Fill was already processed against a different Signal")
+            if self._economics[fill.fill_id] != economics:
+                raise ValueError("Fill was already processed with different strategy economics")
             return prior
 
-        risk_value = fill.fill_price.value - signal.signal_low.value
+        risk_value = fill.fill_price.value - economics.stop_price.value
         if risk_value <= 0:
             result = PositionOpenResult(
                 trade=None,
                 position=None,
                 rejection=PositionOpenRejection.NON_POSITIVE_RISK,
             )
-            self._remember(fill, signal, result)
+            self._remember(fill, signal, economics, result)
             return result
 
-        trading_date = fill.filled_at.astimezone(IST).date()
-        tick_size = self.tick_schedule.tick_size_on(trading_date)
+        if economics.raw_target_price is None or economics.tradable_target_price is None:
+            raise ValueError("Positive-risk Fill requires complete target economics")
         trade = Trade.open_from_fill(
             entry_fill=fill,
-            stop_price=signal.signal_low,
-            target_tick_size=tick_size,
+            stop_price=economics.stop_price,
+            raw_target_price=economics.raw_target_price,
+            tradable_target_price=economics.tradable_target_price,
         )
         position = Position.open_from_trade(trade=trade)
         result = PositionOpenResult(trade=trade, position=position)
-        self._remember(fill, signal, result)
+        self._remember(fill, signal, economics, result)
         return result
 
     def process_market_event(
@@ -188,6 +198,13 @@ class PositionManager:
         if event.exchange_timestamp < trade.opened_at:
             raise ValueError("Exit market event must not precede Trade open timestamp")
 
-    def _remember(self, fill: Fill, signal: Signal, result: PositionOpenResult) -> None:
+    def _remember(
+        self,
+        fill: Fill,
+        signal: Signal,
+        economics: PositionEconomics,
+        result: PositionOpenResult,
+    ) -> None:
         self._results[fill.fill_id] = result
         self._signals[fill.fill_id] = str(signal.signal_id)
+        self._economics[fill.fill_id] = economics
