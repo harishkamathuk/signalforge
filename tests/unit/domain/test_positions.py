@@ -52,7 +52,8 @@ def _trade() -> Trade:
     return Trade.open_from_fill(
         entry_fill=fill,
         stop_price=Price(Decimal("1379.50")),
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("1389.125")),
+        tradable_target_price=Price(Decimal("1389.15")),
     )
 
 
