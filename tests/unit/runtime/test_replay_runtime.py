@@ -224,3 +224,37 @@ def test_runtime_accepts_strategy_without_v1_decomposition() -> None:
     assert not hasattr(steps[-1].evaluation, "trend")
     assert not hasattr(steps[-1].evaluation, "momentum")
     assert not hasattr(steps[-1].evaluation, "setup")
+
+
+
+class _ContradictoryStrategy(_FakeStrategy):
+    def evaluate_completed_candle(
+        self, context: CompletedCandleStrategyContext
+    ) -> _FakeDecision:
+        self.contexts.append(context)
+        return _FakeDecision(
+            instrument_id=context.candle.instrument_id,
+            interval=context.candle.interval,
+            qualified=False,
+            actionable=True,
+            reasons=("contradictory",),
+        )
+
+
+def test_runtime_rejects_actionable_unqualified_strategy_decision() -> None:
+    strategy = _ContradictoryStrategy()
+    source = InMemoryReplaySource(
+        instrument_id=INSTRUMENT,
+        events=(_event(0, "100"), _event(5, "101")),
+    )
+    runtime = ReplayRuntime(
+        source=source,
+        run=_run_for(strategy),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+        evaluation_context_factory=_context_factory,
+    )
+
+    with pytest.raises(ValueError, match="Actionable strategy decision must be qualified"):
+        runtime.run_all()
