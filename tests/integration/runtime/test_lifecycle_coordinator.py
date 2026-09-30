@@ -19,6 +19,7 @@ from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.strategy import (
     ArmedEventAction,
     ArmedEventDecision,
+    ArmedSetupView,
     ArmIntent,
 )
 from signalforge.runtime.strategy_evaluator import (
@@ -223,6 +224,36 @@ def test_new_actionable_signal_can_start_after_closed_without_losing_audit_histo
     assert snapshot.exit is None
     assert len(coordinator.audit_transitions) == prior_audit_count + 1
 
+
+
+
+class _ViewCaptureStrategy(IntradayMomentumV1Strategy):
+    def __init__(self) -> None:
+        super().__init__(StrategyV1EvaluationConfig())
+        self.seen_setup: ArmedSetupView | None = None
+
+    def evaluate_armed_market_event(self, signal, setup, event):
+        self.seen_setup = setup
+        return super().evaluate_armed_market_event(signal, setup, event)
+
+
+def test_strategy_receives_read_only_armed_setup_view() -> None:
+    strategy = _ViewCaptureStrategy()
+    coordinator = LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    candle = _candle()
+    coordinator.process_evaluation(candle, _evaluation(candle))
+
+    coordinator.process_market_event(_event("100.00", 1))
+
+    assert strategy.seen_setup is not None
+    assert isinstance(strategy.seen_setup, ArmedSetupView)
+    assert not hasattr(strategy.seen_setup, "trigger")
+    assert not hasattr(strategy.seen_setup, "expire")
 
 
 class _LateTriggerStrategy(IntradayMomentumV1Strategy):
