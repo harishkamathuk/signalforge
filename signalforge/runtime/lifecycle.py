@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from signalforge.domain.armed import ArmedSetupState
+from signalforge.domain.armed import ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.exits import Exit
 from signalforge.domain.instruments import TickSizeSchedule
@@ -19,7 +19,13 @@ from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
 from signalforge.runtime.signal_lifecycle import SignalArmingResult, SignalLifecycleManager
-from signalforge.runtime.strategy import Strategy, StrategyDecision
+from signalforge.runtime.strategy import (
+    ArmedEventAction,
+    ArmedEventDecision,
+    PositionEconomics,
+    Strategy,
+    StrategyDecision,
+)
 
 
 class LifecycleState(StrEnum):
@@ -146,11 +152,19 @@ class LifecycleCoordinator:
             return self.snapshot()
 
         prior_state = arming.armed_setup.state
-        policy = self.strategy.evaluate_armed_market_event(
-            arming.signal,
-            arming.armed_setup,
-            event,
-        )
+        forced_exit_at = self.position_manager.forced_exit_at(event.exchange_timestamp)
+        if event.exchange_timestamp >= forced_exit_at:
+            policy = ArmedEventDecision(
+                ArmedEventAction.EXPIRE,
+                at=forced_exit_at,
+                expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
+            )
+        else:
+            policy = self.strategy.evaluate_armed_market_event(
+                arming.signal,
+                arming.armed_setup,
+                event,
+            )
         trigger = self.signal_lifecycle.process_market_event(event, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, event)
         if trigger is None:
@@ -158,13 +172,21 @@ class LifecycleCoordinator:
 
         self._execution = self.execution_port.execute(trigger, quantity=self.quantity)
         fill = self._execution.fill
-        trading_date = fill.filled_at.astimezone(IST).date()
-        tick_size = self.tick_schedule.tick_size_on(trading_date)
-        economics = self.strategy.post_fill_economics(
-            fill,
-            arming.armed_setup,
-            tick_size,
-        )
+        stop_price = arming.armed_setup.signal_low
+        if fill.fill_price.value <= stop_price.value:
+            economics = PositionEconomics(
+                stop_price=stop_price,
+                raw_target_price=None,
+                tradable_target_price=None,
+            )
+        else:
+            trading_date = fill.filled_at.astimezone(IST).date()
+            tick_size = self.tick_schedule.tick_size_on(trading_date)
+            economics = self.strategy.post_fill_economics(
+                fill,
+                arming.armed_setup,
+                tick_size,
+            )
         self._open_result = self.position_manager.open_from_fill(
             fill,
             arming.signal,
@@ -213,11 +235,19 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        policy = self.strategy.evaluate_armed_time(
-            arming.signal,
-            arming.armed_setup,
-            at,
-        )
+        forced_exit_at = self.position_manager.forced_exit_at(at)
+        if at >= forced_exit_at:
+            policy = ArmedEventDecision(
+                ArmedEventAction.EXPIRE,
+                at=forced_exit_at,
+                expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
+            )
+        else:
+            policy = self.strategy.evaluate_armed_time(
+                arming.signal,
+                arming.armed_setup,
+                at,
+            )
         self.signal_lifecycle.process_time(at, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, at)
         return self.snapshot()
