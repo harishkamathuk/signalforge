@@ -15,10 +15,12 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.signal_lifecycle import SignalLifecycleManager
+from signalforge.runtime.strategy import ArmedSetupView, ArmIntent
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
 )
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 
@@ -89,6 +91,59 @@ def _evaluation(candle: CompletedCandle, *, rsi14: str = "60"):
     )
 
 
+def _strategy() -> IntradayMomentumV1Strategy:
+    return IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+
+
+def _arm_intent(candle: CompletedCandle, evaluation=None) -> ArmIntent:
+    decision = evaluation or _evaluation(candle)
+    return _strategy().arm_intent(candle, decision)
+
+
+def _setup_view(manager: SignalLifecycleManager) -> ArmedSetupView:
+    active = manager.active
+    assert active is not None
+    setup = active.armed_setup
+    return ArmedSetupView(
+        signal_id=setup.signal_id,
+        raw_trigger=setup.raw_trigger,
+        tradable_trigger=setup.tradable_trigger,
+        stop_price=setup.signal_low,
+        armed_at=setup.armed_at,
+        valid_until=setup.valid_until,
+        state=setup.state,
+    )
+
+
+def _process_event(manager: SignalLifecycleManager, event: MarketEvent):
+    active = manager.active
+    assert active is not None
+    policy = _strategy().evaluate_armed_market_event(
+        active.signal,
+        _setup_view(manager),
+        event,
+    )
+    return manager.process_market_event(event, policy)
+
+
+def _process_completed(manager: SignalLifecycleManager, candle: CompletedCandle) -> None:
+    active = manager.active
+    assert active is not None
+    policy = _strategy().evaluate_armed_completed_candle(
+        active.signal,
+        _setup_view(manager),
+        candle,
+    )
+    manager.process_completed_candle(candle, policy)
+
+
+def _process_time(manager: SignalLifecycleManager, at: datetime) -> None:
+    active = manager.active
+    assert active is not None
+    policy = _strategy().evaluate_armed_time(active.signal, _setup_view(manager), at)
+    manager.process_time(at, policy)
+
+
 def _schedule() -> TickSizeSchedule:
     return TickSizeSchedule(
         instrument_id=INSTRUMENT,
@@ -121,7 +176,7 @@ def _event(*, at: datetime, price: str, instrument: InstrumentId = INSTRUMENT) -
 def _armed_manager(*, end_hour: int = 10, end_minute: int = 0) -> SignalLifecycleManager:
     candle = _candle(interval=_interval(end_hour=end_hour, end_minute=end_minute))
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
-    result = manager.arm_if_actionable(candle, _evaluation(candle))
+    result = manager.arm_if_actionable(candle, _evaluation(candle), _arm_intent(candle))
     assert result is not None
     return manager
 
@@ -130,7 +185,7 @@ def test_actionable_evaluation_creates_signal_and_immediately_arms_setup() -> No
     candle = _candle()
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    result = manager.arm_if_actionable(candle, _evaluation(candle))
+    result = manager.arm_if_actionable(candle, _evaluation(candle), _arm_intent(candle))
 
     assert result is not None
     assert manager.active is result
@@ -148,7 +203,7 @@ def test_raw_trigger_is_exact_point_one_percent_and_tradable_trigger_ceil_to_tic
     candle = _candle(close="100.11")
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    result = manager.arm_if_actionable(candle, _evaluation(candle))
+    result = manager.arm_if_actionable(candle, _evaluation(candle), _arm_intent(candle))
 
     assert result is not None
     assert result.armed_setup.raw_trigger == Price(Decimal("100.21011"))
@@ -164,7 +219,7 @@ def test_effective_dated_tick_rule_is_resolved_from_signal_trading_date() -> Non
     candle = _candle(interval=interval, close="100.11")
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    result = manager.arm_if_actionable(candle, _evaluation(candle))
+    result = manager.arm_if_actionable(candle, _evaluation(candle), _arm_intent(candle))
 
     assert result is not None
     assert result.armed_setup.raw_trigger == Price(Decimal("100.21011"))
@@ -176,8 +231,8 @@ def test_duplicate_processing_returns_same_logical_facts() -> None:
     evaluation = _evaluation(candle)
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    first = manager.arm_if_actionable(candle, evaluation)
-    second = manager.arm_if_actionable(candle, evaluation)
+    first = manager.arm_if_actionable(candle, evaluation, _arm_intent(candle, evaluation))
+    second = manager.arm_if_actionable(candle, evaluation, _arm_intent(candle, evaluation))
 
     assert first is not None
     assert second is first
@@ -193,8 +248,12 @@ def test_existing_armed_setup_blocks_different_actionable_evaluation() -> None:
     second_candle = _candle(interval=next_interval, close="101.00", low="100.00")
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    first = manager.arm_if_actionable(first_candle, _evaluation(first_candle))
-    second = manager.arm_if_actionable(second_candle, _evaluation(second_candle))
+    first = manager.arm_if_actionable(
+        first_candle, _evaluation(first_candle), _arm_intent(first_candle)
+    )
+    second = manager.arm_if_actionable(
+        second_candle, _evaluation(second_candle), _arm_intent(second_candle)
+    )
 
     assert first is not None
     assert second is None
@@ -205,7 +264,9 @@ def test_open_position_blocks_new_actionable_setup() -> None:
     candle = _candle()
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    result = manager.arm_if_actionable(candle, _evaluation(candle), open_position=True)
+    result = manager.arm_if_actionable(
+        candle, _evaluation(candle), _arm_intent(candle), open_position=True
+    )
 
     assert result is None
     assert manager.active is None
@@ -215,7 +276,7 @@ def test_non_actionable_evaluation_creates_no_lifecycle_facts() -> None:
     candle = _candle()
     manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
 
-    result = manager.arm_if_actionable(candle, _evaluation(candle, rsi14="57"))
+    result = manager.arm_if_actionable(candle, _evaluation(candle, rsi14="57"), None)
 
     assert result is None
     assert manager.active is None
@@ -235,7 +296,7 @@ def test_tick_schedule_instrument_mismatch_is_rejected() -> None:
     manager = SignalLifecycleManager(run=_run(), tick_schedule=schedule)
 
     try:
-        manager.arm_if_actionable(candle, _evaluation(candle))
+        manager.arm_if_actionable(candle, _evaluation(candle), _arm_intent(candle))
     except ValueError as exc:
         assert "TickSizeSchedule instrument" in str(exc)
     else:
@@ -247,7 +308,7 @@ def test_trigger_equality_creates_trigger_event_and_terminal_state() -> None:
     assert manager.active is not None
     at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
 
-    event = manager.process_market_event(_event(at=at, price="100.30"))
+    event = _process_event(manager, _event(at=at, price="100.30"))
 
     assert event is not None
     assert event.reference_price == Price(Decimal("100.30"))
@@ -264,8 +325,8 @@ def test_signal_low_equality_expires_before_later_trigger() -> None:
     first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
     later_at = first_at + timedelta(seconds=1)
 
-    first = manager.process_market_event(_event(at=first_at, price="99.00"))
-    later = manager.process_market_event(_event(at=later_at, price="101.00"))
+    first = _process_event(manager, _event(at=first_at, price="99.00"))
+    later = _process_event(manager, _event(at=later_at, price="101.00"))
 
     assert first is None
     assert later is None
@@ -280,10 +341,10 @@ def test_neutral_trade_keeps_setup_armed_until_later_trigger() -> None:
     first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
     later_at = first_at + timedelta(seconds=1)
 
-    assert manager.process_market_event(_event(at=first_at, price="100.00")) is None
+    assert _process_event(manager, _event(at=first_at, price="100.00")) is None
     assert manager.active.armed_setup.state is ArmedSetupState.ARMED
 
-    triggered = manager.process_market_event(_event(at=later_at, price="100.31"))
+    triggered = _process_event(manager, _event(at=later_at, price="100.31"))
     assert triggered is not None
     assert triggered.observed_price == Price(Decimal("100.31"))
 
@@ -293,7 +354,7 @@ def test_market_event_at_validity_window_end_expires_without_trigger() -> None:
     assert manager.active is not None
     at = manager.active.armed_setup.valid_until
 
-    event = manager.process_market_event(_event(at=at, price="101.00"))
+    event = _process_event(manager, _event(at=at, price="101.00"))
 
     assert event is None
     assert manager.active.armed_setup.state is ArmedSetupState.EXPIRED
@@ -311,7 +372,7 @@ def test_following_candle_completion_expires_untriggered_setup() -> None:
         low="99.50",
     )
 
-    manager.process_completed_candle(following)
+    _process_completed(manager, following)
 
     assert setup.state is ArmedSetupState.EXPIRED
     assert setup.expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
@@ -323,14 +384,14 @@ def test_event_just_before_1505_can_trigger_but_1505_cannot() -> None:
     assert manager.active is not None
     before = datetime(2026, 8, 31, 15, 4, 59, 999999, tzinfo=IST)
 
-    triggered = manager.process_market_event(_event(at=before, price="100.30"))
+    triggered = _process_event(manager, _event(at=before, price="100.30"))
 
     assert triggered is not None
     assert manager.active.armed_setup.state is ArmedSetupState.TRIGGERED
 
     second = _armed_manager(end_hour=15, end_minute=0)
     at_cutoff = datetime(2026, 8, 31, 15, 5, tzinfo=IST)
-    blocked = second.process_market_event(_event(at=at_cutoff, price="100.30"))
+    blocked = _process_event(second, _event(at=at_cutoff, price="100.30"))
 
     assert blocked is None
     assert second.active is not None
@@ -343,7 +404,7 @@ def test_clock_at_1505_expires_remaining_armed_setup() -> None:
     manager = _armed_manager(end_hour=15, end_minute=0)
     at_cutoff = datetime(2026, 8, 31, 15, 5, tzinfo=IST)
 
-    manager.process_time(at_cutoff)
+    _process_time(manager, at_cutoff)
 
     assert manager.active is not None
     assert manager.active.armed_setup.state is ArmedSetupState.EXPIRED
@@ -356,8 +417,8 @@ def test_terminal_trigger_replay_returns_same_trigger_event() -> None:
     first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
     later_at = first_at + timedelta(seconds=1)
 
-    first = manager.process_market_event(_event(at=first_at, price="100.30"))
-    replay = manager.process_market_event(_event(at=later_at, price="101.00"))
+    first = _process_event(manager, _event(at=first_at, price="100.30"))
+    replay = _process_event(manager, _event(at=later_at, price="101.00"))
 
     assert first is not None
     assert replay is first
@@ -370,8 +431,8 @@ def test_terminal_expiry_replay_is_noop() -> None:
     first_at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
     later_at = first_at + timedelta(seconds=1)
 
-    manager.process_market_event(_event(at=first_at, price="99.00"))
-    replay = manager.process_market_event(_event(at=later_at, price="101.00"))
+    _process_event(manager, _event(at=first_at, price="99.00"))
+    replay = _process_event(manager, _event(at=later_at, price="101.00"))
 
     assert replay is None
     assert manager.active.armed_setup.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
@@ -383,11 +444,64 @@ def test_wrong_instrument_market_event_is_rejected() -> None:
     assert manager.active is not None
     at = manager.active.armed_setup.armed_at + timedelta(seconds=1)
 
+    foreign_event = _event(
+        at=at,
+        price="100.30",
+        instrument=InstrumentId("NSE:TCS"),
+    )
+    active = manager.active
+    assert active is not None
+    policy = _strategy().evaluate_armed_market_event(
+        active.signal,
+        active.armed_setup,
+        foreign_event,
+    )
     try:
-        manager.process_market_event(
-            _event(at=at, price="100.30", instrument=InstrumentId("NSE:TCS"))
-        )
+        manager.process_market_event(foreign_event, policy)
     except ValueError as exc:
         assert "MarketEvent instrument" in str(exc)
     else:
         raise AssertionError("Expected mismatched market event instrument to be rejected")
+
+
+def test_generic_lifecycle_uses_strategy_supplied_trigger_not_v1_formula() -> None:
+    candle = _candle(close="100.11")
+    evaluation = _evaluation(candle)
+    manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
+    intent = ArmIntent(
+        raw_trigger=Price(Decimal("123.456")),
+        stop_price=Price(Decimal("98.50")),
+        valid_until=candle.interval.end + timedelta(minutes=7),
+    )
+
+    result = manager.arm_if_actionable(candle, evaluation, intent)
+
+    assert result is not None
+    assert result.signal.signal_low == candle.low
+    assert result.armed_setup.signal_low == Price(Decimal("98.50"))
+    assert result.armed_setup.raw_trigger == Price(Decimal("123.456"))
+    assert result.armed_setup.tradable_trigger == Price(Decimal("123.50"))
+    assert result.armed_setup.valid_until == candle.interval.end + timedelta(minutes=7)
+
+
+
+def test_same_signal_with_changed_intent_is_rejected() -> None:
+    candle = _candle()
+    evaluation = _evaluation(candle)
+    manager = SignalLifecycleManager(run=_run(), tick_schedule=_schedule())
+    original = _arm_intent(candle, evaluation)
+    first = manager.arm_if_actionable(candle, evaluation, original)
+    assert first is not None
+
+    changed = ArmIntent(
+        raw_trigger=Price(original.raw_trigger.value + Decimal("0.50")),
+        stop_price=original.stop_price,
+        valid_until=original.valid_until,
+    )
+
+    try:
+        manager.arm_if_actionable(candle, evaluation, changed)
+    except ValueError as exc:
+        assert "different strategy intent" in str(exc)
+    else:
+        raise AssertionError("Expected changed logical arming intent to be rejected")

@@ -1,23 +1,24 @@
-"""Signal creation and ARMED lifecycle management for Strategy V1."""
+"""Generic Signal creation and ARMED lifecycle mechanism."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
-from decimal import Decimal
+from datetime import datetime
 
-from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
+from signalforge.domain.armed import ArmedSetup, ArmedSetupState
 from signalforge.domain.execution import TriggerEvent
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CompletedCandle, MarketEvent
-from signalforge.domain.money import Price, ceil_to_tick
+from signalforge.domain.money import ceil_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, require_aware
-from signalforge.runtime.strategy import StrategyDecision
-
-_ENTRY_OFFSET = Decimal("1.001")
-_ENTRY_CUTOFF = time(15, 5)
+from signalforge.runtime.strategy import (
+    ArmedEventAction,
+    ArmedEventDecision,
+    ArmIntent,
+    StrategyDecision,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,12 +31,10 @@ class SignalArmingResult:
     def __post_init__(self) -> None:
         if self.armed_setup.signal_id != self.signal.signal_id:
             raise ValueError("ArmedSetup must belong to the produced Signal")
-        if self.armed_setup.signal_low != self.signal.signal_low:
-            raise ValueError("ArmedSetup signal_low must match the produced Signal")
 
 
 class SignalLifecycleManager:
-    """Own Signal creation and the current single-security ARMED lifecycle."""
+    """Own generic Signal creation and current single-security ARMED state transitions."""
 
     def __init__(self, *, run: RunIdentity, tick_schedule: TickSizeSchedule) -> None:
         self.run = run
@@ -55,20 +54,16 @@ class SignalLifecycleManager:
         self,
         candle: CompletedCandle,
         decision: StrategyDecision,
+        intent: ArmIntent | None,
         *,
         open_position: bool = False,
     ) -> SignalArmingResult | None:
-        """Create one Signal + ARMED setup when the evaluation is actionable.
-
-        Reprocessing the same logical evaluation while its setup remains ARMED is
-        idempotent and returns the existing facts. A different actionable evaluation
-        is blocked while another setup is ARMED or while an OPEN position exists.
-        """
+        """Create Signal + ARMED facts from accepted strategy intent."""
 
         if candle.instrument_id != decision.instrument_id:
-            raise ValueError("Candle and StrategyEvaluation instruments must match")
+            raise ValueError("Candle and strategy decision instruments must match")
         if candle.interval != decision.interval:
-            raise ValueError("Candle and StrategyEvaluation intervals must match")
+            raise ValueError("Candle and strategy decision intervals must match")
         if self.tick_schedule.instrument_id != candle.instrument_id:
             raise ValueError("TickSizeSchedule instrument must match the signal candle")
         if not isinstance(open_position, bool):
@@ -76,13 +71,21 @@ class SignalLifecycleManager:
 
         if not decision.actionable or open_position:
             return None
+        if intent is None:
+            raise ValueError("Actionable strategy decision requires ArmIntent")
         if candle.close is None or candle.low is None:
             raise ValueError("Actionable evaluation requires signal candle close and low")
+        if intent.valid_until <= candle.interval.end:
+            raise ValueError("ArmIntent validity must extend beyond signal candle completion")
 
-        candidate = self._build_result(candle)
+        candidate = self._build_result(candle, intent)
 
         if self._active is not None and self._active.armed_setup.state is ArmedSetupState.ARMED:
             if self._active.signal.signal_id == candidate.signal.signal_id:
+                if not self._same_arming_facts(self._active, candidate):
+                    raise ValueError(
+                        "Logical signal was already armed with different strategy intent"
+                    )
                 return self._active
             return None
 
@@ -90,8 +93,35 @@ class SignalLifecycleManager:
         self._trigger_event = None
         return candidate
 
-    def process_market_event(self, event: MarketEvent) -> TriggerEvent | None:
-        """Apply one ordered observed trade event to the current ARMED setup."""
+    @staticmethod
+    def _same_arming_facts(
+        first: SignalArmingResult,
+        second: SignalArmingResult,
+    ) -> bool:
+        first_setup = first.armed_setup
+        second_setup = second.armed_setup
+        return first.signal == second.signal and (
+            first_setup.signal_id,
+            first_setup.raw_trigger,
+            first_setup.tradable_trigger,
+            first_setup.signal_low,
+            first_setup.armed_at,
+            first_setup.valid_until,
+        ) == (
+            second_setup.signal_id,
+            second_setup.raw_trigger,
+            second_setup.tradable_trigger,
+            second_setup.signal_low,
+            second_setup.armed_at,
+            second_setup.valid_until,
+        )
+
+    def process_market_event(
+        self,
+        event: MarketEvent,
+        policy: ArmedEventDecision,
+    ) -> TriggerEvent | None:
+        """Apply a strategy decision to one ordered market event."""
 
         active = self._active
         if active is None:
@@ -101,78 +131,70 @@ class SignalLifecycleManager:
             return self._trigger_event
         if event.instrument_id != active.signal.instrument_id:
             raise ValueError("MarketEvent instrument must match the active setup")
-
-        observed_at = event.exchange_timestamp
-        if observed_at < setup.armed_at:
+        if event.exchange_timestamp < setup.armed_at:
             raise ValueError("MarketEvent timestamp must not precede setup arming")
 
-        cutoff = self._entry_cutoff(active.signal.interval.end)
-        if observed_at >= cutoff:
-            setup.expire(at=cutoff, reason=ExpiryReason.ENTRY_CUTOFF_REACHED)
+        if policy.action is ArmedEventAction.NO_ACTION:
             return None
-        if observed_at >= setup.valid_until:
-            setup.expire(at=setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
+        if policy.action is ArmedEventAction.EXPIRE:
+            if policy.at is None or policy.expiry_reason is None:
+                raise ValueError("EXPIRE decision requires terminal metadata")
+            setup.expire(at=policy.at, reason=policy.expiry_reason)
             return None
+        if policy.action is not ArmedEventAction.TRIGGER or policy.at is None:
+            raise ValueError("Unsupported ARMED market-event decision")
+        if policy.at != event.exchange_timestamp:
+            raise ValueError("Trigger decision timestamp must match observed market event")
+        trigger_event = TriggerEvent.create(
+            signal_id=active.signal.signal_id,
+            instrument_id=active.signal.instrument_id,
+            reference_price=setup.tradable_trigger,
+            observed_price=event.price,
+            observed_at=event.exchange_timestamp,
+            run=self.run,
+        )
+        setup.trigger(at=policy.at)
+        self._trigger_event = trigger_event
+        return trigger_event
 
-        if event.price.value >= setup.tradable_trigger.value:
-            trigger_event = TriggerEvent.create(
-                signal_id=active.signal.signal_id,
-                instrument_id=active.signal.instrument_id,
-                reference_price=setup.tradable_trigger,
-                observed_price=event.price,
-                observed_at=observed_at,
-                run=self.run,
-            )
-            setup.trigger(at=observed_at)
-            self._trigger_event = trigger_event
-            return trigger_event
-
-        if event.price.value <= setup.signal_low.value:
-            setup.expire(at=observed_at, reason=ExpiryReason.SIGNAL_LOW_BREACH)
-        return None
-
-    def process_completed_candle(self, candle: CompletedCandle) -> None:
-        """Expire an ARMED setup when its immediately following candle completes."""
+    def process_completed_candle(
+        self,
+        candle: CompletedCandle,
+        policy: ArmedEventDecision,
+    ) -> None:
+        """Apply a strategy decision at a completed-candle boundary."""
 
         active = self._active
         if active is None or active.armed_setup.state is not ArmedSetupState.ARMED:
             return
         if candle.instrument_id != active.signal.instrument_id:
             raise ValueError("CompletedCandle instrument must match the active setup")
+        self._apply_non_market_policy(policy)
 
-        setup = active.armed_setup
-        if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
-            raise ValueError("CompletedCandle must be the active setup's following candle")
-
-        cutoff = self._entry_cutoff(active.signal.interval.end)
-        if setup.valid_until >= cutoff:
-            setup.expire(at=cutoff, reason=ExpiryReason.ENTRY_CUTOFF_REACHED)
-        else:
-            setup.expire(at=setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
-
-    def process_time(self, at: datetime) -> None:
-        """Expire an ARMED setup at its next deterministic time boundary."""
+    def process_time(self, at: datetime, policy: ArmedEventDecision) -> None:
+        """Apply a strategy decision at an explicit time boundary."""
 
         require_aware(at)
         active = self._active
         if active is None or active.armed_setup.state is not ArmedSetupState.ARMED:
             return
+        self._apply_non_market_policy(policy)
 
-        setup = active.armed_setup
-        cutoff = self._entry_cutoff(active.signal.interval.end)
-        if cutoff <= setup.valid_until and at >= cutoff:
-            setup.expire(at=cutoff, reason=ExpiryReason.ENTRY_CUTOFF_REACHED)
+    def _apply_non_market_policy(self, policy: ArmedEventDecision) -> None:
+        active = self._active
+        if active is None:
             return
-        if at >= setup.valid_until:
-            setup.expire(at=setup.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
+        if policy.action is ArmedEventAction.NO_ACTION:
+            return
+        if policy.action is not ArmedEventAction.EXPIRE:
+            raise ValueError("Only EXPIRE or NO_ACTION is valid without a market event")
+        if policy.at is None or policy.expiry_reason is None:
+            raise ValueError("EXPIRE decision requires terminal metadata")
+        active.armed_setup.expire(at=policy.at, reason=policy.expiry_reason)
 
-    def _entry_cutoff(self, signal_time: datetime) -> datetime:
-        local = signal_time.astimezone(IST)
-        return datetime.combine(local.date(), _ENTRY_CUTOFF, tzinfo=IST)
-
-    def _build_result(self, candle: CompletedCandle) -> SignalArmingResult:
-        assert candle.close is not None
-        assert candle.low is not None
+    def _build_result(self, candle: CompletedCandle, intent: ArmIntent) -> SignalArmingResult:
+        if candle.close is None or candle.low is None:
+            raise ValueError("Actionable evaluation requires signal candle close and low")
 
         created_at = candle.interval.end
         signal = Signal.create(
@@ -183,17 +205,15 @@ class SignalLifecycleManager:
             run=self.run,
             created_at=created_at,
         )
-
-        raw_trigger = Price(candle.close.value * _ENTRY_OFFSET)
         trading_date = candle.interval.end.astimezone(IST).date()
         tick_size = self.tick_schedule.tick_size_on(trading_date)
-        tradable_trigger = ceil_to_tick(raw_trigger, tick_size)
+        tradable_trigger = ceil_to_tick(intent.raw_trigger, tick_size)
         armed_setup = ArmedSetup(
             signal_id=signal.signal_id,
-            raw_trigger=raw_trigger,
+            raw_trigger=intent.raw_trigger,
             tradable_trigger=tradable_trigger,
-            signal_low=candle.low,
+            signal_low=intent.stop_price,
             armed_at=created_at,
-            valid_until=created_at + timedelta(minutes=5),
+            valid_until=intent.valid_until,
         )
         return SignalArmingResult(signal=signal, armed_setup=armed_setup)

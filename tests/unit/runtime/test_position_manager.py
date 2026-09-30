@@ -9,6 +9,7 @@ from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.position_manager import PositionManager, PositionOpenRejection
+from signalforge.runtime.strategy import PositionEconomics
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 
@@ -50,22 +51,37 @@ def _fill(signal: Signal, *, price: str = "101.10", quantity: int = 10) -> Fill:
     )
 
 
-def _schedule(*, tick: str = "0.05") -> TickSizeSchedule:
+def _schedule() -> TickSizeSchedule:
     return TickSizeSchedule(
         instrument_id=INSTRUMENT,
         rules=(
             TickSizeRule(
-                tick_size=Price(Decimal(tick)),
+                tick_size=Price(Decimal("0.05")),
                 effective_from=date(2026, 1, 1),
             ),
         ),
     )
 
 
-def test_actual_fill_drives_risk_and_target_and_opens_one_to_one_position() -> None:
-    signal = _signal(low="100.00")
+def _economics(
+    *,
+    stop: str = "100.00",
+    raw_target: str = "102.750",
+) -> PositionEconomics:
+    return PositionEconomics(
+        stop_price=Price(Decimal(stop)),
+        raw_target_price=Price(Decimal(raw_target)),
+    )
+
+
+def test_actual_fill_drives_risk_and_opens_one_to_one_position() -> None:
+    signal = _signal(low="99.00")
     fill = _fill(signal, price="101.10", quantity=7)
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal)
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        fill,
+        signal,
+        _economics(stop="100.00"),
+    )
 
     assert result.opened is True
     assert result.rejection is None
@@ -82,20 +98,30 @@ def test_actual_fill_drives_risk_and_target_and_opens_one_to_one_position() -> N
     assert result.position.quantity == fill.quantity
 
 
-def test_target_rounds_up_using_effective_tick_schedule() -> None:
-    signal = _signal(low="100.00")
-    fill = _fill(signal, price="101.11")
-    result = PositionManager(tick_schedule=_schedule(tick="0.05")).open_from_fill(fill, signal)
+def test_position_manager_uses_supplied_stop_not_signal_low() -> None:
+    signal = _signal(low="99.00")
+    fill = _fill(signal, price="101.10")
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        fill,
+        signal,
+        _economics(stop="100.25", raw_target="104.00"),
+    )
 
     assert result.trade is not None
-    assert result.trade.raw_target_price == Price(Decimal("102.775"))
-    assert result.trade.tradable_target_price == Price(Decimal("102.80"))
+    assert result.trade.stop_price == Price(Decimal("100.25"))
+    assert result.trade.stop_price != signal.signal_low
+    assert result.trade.risk_per_share == Price(Decimal("0.85"))
+    assert result.trade.raw_target_price == Price(Decimal("104.00"))
 
 
 def test_non_positive_risk_is_explicitly_rejected_without_open_lifecycle() -> None:
-    signal = _signal(low="101.00")
+    signal = _signal(low="99.00")
     fill = _fill(signal, price="101.00")
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal)
+    economics = PositionEconomics(
+        stop_price=Price(Decimal("101.00")),
+        raw_target_price=None,
+    )
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal, economics)
 
     assert result.opened is False
     assert result.trade is None
@@ -103,13 +129,14 @@ def test_non_positive_risk_is_explicitly_rejected_without_open_lifecycle() -> No
     assert result.rejection is PositionOpenRejection.NON_POSITIVE_RISK
 
 
-def test_duplicate_fill_processing_is_idempotent() -> None:
+def test_duplicate_fill_processing_is_idempotent_for_same_economics() -> None:
     signal = _signal()
     fill = _fill(signal)
+    economics = _economics()
     manager = PositionManager(tick_schedule=_schedule())
 
-    first = manager.open_from_fill(fill, signal)
-    second = manager.open_from_fill(fill, signal)
+    first = manager.open_from_fill(fill, signal, economics)
+    second = manager.open_from_fill(fill, signal, economics)
 
     assert second is first
     assert second.trade is first.trade
@@ -117,9 +144,13 @@ def test_duplicate_fill_processing_is_idempotent() -> None:
 
 
 def test_reference_trigger_price_does_not_drive_trade_economics() -> None:
-    signal = _signal(low="100.00")
+    signal = _signal(low="99.00")
     fill = _fill(signal, price="101.40")
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal)
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        fill,
+        signal,
+        _economics(stop="100.00", raw_target="103.500"),
+    )
 
     assert fill.reference_price == Price(Decimal("101.05"))
     assert result.trade is not None
@@ -135,8 +166,23 @@ def test_fill_and_signal_identity_mismatch_fails_fast() -> None:
 
     manager = PositionManager(tick_schedule=_schedule())
     try:
-        manager.open_from_fill(fill, other_signal)
+        manager.open_from_fill(fill, other_signal, _economics())
     except ValueError as exc:
         assert "identities must match" in str(exc)
     else:
         raise AssertionError("expected identity mismatch to fail")
+
+
+
+def test_position_manager_normalizes_strategy_raw_target_using_fill_date_tick_rule() -> None:
+    signal = _signal(low="99.00")
+    fill = _fill(signal, price="101.10")
+    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+        fill,
+        signal,
+        _economics(stop="100.00", raw_target="102.751"),
+    )
+
+    assert result.trade is not None
+    assert result.trade.raw_target_price == Price(Decimal("102.751"))
+    assert result.trade.tradable_target_price == Price(Decimal("102.80"))

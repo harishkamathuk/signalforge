@@ -24,6 +24,7 @@ from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import Trade
 from signalforge.runtime.position_manager import PositionManager
+from signalforge.runtime.strategy import PositionEconomics
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 
@@ -178,7 +179,14 @@ def _open_position() -> tuple[PositionManager, Trade, Position]:
         rules=(TickSizeRule(Price(Decimal("0.05")), date(2026, 1, 1)),),
     )
     manager = PositionManager(tick_schedule=schedule)
-    opened = manager.open_from_fill(fill, signal)
+    opened = manager.open_from_fill(
+        fill,
+        signal,
+        PositionEconomics(
+            stop_price=Price(Decimal("100.00")),
+            raw_target_price=Price(Decimal("102.750")),
+        ),
+    )
     assert opened.trade is not None and opened.position is not None
     return manager, opened.trade, opened.position
 

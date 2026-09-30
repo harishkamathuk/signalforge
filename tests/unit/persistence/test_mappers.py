@@ -189,7 +189,8 @@ def test_business_fact_and_current_state_mappers_round_trip() -> None:
     trade = Trade.open_from_fill(
         entry_fill=fill,
         stop_price=signal.signal_low,
-        target_tick_size=Price(Decimal("0.05")),
+        raw_target_price=Price(Decimal("103.00")),
+        tradable_target_price=Price(Decimal("103.00")),
     )
     position = Position.open_from_trade(trade=trade)
     exit_fact = Exit.create(
