@@ -226,7 +226,6 @@ def test_runtime_accepts_strategy_without_v1_decomposition() -> None:
     assert not hasattr(steps[-1].evaluation, "setup")
 
 
-
 class _ContradictoryStrategy(_FakeStrategy):
     def evaluate_completed_candle(
         self, context: CompletedCandleStrategyContext
