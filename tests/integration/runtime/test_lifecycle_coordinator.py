@@ -247,7 +247,7 @@ class _NonPositiveRiskStrategy(IntradayMomentumV1Strategy):
             valid_until=candle.interval.end + timedelta(minutes=5),
         )
 
-    def post_fill_economics(self, fill, setup, tick_size):
+    def post_fill_economics(self, fill, setup):
         raise AssertionError("post-fill target economics must not run for non-positive risk")
 
 
