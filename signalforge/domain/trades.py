@@ -48,8 +48,10 @@ class Trade:
             raise ValueError("Trade risk_per_share must be strictly positive before OPEN")
         if self.risk_per_share.value != expected_risk:
             raise ValueError("Trade risk_per_share must equal actual fill minus stop")
-        if self.raw_target_price.value <= 0 or self.tradable_target_price.value <= 0:
-            raise ValueError("Trade target prices must be strictly positive")
+        if self.raw_target_price.value <= self.entry_price.value:
+            raise ValueError("Trade raw target must be strictly above entry price")
+        if self.tradable_target_price.value <= 0:
+            raise ValueError("Trade tradable target must be strictly positive")
         if self.tradable_target_price.value < self.raw_target_price.value:
             raise ValueError("Trade tradable target must not be below raw target")
         if self.trade_id != self.expected_id():
