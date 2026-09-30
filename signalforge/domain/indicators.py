@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from typing import TypeAlias
-
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
 
@@ -68,9 +66,7 @@ class MacdRequirement:
             raise ValueError("Only canonical MACD(12,26,9) is supported")
 
 
-IndicatorRequirement: TypeAlias = (
-    EmaRequirement | RsiRequirement | AdxRequirement | MacdRequirement
-)
+type IndicatorRequirement = EmaRequirement | RsiRequirement | AdxRequirement | MacdRequirement
 
 
 def indicator_requirement_key(requirement: IndicatorRequirement) -> str:
@@ -227,7 +223,12 @@ class IndicatorSnapshot:
                 IndicatorReading(EmaRequirement(9), ema9),
                 IndicatorReading(EmaRequirement(20), ema20),
                 IndicatorReading(EmaRequirement(50), ema50),
-                IndicatorReading(MacdRequirement(12, 26, 9), macd_line, macd_signal, macd_histogram),
+                IndicatorReading(
+                    MacdRequirement(12, 26, 9),
+                    macd_line,
+                    macd_signal,
+                    macd_histogram,
+                ),
                 IndicatorReading(RsiRequirement(14), rsi14),
             )
         object.__setattr__(self, "instrument_id", instrument_id)
