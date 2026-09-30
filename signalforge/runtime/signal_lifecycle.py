@@ -14,9 +14,9 @@ from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, require_aware
 from signalforge.runtime.strategy import (
-    ArmIntent,
     ArmedEventAction,
     ArmedEventDecision,
+    ArmIntent,
     StrategyDecision,
 )
 
