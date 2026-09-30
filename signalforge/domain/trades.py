@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from enum import StrEnum
 
 from signalforge.domain.execution import Fill
 from signalforge.domain.ids import ExitId, FillId, InstrumentId, SignalId, TradeId, deterministic_id
-from signalforge.domain.money import Price, Quantity, ceil_to_tick
+from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.states import InvalidStateTransition
 from signalforge.domain.time import require_aware
@@ -49,9 +48,8 @@ class Trade:
             raise ValueError("Trade risk_per_share must be strictly positive before OPEN")
         if self.risk_per_share.value != expected_risk:
             raise ValueError("Trade risk_per_share must equal actual fill minus stop")
-        expected_raw_target = self.entry_price.value + Decimal("1.5") * expected_risk
-        if self.raw_target_price.value != expected_raw_target:
-            raise ValueError("Trade raw target must equal entry plus 1.5R")
+        if self.raw_target_price.value <= 0 or self.tradable_target_price.value <= 0:
+            raise ValueError("Trade target prices must be strictly positive")
         if self.tradable_target_price.value < self.raw_target_price.value:
             raise ValueError("Trade tradable target must not be below raw target")
         if self.trade_id != self.expected_id():
@@ -64,16 +62,14 @@ class Trade:
         *,
         entry_fill: Fill,
         stop_price: Price,
-        target_tick_size: Price,
+        raw_target_price: Price,
+        tradable_target_price: Price,
     ) -> Trade:
-        """Open a trade from an accepted entry fill using actual-fill economics."""
+        """Open a trade from accepted strategy economics and authoritative Fill."""
 
         risk_value = entry_fill.fill_price.value - stop_price.value
         if risk_value <= 0:
             raise ValueError("Trade risk_per_share must be strictly positive before OPEN")
-        risk = Price(risk_value)
-        raw_target = Price(entry_fill.fill_price.value + Decimal("1.5") * risk_value)
-        tradable_target = ceil_to_tick(raw_target, target_tick_size)
         trade_id = deterministic_id(
             TradeId,
             str(entry_fill.run.run_id),
@@ -86,9 +82,9 @@ class Trade:
             instrument_id=entry_fill.instrument_id,
             entry_price=entry_fill.fill_price,
             stop_price=stop_price,
-            raw_target_price=raw_target,
-            tradable_target_price=tradable_target,
-            risk_per_share=risk,
+            raw_target_price=raw_target_price,
+            tradable_target_price=tradable_target_price,
+            risk_per_share=Price(risk_value),
             quantity=entry_fill.quantity,
             opened_at=entry_fill.filled_at,
             run=entry_fill.run,
