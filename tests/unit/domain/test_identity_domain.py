@@ -185,7 +185,6 @@ def _open_position() -> tuple[PositionManager, Trade, Position]:
         PositionEconomics(
             stop_price=Price(Decimal("100.00")),
             raw_target_price=Price(Decimal("102.750")),
-            tradable_target_price=Price(Decimal("102.75")),
         ),
     )
     assert opened.trade is not None and opened.position is not None
