@@ -480,6 +480,12 @@ def _requirement_manifest(requirements: IndicatorRequirements) -> list[dict[str,
     return manifest
 
 
+def _int_value(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Indicator checkpoint integer payload must be an integer")
+    return value
+
+
 def _requirements_from_manifest(
     manifest: list[dict[str, object]],
 ) -> IndicatorRequirements:
@@ -487,17 +493,17 @@ def _requirements_from_manifest(
     for item in manifest:
         kind = item.get("kind")
         if kind == "ema":
-            requirements.append(EmaRequirement(int(item["period"])))
+            requirements.append(EmaRequirement(_int_value(item["period"])))
         elif kind == "rsi":
-            requirements.append(RsiRequirement(int(item["period"])))
+            requirements.append(RsiRequirement(_int_value(item["period"])))
         elif kind == "adx":
-            requirements.append(AdxRequirement(int(item["period"])))
+            requirements.append(AdxRequirement(_int_value(item["period"])))
         elif kind == "macd":
             requirements.append(
                 MacdRequirement(
-                    int(item["fast_period"]),
-                    int(item["slow_period"]),
-                    int(item["signal_period"]),
+                    _int_value(item["fast_period"]),
+                    _int_value(item["slow_period"]),
+                    _int_value(item["signal_period"]),
                 )
             )
         else:
@@ -562,8 +568,8 @@ def _ema_from_payload(payload: dict[str, object]) -> EmaState:
     seed_sum = _decimal_value(payload["seed_sum"])
     assert seed_sum is not None
     return EmaState(
-        int(payload["period"]),
-        int(payload["samples"]),
+        _int_value(payload["period"]),
+        _int_value(payload["samples"]),
         _decimal_value(payload.get("value")),
         seed_sum,
     )
@@ -590,7 +596,7 @@ def _state_from_payload(
         loss_sum = _decimal_value(raw_rsi["seed_loss_sum"])
         assert gain_sum is not None and loss_sum is not None
         rsi_state = RsiState(
-            int(raw_rsi["samples"]),
+            _int_value(raw_rsi["samples"]),
             _decimal_value(raw_rsi.get("previous_close")),
             gain_sum,
             loss_sum,
@@ -614,7 +620,7 @@ def _state_from_payload(
             and dx_seed is not None
         )
         adx_state = AdxState(
-            int(raw_adx["samples"]),
+            _int_value(raw_adx["samples"]),
             _decimal_value(raw_adx.get("previous_high")),
             _decimal_value(raw_adx.get("previous_low")),
             _decimal_value(raw_adx.get("previous_close")),
@@ -625,7 +631,7 @@ def _state_from_payload(
             _decimal_value(raw_adx.get("smoothed_plus_dm")),
             _decimal_value(raw_adx.get("smoothed_minus_dm")),
             dx_seed,
-            int(raw_adx["dx_seed_count"]),
+            _int_value(raw_adx["dx_seed_count"]),
             _decimal_value(raw_adx.get("adx")),
         )
     elif raw_adx is not None:
@@ -640,7 +646,7 @@ def _state_from_payload(
         if not isinstance(fast, dict) or not isinstance(slow, dict) or not isinstance(signal, dict):
             raise ValueError("Indicator checkpoint MACD EMA payload is invalid")
         macd_state = MacdState(
-            int(raw_macd["samples"]),
+            _int_value(raw_macd["samples"]),
             _ema_from_payload(fast),
             _ema_from_payload(slow),
             _ema_from_payload(signal),
