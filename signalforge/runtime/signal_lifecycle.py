@@ -166,7 +166,8 @@ class SignalLifecycleManager:
         active.armed_setup.expire(at=policy.at, reason=policy.expiry_reason)
 
     def _build_result(self, candle: CompletedCandle, intent: ArmIntent) -> SignalArmingResult:
-        assert candle.close is not None
+        if candle.close is None or candle.low is None:
+            raise ValueError("Actionable evaluation requires signal candle close and low")
 
         created_at = candle.interval.end
         signal = Signal.create(
