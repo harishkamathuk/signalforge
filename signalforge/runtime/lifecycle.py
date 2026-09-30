@@ -14,7 +14,7 @@ from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
-from signalforge.domain.time import IST, require_aware
+from signalforge.domain.time import require_aware
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
@@ -22,6 +22,7 @@ from signalforge.runtime.signal_lifecycle import SignalArmingResult, SignalLifec
 from signalforge.runtime.strategy import (
     ArmedEventAction,
     ArmedEventDecision,
+    ArmedSetupView,
     PositionEconomics,
     Strategy,
     StrategyDecision,
@@ -60,7 +61,6 @@ class LifecycleCoordinator:
         self.run = run
         self.quantity = quantity
         self.strategy = strategy
-        self.tick_schedule = tick_schedule
         self.signal_lifecycle = SignalLifecycleManager(run=run, tick_schedule=tick_schedule)
         self.execution_port = PaperExecutionPort()
         self.position_manager = PositionManager(tick_schedule=tick_schedule)
@@ -171,7 +171,7 @@ class LifecycleCoordinator:
         else:
             policy = self.strategy.evaluate_armed_market_event(
                 arming.signal,
-                arming.armed_setup,
+                self._setup_view(arming),
                 event,
             )
         trigger = self.signal_lifecycle.process_market_event(event, policy)
@@ -186,15 +186,11 @@ class LifecycleCoordinator:
             economics = PositionEconomics(
                 stop_price=stop_price,
                 raw_target_price=None,
-                tradable_target_price=None,
             )
         else:
-            trading_date = fill.filled_at.astimezone(IST).date()
-            tick_size = self.tick_schedule.tick_size_on(trading_date)
             economics = self.strategy.post_fill_economics(
                 fill,
-                arming.armed_setup,
-                tick_size,
+                self._setup_view(arming),
             )
         self._open_result = self.position_manager.open_from_fill(
             fill,
@@ -231,7 +227,7 @@ class LifecycleCoordinator:
         prior_state = arming.armed_setup.state
         policy = self.strategy.evaluate_armed_completed_candle(
             arming.signal,
-            arming.armed_setup,
+            self._setup_view(arming),
             candle,
         )
         self.signal_lifecycle.process_completed_candle(candle, policy)
@@ -254,12 +250,25 @@ class LifecycleCoordinator:
         else:
             policy = self.strategy.evaluate_armed_time(
                 arming.signal,
-                arming.armed_setup,
+                self._setup_view(arming),
                 at,
             )
         self.signal_lifecycle.process_time(at, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, at)
         return self.snapshot()
+
+    @staticmethod
+    def _setup_view(arming: SignalArmingResult) -> ArmedSetupView:
+        setup = arming.armed_setup
+        return ArmedSetupView(
+            signal_id=setup.signal_id,
+            raw_trigger=setup.raw_trigger,
+            tradable_trigger=setup.tradable_trigger,
+            stop_price=setup.signal_low,
+            armed_at=setup.armed_at,
+            valid_until=setup.valid_until,
+            state=setup.state,
+        )
 
     def _process_open_event(self, event: MarketEvent) -> None:
         trade = self._require_trade()
