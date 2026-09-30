@@ -9,6 +9,13 @@ from signalforge.config.identity import ConfigIdentity
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.execution import Fill
+from signalforge.domain.indicators import (
+    AdxRequirement,
+    EmaRequirement,
+    IndicatorRequirements,
+    MacdRequirement,
+    RsiRequirement,
+)
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
@@ -36,6 +43,18 @@ class IntradayMomentumV1Strategy:
     def __init__(self, config: StrategyV1EvaluationConfig) -> None:
         self.config = config
         self._config_identity = config.identify()
+        self._indicator_requirements = IndicatorRequirements.of(
+            EmaRequirement(config.setup_ema_period),
+            EmaRequirement(config.trend_fast_ema_period),
+            EmaRequirement(config.trend_slow_ema_period),
+            RsiRequirement(config.rsi_period),
+            AdxRequirement(config.adx_period),
+            MacdRequirement(
+                config.macd_fast_period,
+                config.macd_slow_period,
+                config.macd_signal_period,
+            ),
+        )
         self._evaluator = StrategyEvaluator(config)
 
     @property
@@ -45,6 +64,12 @@ class IntradayMomentumV1Strategy:
     @property
     def config_identity(self) -> ConfigIdentity:
         return self._config_identity
+
+    @property
+    def indicator_requirements(self) -> IndicatorRequirements:
+        """Return Strategy V1's canonical indicator requirements."""
+
+        return self._indicator_requirements
 
     def evaluate_completed_candle(
         self,
