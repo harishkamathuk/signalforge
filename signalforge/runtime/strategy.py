@@ -8,7 +8,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from signalforge.config.identity import ConfigIdentity
-from signalforge.domain.armed import ArmedSetup, ExpiryReason
+from signalforge.domain.armed import ArmedSetupState, ExpiryReason
+from signalforge.domain.ids import SignalId
 from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorSnapshot
@@ -100,27 +101,35 @@ class ArmedEventDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class PositionEconomics:
-    """Strategy-owned post-fill economic intent.
+class ArmedSetupView:
+    """Read-only strategy view of accepted ARMED lifecycle facts."""
 
-    Targets may be omitted only when the supplied stop produces non-positive
-    long risk; generic position mechanics reject that Fill before opening.
+    signal_id: SignalId
+    raw_trigger: Price
+    tradable_trigger: Price
+    stop_price: Price
+    armed_at: datetime
+    valid_until: datetime
+    state: ArmedSetupState
+
+
+@dataclass(frozen=True, slots=True)
+class PositionEconomics:
+    """Strategy-owned post-fill raw economic intent.
+
+    Tradable-price normalization remains a shared runtime responsibility.
+    The raw target may be omitted only for non-positive long risk, which
+    generic position mechanics reject before opening a Trade.
     """
 
     stop_price: Price
     raw_target_price: Price | None
-    tradable_target_price: Price | None
 
     def __post_init__(self) -> None:
         if self.stop_price.value <= 0:
             raise ValueError("PositionEconomics stop must be strictly positive")
-        if (self.raw_target_price is None) != (self.tradable_target_price is None):
-            raise ValueError("PositionEconomics targets must both be present or both absent")
-        if self.raw_target_price is not None:
-            if self.raw_target_price.value <= 0 or self.tradable_target_price is None:
-                raise ValueError("PositionEconomics targets must be strictly positive")
-            if self.tradable_target_price.value < self.raw_target_price.value:
-                raise ValueError("Tradable target must not be below raw target")
+        if self.raw_target_price is not None and self.raw_target_price.value <= 0:
+            raise ValueError("PositionEconomics raw target must be strictly positive")
 
 
 class Strategy(Protocol):
@@ -146,27 +155,26 @@ class Strategy(Protocol):
     def evaluate_armed_market_event(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         event: MarketEvent,
     ) -> ArmedEventDecision: ...
 
     def evaluate_armed_completed_candle(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         candle: CompletedCandle,
     ) -> ArmedEventDecision: ...
 
     def evaluate_armed_time(
         self,
         signal: Signal,
-        setup: ArmedSetup,
+        setup: ArmedSetupView,
         at: datetime,
     ) -> ArmedEventDecision: ...
 
     def post_fill_economics(
         self,
         fill: Fill,
-        setup: ArmedSetup,
-        tick_size: Price,
+        setup: ArmedSetupView,
     ) -> PositionEconomics: ...
