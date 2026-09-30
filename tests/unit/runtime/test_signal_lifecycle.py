@@ -16,11 +16,11 @@ from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.signal_lifecycle import SignalLifecycleManager
 from signalforge.runtime.strategy import ArmIntent
-from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
 )
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 
