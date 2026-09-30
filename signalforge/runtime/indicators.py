@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import (
     AdxRequirement,
     EmaRequirement,
@@ -14,14 +15,12 @@ from signalforge.domain.indicators import (
     MacdRequirement,
     RsiRequirement,
 )
-from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.adx import Adx14, AdxState
 from signalforge.runtime.ema import Ema, EmaState
 from signalforge.runtime.macd import Macd12269, MacdState
 from signalforge.runtime.rsi import Rsi14, RsiState
-
 
 V1_INDICATOR_REQUIREMENTS = IndicatorRequirements.of(
     EmaRequirement(9),
