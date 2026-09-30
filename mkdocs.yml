@@ -1,0 +1,24 @@
+site_name: SignalForge
+site_description: SignalForge architecture, engineering and generated Python API documentation
+
+docs_dir: docs
+
+nav:
+  - Home: index.md
+  - Python Documentation Standard: python-documentation-standard.md
+  - Architecture:
+      - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
+  - API:
+      - Strategy Runtime: api/strategy-runtime.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            members_order: source
+            show_source: true
+            show_root_heading: true
+            show_signature_annotations: true
