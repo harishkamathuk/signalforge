@@ -33,7 +33,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngine, V1_INDICATOR_REQUIREMENTS
+from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from tests.integration.persistence.test_migrations import EXPECTED_TABLES
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _transition,
