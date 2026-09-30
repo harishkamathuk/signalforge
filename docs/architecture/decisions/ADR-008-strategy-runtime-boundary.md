@@ -41,6 +41,10 @@ SignalForge core owns:
 
 A strategy must not manufacture authoritative execution facts or mutate durable lifecycle state directly.
 
+Strategy-facing lifecycle state must therefore be exposed through read-only facts/views. Strategy code emits typed decisions/intents; only shared lifecycle mechanism is allowed to perform lifecycle state transitions.
+
+Compulsory intraday/session safety is a shared runtime guardrail and cannot be weakened or bypassed by strategy policy. A strategy may impose an earlier or stricter entry cutoff, but not a later one that would violate the shared safety boundary.
+
 ## Strategy responsibilities
 
 A concrete strategy owns:
@@ -56,13 +60,19 @@ A concrete strategy owns:
 - post-fill target/economic policy;
 - strategy-specific mutable state only when a real strategy requires it.
 
-For Strategy V1 this includes the existing EMA/RSI/ADX qualification rules, diagnostic MACD use, `1.001` raw trigger, signal-low pre-entry invalidation, signal-low stop, immediately-following-candle validity, and actual-fill-based `1.5R` target.
+For Strategy V1 this includes the existing EMA/RSI/ADX qualification rules, diagnostic MACD use, `1.001` raw trigger, signal-low pre-entry invalidation, signal-low stop, immediately-following-candle validity, and actual-fill-based `1.5R` raw target.
+
+Strategies provide raw economic intent. Conversion from raw prices to valid tradable exchange prices remains a shared engine responsibility using the accepted NSE tick-size rules. Concrete strategy code must not own exchange tick normalization.
 
 ## Trade economics
 
 Actual Fill remains authoritative and outside strategy control.
 
-`Trade` remains the authoritative economic fact but must not enforce Strategy V1's `1.5R` target formula as a generic domain invariant. The strategy supplies accepted stop/target economics; the shared runtime validates generic invariants and persists the resulting Trade/Position facts.
+`Trade` remains the authoritative economic fact but must not enforce Strategy V1's `1.5R` target formula as a generic domain invariant. The strategy supplies accepted stop/raw-target economics; the shared runtime validates generic invariants, performs required tradable-price normalization, and persists the resulting Trade/Position facts.
+
+Generic domain validation and durable persistence constraints must remain consistent. Removing a Strategy V1-specific formula does not imply relaxing unrelated strategy-neutral invariants already required by durable storage. For the current long-only model, accepted raw targets must remain above entry unless a future explicitly accepted domain/schema change says otherwise.
+
+For long entries, non-positive risk is rejected before target construction or target tick-size resolution. A rejected Fill must not require target generation or a fill-date target tick rule merely to determine that no position can be opened.
 
 ## Indicator composition
 
@@ -109,6 +119,14 @@ The implementation sequence is:
 - **SF-064:** add explicit strategy registry and typed config resolution;
 - **SF-065:** implement the RSI mean-reversion reference strategy;
 - **SF-066:** prove cross-strategy replay, persistence and Strategy V1 non-regression.
+
+SF-062 established the following implementation clarifications for ADR-008:
+
+- strategy lifecycle inputs are read-only views/facts, not mutable lifecycle entities;
+- strategies emit raw trigger/stop/target intent, while shared core owns exchange tick normalization;
+- compulsory intraday session safety remains shared and non-overridable, while strategy-specific entry cutoffs may be stricter;
+- generic economic validation must remain aligned with durable persistence constraints;
+- non-positive-risk rejection precedes target construction/normalization.
 
 No Strategy V1 signal, entry, stop, target, validity, exit, session-timing, or indicator numerical semantics are changed by ADR-008.
 
