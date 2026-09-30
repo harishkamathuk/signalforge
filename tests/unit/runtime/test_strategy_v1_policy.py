@@ -10,7 +10,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEven
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.runtime.strategy import ArmedEventAction
+from signalforge.runtime.strategy import ArmedEventAction, ArmedSetupView
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:TEST")
@@ -67,6 +67,18 @@ def _signal_and_setup(candle: CompletedCandle) -> tuple[Signal, ArmedSetup]:
     return signal, setup
 
 
+def _setup_view(setup: ArmedSetup) -> ArmedSetupView:
+    return ArmedSetupView(
+        signal_id=setup.signal_id,
+        raw_trigger=setup.raw_trigger,
+        tradable_trigger=setup.tradable_trigger,
+        stop_price=setup.signal_low,
+        armed_at=setup.armed_at,
+        valid_until=setup.valid_until,
+        state=setup.state,
+    )
+
+
 def _run():
     from signalforge.domain.ids import ConfigId, RunId
     from signalforge.domain.provenance import RunIdentity, StrategyIdentity
@@ -103,7 +115,7 @@ def test_v1_armed_market_policy_preserves_ordering_and_low_invalidation() -> Non
         source="test",
     )
 
-    low_decision = strategy.evaluate_armed_market_event(signal, setup, low_event)
+    low_decision = strategy.evaluate_armed_market_event(signal, _setup_view(setup), low_event)
 
     assert low_decision.action is ArmedEventAction.EXPIRE
     assert low_decision.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
@@ -122,7 +134,7 @@ def test_v1_armed_market_policy_preserves_ordering_and_low_invalidation() -> Non
     )
     cutoff_decision = strategy.evaluate_armed_market_event(
         cutoff_signal,
-        cutoff_setup,
+        _setup_view(cutoff_setup),
         cutoff_event,
     )
 
@@ -149,13 +161,11 @@ def test_v1_post_fill_economics_uses_actual_fill_and_one_point_five_r() -> None:
 
     economics = _strategy().post_fill_economics(
         fill,
-        setup,
-        Price(Decimal("0.10")),
+        _setup_view(setup),
     )
 
     assert economics.stop_price == Price(Decimal("99.00"))
     assert economics.raw_target_price == Price(Decimal("102.750"))
-    assert economics.tradable_target_price == Price(Decimal("102.80"))
 
 
 def test_v1_post_fill_non_positive_risk_defers_to_generic_rejection() -> None:
@@ -176,10 +186,8 @@ def test_v1_post_fill_non_positive_risk_defers_to_generic_rejection() -> None:
 
     economics = _strategy().post_fill_economics(
         fill,
-        setup,
-        Price(Decimal("0.10")),
+        _setup_view(setup),
     )
 
     assert economics.stop_price == setup.signal_low
     assert economics.raw_target_price is None
-    assert economics.tradable_target_price is None
