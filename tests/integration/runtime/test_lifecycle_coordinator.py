@@ -300,3 +300,35 @@ def test_non_positive_risk_rejects_before_post_fill_target_economics() -> None:
     assert snapshot.open_result is not None
     assert snapshot.open_result.opened is False
     assert snapshot.open_result.rejection is not None
+
+
+
+def test_shared_session_safety_expires_previous_day_setup_before_next_day_event() -> None:
+    strategy = _LateTriggerStrategy(StrategyV1EvaluationConfig())
+    coordinator = LifecycleCoordinator(
+        run=_run(),
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    candle = _candle()
+    coordinator.process_evaluation(candle, _evaluation(candle))
+    next_day_at = datetime(2026, 9, 1, 9, 16, tzinfo=IST)
+    next_day_event = MarketEvent(
+        instrument_id=INSTRUMENT,
+        exchange_timestamp=next_day_at,
+        received_timestamp=next_day_at,
+        price=Price(Decimal("200.00")),
+        quantity=1,
+        source="test",
+        source_event_id="next-day-trigger",
+    )
+
+    snapshot = coordinator.process_market_event(next_day_event)
+
+    assert snapshot.state is LifecycleState.EXPIRED
+    assert snapshot.execution is None
+    assert snapshot.arming is not None
+    assert snapshot.arming.armed_setup.terminal_at == datetime(
+        2026, 8, 31, 15, 15, tzinfo=IST
+    )
