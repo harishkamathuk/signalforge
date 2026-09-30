@@ -19,7 +19,7 @@ from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
 from signalforge.runtime.signal_lifecycle import SignalArmingResult, SignalLifecycleManager
-from signalforge.runtime.strategy import StrategyDecision
+from signalforge.runtime.strategy import Strategy, StrategyDecision
 
 
 class LifecycleState(StrEnum):
@@ -49,9 +49,12 @@ class LifecycleCoordinator:
         run: RunIdentity,
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
+        strategy: Strategy,
     ) -> None:
         self.run = run
         self.quantity = quantity
+        self.strategy = strategy
+        self.tick_schedule = tick_schedule
         self.signal_lifecycle = SignalLifecycleManager(run=run, tick_schedule=tick_schedule)
         self.execution_port = PaperExecutionPort()
         self.position_manager = PositionManager(tick_schedule=tick_schedule)
@@ -106,9 +109,11 @@ class LifecycleCoordinator:
             raise ValueError("Actionable strategy decision must be qualified")
 
         before = self.signal_lifecycle.active
+        intent = self.strategy.arm_intent(candle, decision) if decision.actionable else None
         arming = self.signal_lifecycle.arm_if_actionable(
             candle,
             decision,
+            intent,
             open_position=self.state is LifecycleState.OPEN,
         )
         if arming is not None:
@@ -141,15 +146,29 @@ class LifecycleCoordinator:
             return self.snapshot()
 
         prior_state = arming.armed_setup.state
-        trigger = self.signal_lifecycle.process_market_event(event)
+        policy = self.strategy.evaluate_armed_market_event(
+            arming.signal,
+            arming.armed_setup,
+            event,
+        )
+        trigger = self.signal_lifecycle.process_market_event(event, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, event)
         if trigger is None:
             return self.snapshot()
 
         self._execution = self.execution_port.execute(trigger, quantity=self.quantity)
+        fill = self._execution.fill
+        trading_date = fill.filled_at.date()
+        tick_size = self.tick_schedule.tick_size_on(trading_date)
+        economics = self.strategy.post_fill_economics(
+            fill,
+            arming.armed_setup,
+            tick_size,
+        )
         self._open_result = self.position_manager.open_from_fill(
-            self._execution.fill,
+            fill,
             arming.signal,
+            economics,
         )
         if self._open_result.opened:
             trade = self._require_trade()
@@ -179,7 +198,12 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        self.signal_lifecycle.process_completed_candle(candle)
+        policy = self.strategy.evaluate_armed_completed_candle(
+            arming.signal,
+            arming.armed_setup,
+            candle,
+        )
+        self.signal_lifecycle.process_completed_candle(candle, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, candle)
         return self.snapshot()
 
@@ -189,7 +213,12 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        self.signal_lifecycle.process_time(at)
+        policy = self.strategy.evaluate_armed_time(
+            arming.signal,
+            arming.armed_setup,
+            at,
+        )
+        self.signal_lifecycle.process_time(at, policy)
         self._record_setup_terminal_if_changed(arming, prior_state, at)
         return self.snapshot()
 
