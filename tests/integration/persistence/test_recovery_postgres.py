@@ -50,7 +50,11 @@ from tests.integration.persistence.test_repository_adapters_postgres import (
 
 
 def _checkpoint_state(value: Facts) -> IndicatorEngineState:
-    engine = IndicatorEngine(value.signal.instrument_id, value.run.engine_calculation_version)
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
     for offset in range(40):
         close = Decimal("100.12345678901234567890") + Decimal(offset) / Decimal(
             "10000000000000000000"
