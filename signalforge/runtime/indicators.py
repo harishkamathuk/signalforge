@@ -124,30 +124,42 @@ class IndicatorEngineState:
     # persisted state shape is requirement-driven.
     @property
     def ema9(self) -> EmaState:
+        """Return the legacy Strategy V1 EMA(9) checkpoint state."""
+
         return self.ema_state(9)
 
     @property
     def ema20(self) -> EmaState:
+        """Return the legacy Strategy V1 EMA(20) checkpoint state."""
+
         return self.ema_state(20)
 
     @property
     def ema50(self) -> EmaState:
+        """Return the legacy Strategy V1 EMA(50) checkpoint state."""
+
         return self.ema_state(50)
 
     @property
     def rsi14(self) -> RsiState:
+        """Return the legacy Strategy V1 RSI(14) checkpoint state."""
+
         if self.rsi_state is None:
             raise KeyError("RSI(14) is not required")
         return self.rsi_state
 
     @property
     def adx14(self) -> AdxState:
+        """Return the legacy Strategy V1 ADX(14) checkpoint state."""
+
         if self.adx_state is None:
             raise KeyError("ADX(14) is not required")
         return self.adx_state
 
     @property
     def macd(self) -> MacdState:
+        """Return the legacy Strategy V1 MACD checkpoint state."""
+
         if self.macd_state is None:
             raise KeyError("MACD(12,26,9) is not required")
         return self.macd_state
