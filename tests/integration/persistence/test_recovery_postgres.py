@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetupState
 from signalforge.domain.audit import TransitionEntityType
+from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
@@ -19,6 +20,7 @@ from signalforge.domain.positions import PositionState
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
+from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.persistence.models import (
     ArmedSetupRecord,
     ExitRecord,
@@ -36,7 +38,11 @@ from signalforge.persistence.repositories import (
     PostgresPositionOpenOutcomeRepository,
     PostgresRunProvenanceRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngine, IndicatorEngineState
+from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
+    IndicatorEngine,
+    IndicatorEngineState,
+)
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import (
     Facts,
@@ -48,7 +54,11 @@ from tests.integration.persistence.test_repository_adapters_postgres import (
 
 
 def _checkpoint_state(value: Facts) -> IndicatorEngineState:
-    engine = IndicatorEngine(value.signal.instrument_id, value.run.engine_calculation_version)
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    )
     for offset in range(40):
         close = Decimal("100.12345678901234567890") + Decimal(offset) / Decimal(
             "10000000000000000000"
@@ -110,7 +120,10 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
     bootstrap = RecoveryBootstrap()
     with Session(postgres_engine) as session:
         result = bootstrap.inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.NEW
         assert not session.new and not session.dirty
@@ -119,7 +132,10 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
         session.commit()
     with Session(postgres_engine) as session:
         result = bootstrap.inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.RESUMABLE
         assert result.indicator_state is None
@@ -131,7 +147,10 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
     _commit_armed_setup(postgres_engine, armed)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=armed.run, instrument_id=armed.signal.instrument_id
+            session=session,
+            requested_run=armed.run,
+            instrument_id=armed.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.lifecycle.setup is not None
         assert result.lifecycle.setup.state is ArmedSetupState.ARMED
@@ -150,7 +169,10 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         session.commit()
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=opened.run, instrument_id=opened.signal.instrument_id
+            session=session,
+            requested_run=opened.run,
+            instrument_id=opened.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert (
             result.lifecycle.trade is not None and result.lifecycle.trade.state is TradeState.OPEN
@@ -208,7 +230,10 @@ def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -
         )
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.lifecycle.trade is not None
         assert result.lifecycle.trade.state is TradeState.CLOSED
@@ -232,7 +257,10 @@ def test_recovery_postgres_restores_exact_indicator_checkpoint(postgres_engine: 
         session.commit()
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
     assert result.disposition is RecoveryDisposition.RESUMABLE
     assert result.indicator_state == state
@@ -260,8 +288,108 @@ def test_recovery_postgres_inspection_does_not_change_durable_graph(
         before = _durable_counts(session)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
-            session=session, requested_run=value.run, instrument_id=value.signal.instrument_id
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
         assert result.disposition is RecoveryDisposition.RESUMABLE
     with Session(postgres_engine) as session:
         assert _durable_counts(session) == before
+
+
+
+def test_recovery_postgres_restores_rsi_only_checkpoint_and_validates_requirements(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-rsi-only-{uuid4().hex[:8]}")
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    engine = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=requirements,
+    )
+    for offset in range(20):
+        close = Decimal("100.12345678901234567890") + Decimal(offset) / Decimal(
+            "10000000000000000000"
+        )
+        engine.update(
+            CompletedCandle(
+                instrument_id=value.signal.instrument_id,
+                interval=CandleInterval.five_minutes(
+                    value.evaluation.interval.start + timedelta(minutes=5 * offset)
+                ),
+                quality=CandleQuality.VALID,
+                open=Price(close),
+                high=Price(close + Decimal("0.02")),
+                low=Price(close - Decimal("0.03")),
+                close=Price(close),
+                volume=100 + offset,
+                source="recovery-rsi-only",
+                source_event_count=1,
+            )
+        )
+    state = engine.state
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        PostgresIndicatorCheckpointRepository(session).upsert(value.run, state)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        matched = RecoveryBootstrap().inspect(
+            session=session,
+            requested_run=value.run,
+            instrument_id=value.signal.instrument_id,
+            indicator_requirements=requirements,
+        )
+        assert matched.indicator_state == state
+        assert matched.indicator_state is not None
+        assert matched.indicator_state.ema_states == ()
+        assert matched.indicator_state.adx_state is None
+        assert matched.indicator_state.macd_state is None
+        restored_state = matched.indicator_state
+
+    next_offset = 20
+    next_close = Decimal("100.12345678901234567890") + Decimal(next_offset) / Decimal(
+        "10000000000000000000"
+    )
+    next_candle = CompletedCandle(
+        instrument_id=value.signal.instrument_id,
+        interval=CandleInterval.five_minutes(
+            value.evaluation.interval.start + timedelta(minutes=5 * next_offset)
+        ),
+        quality=CandleQuality.VALID,
+        open=Price(next_close),
+        high=Price(next_close + Decimal("0.02")),
+        low=Price(next_close - Decimal("0.03")),
+        close=Price(next_close),
+        volume=100 + next_offset,
+        source="recovery-rsi-only",
+        source_event_count=1,
+    )
+    expected = engine.update(next_candle)
+    resumed = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=requirements,
+        state=restored_state,
+    )
+    actual = resumed.update(next_candle)
+    assert actual == expected
+    assert resumed.state == engine.state
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="checkpoint requirements contradict requested strategy",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=IndicatorRequirements.of(
+                    RsiRequirement(14),
+                    EmaRequirement(9),
+                ),
+            )

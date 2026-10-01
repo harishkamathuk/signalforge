@@ -11,7 +11,7 @@ from signalforge.config.identity import ConfigIdentity
 from signalforge.domain.armed import ArmedSetupState, ExpiryReason
 from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId, SignalId
-from signalforge.domain.indicators import IndicatorSnapshot
+from signalforge.domain.indicators import IndicatorRequirements, IndicatorSnapshot
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
@@ -139,6 +139,9 @@ class Strategy(Protocol):
 
     @property
     def config_identity(self) -> ConfigIdentity: ...
+
+    @property
+    def indicator_requirements(self) -> IndicatorRequirements: ...
 
     def evaluate_completed_candle(
         self,

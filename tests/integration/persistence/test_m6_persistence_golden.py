@@ -33,7 +33,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngine
+from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from tests.integration.persistence.test_migrations import EXPECTED_TABLES
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _transition,
@@ -55,7 +55,11 @@ def postgres_engine() -> Iterator[Engine]:
 
 def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine) -> None:
     value = facts(f"m6-{uuid4().hex[:8]}")
-    checkpoint = IndicatorEngine(value.signal.instrument_id, "checkpoint-v1").state
+    checkpoint = IndicatorEngine(
+        value.signal.instrument_id,
+        "checkpoint-v1",
+        requirements=V1_INDICATOR_REQUIREMENTS,
+    ).state
     arm = _transition(
         value,
         entity=TransitionEntityType.ARMED_SETUP,

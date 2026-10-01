@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
@@ -19,6 +21,14 @@ from signalforge.domain.ids import (
     StateTransitionId,
     TradeId,
     TriggerEventId,
+)
+from signalforge.domain.indicators import (
+    AdxRequirement,
+    EmaRequirement,
+    IndicatorRequirement,
+    IndicatorRequirements,
+    MacdRequirement,
+    RsiRequirement,
 )
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
@@ -52,7 +62,11 @@ from signalforge.persistence.models import (
 )
 from signalforge.runtime.adx import AdxState
 from signalforge.runtime.ema import EmaState
-from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngineState
+from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
+    IndicatorContinuity,
+    IndicatorEngineState,
+)
 from signalforge.runtime.macd import MacdState
 from signalforge.runtime.rsi import RsiState
 
@@ -429,10 +443,256 @@ def state_transition_from_record(
     )
 
 
+def _decimal_text(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _decimal_value(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Indicator checkpoint decimal payload must be a string")
+    return Decimal(value)
+
+
+def _requirement_manifest(requirements: IndicatorRequirements) -> list[dict[str, object]]:
+    manifest: list[dict[str, object]] = []
+    for requirement in requirements.items:
+        if isinstance(requirement, EmaRequirement):
+            manifest.append({"kind": "ema", "period": requirement.period})
+        elif isinstance(requirement, RsiRequirement):
+            manifest.append({"kind": "rsi", "period": requirement.period})
+        elif isinstance(requirement, AdxRequirement):
+            manifest.append({"kind": "adx", "period": requirement.period})
+        elif isinstance(requirement, MacdRequirement):
+            manifest.append(
+                {
+                    "kind": "macd",
+                    "fast_period": requirement.fast_period,
+                    "slow_period": requirement.slow_period,
+                    "signal_period": requirement.signal_period,
+                }
+            )
+        else:
+            raise TypeError(
+                f"Unsupported indicator requirement type: {type(requirement).__name__}"
+            )
+    return manifest
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Indicator checkpoint integer payload must be an integer")
+    return value
+
+
+def _requirements_from_manifest(
+    manifest: list[dict[str, object]],
+) -> IndicatorRequirements:
+    requirements: list[IndicatorRequirement] = []
+    for item in manifest:
+        kind = item.get("kind")
+        if kind == "ema":
+            requirements.append(EmaRequirement(_int_value(item["period"])))
+        elif kind == "rsi":
+            requirements.append(RsiRequirement(_int_value(item["period"])))
+        elif kind == "adx":
+            requirements.append(AdxRequirement(_int_value(item["period"])))
+        elif kind == "macd":
+            requirements.append(
+                MacdRequirement(
+                    _int_value(item["fast_period"]),
+                    _int_value(item["slow_period"]),
+                    _int_value(item["signal_period"]),
+                )
+            )
+        else:
+            raise ValueError(f"Unsupported indicator requirement kind in checkpoint: {kind}")
+    return IndicatorRequirements(tuple(requirements))
+
+
+def _ema_payload(state: EmaState) -> dict[str, object]:
+    return {
+        "period": state.period,
+        "samples": state.samples,
+        "value": _decimal_text(state.value),
+        "seed_sum": _decimal_text(state.seed_sum),
+    }
+
+
+def _state_payload(state: IndicatorEngineState) -> dict[str, object]:
+    rsi = state.rsi_state
+    adx = state.adx_state
+    macd = state.macd_state
+    return {
+        "emas": [_ema_payload(item) for item in state.ema_states],
+        "rsi": None
+        if rsi is None
+        else {
+            "samples": rsi.samples,
+            "previous_close": _decimal_text(rsi.previous_close),
+            "seed_gain_sum": _decimal_text(rsi.seed_gain_sum),
+            "seed_loss_sum": _decimal_text(rsi.seed_loss_sum),
+            "average_gain": _decimal_text(rsi.average_gain),
+            "average_loss": _decimal_text(rsi.average_loss),
+        },
+        "adx": None
+        if adx is None
+        else {
+            "samples": adx.samples,
+            "previous_high": _decimal_text(adx.previous_high),
+            "previous_low": _decimal_text(adx.previous_low),
+            "previous_close": _decimal_text(adx.previous_close),
+            "seed_tr_sum": _decimal_text(adx.seed_tr_sum),
+            "seed_plus_dm_sum": _decimal_text(adx.seed_plus_dm_sum),
+            "seed_minus_dm_sum": _decimal_text(adx.seed_minus_dm_sum),
+            "smoothed_tr": _decimal_text(adx.smoothed_tr),
+            "smoothed_plus_dm": _decimal_text(adx.smoothed_plus_dm),
+            "smoothed_minus_dm": _decimal_text(adx.smoothed_minus_dm),
+            "dx_seed_sum": _decimal_text(adx.dx_seed_sum),
+            "dx_seed_count": adx.dx_seed_count,
+            "adx": _decimal_text(adx.adx),
+        },
+        "macd": None
+        if macd is None
+        else {
+            "samples": macd.samples,
+            "fast_ema": _ema_payload(macd.fast_ema),
+            "slow_ema": _ema_payload(macd.slow_ema),
+            "signal_ema": _ema_payload(macd.signal_ema),
+        },
+    }
+
+
+def _ema_from_payload(payload: dict[str, object]) -> EmaState:
+    seed_sum = _decimal_value(payload["seed_sum"])
+    assert seed_sum is not None
+    return EmaState(
+        _int_value(payload["period"]),
+        _int_value(payload["samples"]),
+        _decimal_value(payload.get("value")),
+        seed_sum,
+    )
+
+
+def _state_from_payload(
+    record: IndicatorCheckpointRecord,
+    requirements: IndicatorRequirements,
+) -> IndicatorEngineState:
+    payload = record.state_payload
+    if payload is None:
+        raise ValueError("Indicator checkpoint state payload is missing")
+    raw_emas = payload.get("emas")
+    if not isinstance(raw_emas, list):
+        raise ValueError("Indicator checkpoint EMA payload must be a list")
+    ema_states = tuple(_ema_from_payload(item) for item in raw_emas if isinstance(item, dict))
+    if len(ema_states) != len(raw_emas):
+        raise ValueError("Indicator checkpoint EMA payload contains an invalid item")
+
+    raw_rsi = payload.get("rsi")
+    rsi_state = None
+    if isinstance(raw_rsi, dict):
+        gain_sum = _decimal_value(raw_rsi["seed_gain_sum"])
+        loss_sum = _decimal_value(raw_rsi["seed_loss_sum"])
+        assert gain_sum is not None and loss_sum is not None
+        rsi_state = RsiState(
+            _int_value(raw_rsi["samples"]),
+            _decimal_value(raw_rsi.get("previous_close")),
+            gain_sum,
+            loss_sum,
+            _decimal_value(raw_rsi.get("average_gain")),
+            _decimal_value(raw_rsi.get("average_loss")),
+        )
+    elif raw_rsi is not None:
+        raise ValueError("Indicator checkpoint RSI payload is invalid")
+
+    raw_adx = payload.get("adx")
+    adx_state = None
+    if isinstance(raw_adx, dict):
+        seed_tr = _decimal_value(raw_adx["seed_tr_sum"])
+        seed_plus = _decimal_value(raw_adx["seed_plus_dm_sum"])
+        seed_minus = _decimal_value(raw_adx["seed_minus_dm_sum"])
+        dx_seed = _decimal_value(raw_adx["dx_seed_sum"])
+        assert (
+            seed_tr is not None
+            and seed_plus is not None
+            and seed_minus is not None
+            and dx_seed is not None
+        )
+        adx_state = AdxState(
+            _int_value(raw_adx["samples"]),
+            _decimal_value(raw_adx.get("previous_high")),
+            _decimal_value(raw_adx.get("previous_low")),
+            _decimal_value(raw_adx.get("previous_close")),
+            seed_tr,
+            seed_plus,
+            seed_minus,
+            _decimal_value(raw_adx.get("smoothed_tr")),
+            _decimal_value(raw_adx.get("smoothed_plus_dm")),
+            _decimal_value(raw_adx.get("smoothed_minus_dm")),
+            dx_seed,
+            _int_value(raw_adx["dx_seed_count"]),
+            _decimal_value(raw_adx.get("adx")),
+        )
+    elif raw_adx is not None:
+        raise ValueError("Indicator checkpoint ADX payload is invalid")
+
+    raw_macd = payload.get("macd")
+    macd_state = None
+    if isinstance(raw_macd, dict):
+        fast = raw_macd.get("fast_ema")
+        slow = raw_macd.get("slow_ema")
+        signal = raw_macd.get("signal_ema")
+        if not isinstance(fast, dict) or not isinstance(slow, dict) or not isinstance(signal, dict):
+            raise ValueError("Indicator checkpoint MACD EMA payload is invalid")
+        macd_state = MacdState(
+            _int_value(raw_macd["samples"]),
+            _ema_from_payload(fast),
+            _ema_from_payload(slow),
+            _ema_from_payload(signal),
+        )
+    elif raw_macd is not None:
+        raise ValueError("Indicator checkpoint MACD payload is invalid")
+
+    if record.last_interval_start is None:
+        interval = None
+    else:
+        assert record.last_interval_end is not None
+        interval = CandleInterval(record.last_interval_start, record.last_interval_end)
+    state = IndicatorEngineState(
+        InstrumentId(record.instrument_id),
+        record.calculation_version,
+        IndicatorContinuity(record.continuity_state),
+        interval,
+        requirements,
+        ema_states,
+        rsi_state,
+        adx_state,
+        macd_state,
+    )
+    # The relational count participates in optimistic checkpoint ordering while
+    # the payload carries recursive component state. Recovery must reject a row
+    # when those two authoritative representations disagree.
+    if state.completed_candle_count != record.completed_candle_count:
+        raise ValueError(
+            "Indicator checkpoint completed-candle count contradicts component state"
+        )
+    return state
+
+
 def indicator_checkpoint_record_from_state(
     run: RunIdentity, state: IndicatorEngineState
 ) -> IndicatorCheckpointRecord:
+    """Map self-describing indicator state to its durable checkpoint record."""
+
     interval = state.last_interval
+    legacy = state.requirements == V1_INDICATOR_REQUIREMENTS
+    ema9 = state.ema_state(9) if legacy else None
+    ema20 = state.ema_state(20) if legacy else None
+    ema50 = state.ema_state(50) if legacy else None
+    rsi = state.rsi_state if legacy else None
+    adx = state.adx_state if legacy else None
+    macd = state.macd_state if legacy else None
     return IndicatorCheckpointRecord(
         run_id=str(run.run_id),
         instrument_id=str(state.instrument_id),
@@ -440,48 +700,91 @@ def indicator_checkpoint_record_from_state(
         continuity_state=state.continuity.value,
         last_interval_start=None if interval is None else interval.start,
         last_interval_end=None if interval is None else interval.end,
-        completed_candle_count=state.ema9.samples,
-        ema9_value=state.ema9.value,
-        ema9_seed_sum=state.ema9.seed_sum,
-        ema20_value=state.ema20.value,
-        ema20_seed_sum=state.ema20.seed_sum,
-        ema50_value=state.ema50.value,
-        ema50_seed_sum=state.ema50.seed_sum,
-        rsi_previous_close=state.rsi14.previous_close,
-        rsi_seed_gain_sum=state.rsi14.seed_gain_sum,
-        rsi_seed_loss_sum=state.rsi14.seed_loss_sum,
-        rsi_average_gain=state.rsi14.average_gain,
-        rsi_average_loss=state.rsi14.average_loss,
-        adx_previous_high=state.adx14.previous_high,
-        adx_previous_low=state.adx14.previous_low,
-        adx_previous_close=state.adx14.previous_close,
-        adx_seed_tr_sum=state.adx14.seed_tr_sum,
-        adx_seed_plus_dm_sum=state.adx14.seed_plus_dm_sum,
-        adx_seed_minus_dm_sum=state.adx14.seed_minus_dm_sum,
-        adx_smoothed_tr=state.adx14.smoothed_tr,
-        adx_smoothed_plus_dm=state.adx14.smoothed_plus_dm,
-        adx_smoothed_minus_dm=state.adx14.smoothed_minus_dm,
-        adx_dx_seed_sum=state.adx14.dx_seed_sum,
-        adx_dx_seed_count=state.adx14.dx_seed_count,
-        adx=state.adx14.adx,
-        macd_fast_value=state.macd.fast_ema.value,
-        macd_fast_seed_sum=state.macd.fast_ema.seed_sum,
-        macd_slow_value=state.macd.slow_ema.value,
-        macd_slow_seed_sum=state.macd.slow_ema.seed_sum,
-        macd_signal_value=state.macd.signal_ema.value,
-        macd_signal_seed_sum=state.macd.signal_ema.seed_sum,
+        completed_candle_count=state.completed_candle_count,
+        requirements_manifest=_requirement_manifest(state.requirements),
+        state_payload=_state_payload(state),
+        ema9_value=None if ema9 is None else ema9.value,
+        ema9_seed_sum=None if ema9 is None else ema9.seed_sum,
+        ema20_value=None if ema20 is None else ema20.value,
+        ema20_seed_sum=None if ema20 is None else ema20.seed_sum,
+        ema50_value=None if ema50 is None else ema50.value,
+        ema50_seed_sum=None if ema50 is None else ema50.seed_sum,
+        rsi_previous_close=None if rsi is None else rsi.previous_close,
+        rsi_seed_gain_sum=None if rsi is None else rsi.seed_gain_sum,
+        rsi_seed_loss_sum=None if rsi is None else rsi.seed_loss_sum,
+        rsi_average_gain=None if rsi is None else rsi.average_gain,
+        rsi_average_loss=None if rsi is None else rsi.average_loss,
+        adx_previous_high=None if adx is None else adx.previous_high,
+        adx_previous_low=None if adx is None else adx.previous_low,
+        adx_previous_close=None if adx is None else adx.previous_close,
+        adx_seed_tr_sum=None if adx is None else adx.seed_tr_sum,
+        adx_seed_plus_dm_sum=None if adx is None else adx.seed_plus_dm_sum,
+        adx_seed_minus_dm_sum=None if adx is None else adx.seed_minus_dm_sum,
+        adx_smoothed_tr=None if adx is None else adx.smoothed_tr,
+        adx_smoothed_plus_dm=None if adx is None else adx.smoothed_plus_dm,
+        adx_smoothed_minus_dm=None if adx is None else adx.smoothed_minus_dm,
+        adx_dx_seed_sum=None if adx is None else adx.dx_seed_sum,
+        adx_dx_seed_count=None if adx is None else adx.dx_seed_count,
+        adx=None if adx is None else adx.adx,
+        macd_fast_value=None if macd is None else macd.fast_ema.value,
+        macd_fast_seed_sum=None if macd is None else macd.fast_ema.seed_sum,
+        macd_slow_value=None if macd is None else macd.slow_ema.value,
+        macd_slow_seed_sum=None if macd is None else macd.slow_ema.seed_sum,
+        macd_signal_value=None if macd is None else macd.signal_ema.value,
+        macd_signal_seed_sum=None if macd is None else macd.signal_ema.seed_sum,
     )
 
 
 def indicator_checkpoint_state_from_record(
     record: IndicatorCheckpointRecord,
 ) -> IndicatorEngineState:
+    """Restore exact generic state, with compatibility for pre-SF-063 V1 rows."""
+
+    if record.requirements_manifest is not None or record.state_payload is not None:
+        if record.requirements_manifest is None or record.state_payload is None:
+            raise ValueError("Indicator checkpoint generic manifest/payload must both be present")
+        requirements = _requirements_from_manifest(record.requirements_manifest)
+        return _state_from_payload(record, requirements)
+
+    # Legacy M6 rows are an implicit fixed Strategy V1 checkpoint shape.
     samples = record.completed_candle_count
     if record.last_interval_start is None:
         interval = None
     else:
         assert record.last_interval_end is not None
         interval = CandleInterval(record.last_interval_start, record.last_interval_end)
+
+    required = (
+        record.ema9_seed_sum,
+        record.ema20_seed_sum,
+        record.ema50_seed_sum,
+        record.rsi_seed_gain_sum,
+        record.rsi_seed_loss_sum,
+        record.adx_seed_tr_sum,
+        record.adx_seed_plus_dm_sum,
+        record.adx_seed_minus_dm_sum,
+        record.adx_dx_seed_sum,
+        record.adx_dx_seed_count,
+        record.macd_fast_seed_sum,
+        record.macd_slow_seed_sum,
+        record.macd_signal_seed_sum,
+    )
+    if any(item is None for item in required):
+        raise ValueError("Legacy Strategy V1 indicator checkpoint is incomplete")
+    assert record.ema9_seed_sum is not None
+    assert record.ema20_seed_sum is not None
+    assert record.ema50_seed_sum is not None
+    assert record.rsi_seed_gain_sum is not None
+    assert record.rsi_seed_loss_sum is not None
+    assert record.adx_seed_tr_sum is not None
+    assert record.adx_seed_plus_dm_sum is not None
+    assert record.adx_seed_minus_dm_sum is not None
+    assert record.adx_dx_seed_sum is not None
+    assert record.adx_dx_seed_count is not None
+    assert record.macd_fast_seed_sum is not None
+    assert record.macd_slow_seed_sum is not None
+    assert record.macd_signal_seed_sum is not None
+
     ema9 = EmaState(9, samples, record.ema9_value, record.ema9_seed_sum)
     ema20 = EmaState(20, samples, record.ema20_value, record.ema20_seed_sum)
     ema50 = EmaState(50, samples, record.ema50_value, record.ema50_seed_sum)
@@ -519,10 +822,14 @@ def indicator_checkpoint_state_from_record(
         record.calculation_version,
         IndicatorContinuity(record.continuity_state),
         interval,
-        ema9,
-        ema20,
-        ema50,
+        V1_INDICATOR_REQUIREMENTS,
+        tuple(
+            {9: ema9, 20: ema20, 50: ema50}[requirement.period]
+            for requirement in V1_INDICATOR_REQUIREMENTS.items
+            if isinstance(requirement, EmaRequirement)
+        ),
         rsi,
         adx,
         macd,
     )
+

@@ -9,6 +9,7 @@ from signalforge.domain.armed import ArmedSetup, ArmedSetupState
 from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.indicators import IndicatorRequirements
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
@@ -54,9 +55,21 @@ class RecoveryResult:
 
 
 class RecoveryBootstrap:
+    """Validate and rehydrate authoritative persisted runtime state."""
+
     def inspect(
-        self, *, session: Session, requested_run: RunIdentity, instrument_id: InstrumentId
+        self,
+        *,
+        session: Session,
+        requested_run: RunIdentity,
+        instrument_id: InstrumentId,
+        indicator_requirements: IndicatorRequirements,
     ) -> RecoveryResult:
+        """Inspect persisted state without mutation.
+
+        When indicator requirements are supplied, an existing checkpoint must
+        match that exact canonical requirement set before it may be resumed.
+        """
         run = PostgresRunProvenanceRepository(session).get(requested_run.run_id)
         signals = (
             PostgresSignalRepository(session).find_for_run_instrument(
@@ -134,6 +147,10 @@ class RecoveryBootstrap:
         ):
             raise ContradictoryFactError(
                 "persisted indicator checkpoint contradicts requested runtime"
+            )
+        if checkpoint is not None and checkpoint.requirements != indicator_requirements:
+            raise ContradictoryFactError(
+                "persisted indicator checkpoint requirements contradict requested strategy"
             )
         if len(outcomes) != len(fills):
             raise ContradictoryFactError("persisted fill lacks a completed position-open outcome")

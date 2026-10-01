@@ -7,6 +7,7 @@ import pytest
 from signalforge.config.identity import identify_config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId, RunId
+from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
@@ -189,6 +190,7 @@ class _FakeStrategy:
         self.config_identity = identify_config(
             {"strategy_id": "test_fake_strategy", "strategy_version": "1.0.0"}
         )
+        self.indicator_requirements = IndicatorRequirements.of(RsiRequirement(14))
         self.contexts: list[CompletedCandleStrategyContext] = []
 
     def evaluate_completed_candle(
@@ -224,6 +226,11 @@ def test_runtime_accepts_strategy_without_v1_decomposition() -> None:
     assert not hasattr(steps[-1].evaluation, "trend")
     assert not hasattr(steps[-1].evaluation, "momentum")
     assert not hasattr(steps[-1].evaluation, "setup")
+    assert runtime.indicator_engine.state.requirements == strategy.indicator_requirements
+    assert runtime.indicator_engine.state.ema_states == ()
+    assert runtime.indicator_engine.state.adx_state is None
+    assert runtime.indicator_engine.state.macd_state is None
+    assert runtime.indicator_engine.state.rsi_state is not None
 
 
 class _ContradictoryStrategy(_FakeStrategy):

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from signalforge.config.identity import ConfigStatus, identify_config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.domain.ids import RunId, deterministic_id
 from signalforge.domain.provenance import StrategyIdentity
 
 
@@ -104,3 +105,23 @@ def test_time_values_are_canonicalized_as_minute_strings() -> None:
     mapping = StrategyV1EvaluationConfig().semantic_mapping()
     assert mapping["first_signal_time_ist"] == "09:20"
     assert mapping["last_signal_time_ist"] == "15:00"
+
+
+
+def test_sf063_preserves_accepted_v1_config_and_run_identity() -> None:
+    """Freeze pre-SF-063 Strategy V1 identity while requirements become derived state."""
+
+    identity = StrategyV1EvaluationConfig().identify()
+
+    assert identity.config_hash == (
+        "fd6ec6027dcd2d661d60c3ccfa4e7de3873b2400c8ad2e0ca1323f358b967956"
+    )
+    assert str(identity.config_id) == identity.config_hash
+
+    run_id = deterministic_id(
+        RunId,
+        identity.config_hash,
+        "source-fixture-v1",
+        "engine-v1",
+    )
+    assert str(run_id) == "db13309ab3cf9ae69460a3ab9d143b5e2315f6129a44bb68ebfe56d522e536ea"

@@ -11,6 +11,7 @@ from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOp
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.runtime import recovery
+from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import _transition, facts
 
@@ -74,6 +75,7 @@ def test_recovery_returns_new_without_persisted_run(monkeypatch: pytest.MonkeyPa
         session=cast(Session, SimpleNamespace()),
         requested_run=run,
         instrument_id=InstrumentId("NSE:X"),
+        indicator_requirements=V1_INDICATOR_REQUIREMENTS,
     )
     assert result.disposition is RecoveryDisposition.NEW
     assert result.indicator_state is None
@@ -92,6 +94,7 @@ def test_recovery_rejects_provenance_mismatch(monkeypatch: pytest.MonkeyPatch) -
             session=cast(Session, SimpleNamespace()),
             requested_run=run,
             instrument_id=InstrumentId("NSE:X"),
+        indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
 
@@ -104,6 +107,7 @@ def test_recovery_accepts_persisted_run_before_first_checkpoint(
         session=cast(Session, SimpleNamespace()),
         requested_run=run,
         instrument_id=InstrumentId("NSE:X"),
+        indicator_requirements=V1_INDICATOR_REQUIREMENTS,
     )
     assert result.disposition is RecoveryDisposition.RESUMABLE
     assert result.indicator_state is None
@@ -174,6 +178,7 @@ def _inspect(
         session=cast(Session, SimpleNamespace()),
         requested_run=run,
         instrument_id=InstrumentId("NSE:SF045B"),
+        indicator_requirements=V1_INDICATOR_REQUIREMENTS,
     )
 
 
@@ -186,6 +191,7 @@ def test_recovery_rejects_cross_run_signal_lineage(monkeypatch: pytest.MonkeyPat
             session=cast(Session, SimpleNamespace()),
             requested_run=value.run,
             instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
 
@@ -199,6 +205,7 @@ def test_recovery_rejects_multiple_armed_setups(monkeypatch: pytest.MonkeyPatch)
             session=cast(Session, SimpleNamespace()),
             requested_run=value.run,
             instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
 
@@ -225,6 +232,7 @@ def test_recovery_rejects_multiple_open_graphs(monkeypatch: pytest.MonkeyPatch) 
             session=cast(Session, SimpleNamespace()),
             requested_run=value.run,
             instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
 
@@ -245,6 +253,7 @@ def test_recovery_rejects_trade_position_state_disagreement(
             session=cast(Session, SimpleNamespace()),
             requested_run=value.run,
             instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
 
@@ -279,4 +288,5 @@ def test_recovery_rejects_closed_lifecycle_without_matching_transition(
             session=cast(Session, SimpleNamespace()),
             requested_run=value.run,
             instrument_id=value.signal.instrument_id,
+            indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
