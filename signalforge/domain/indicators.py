@@ -182,6 +182,7 @@ class IndicatorSnapshot:
     interval: CandleInterval
     calculation_version: str
     readings: tuple[IndicatorReading, ...]
+    _legacy_ready_override: bool | None
 
     def __init__(
         self,
@@ -204,6 +205,7 @@ class IndicatorSnapshot:
 
         if readings is not None and ready is not None:
             raise ValueError("Explicit readings must not also provide legacy ready")
+        legacy_ready_override = ready if readings is None else None
         if readings is None:
             legacy_values = (
                 ema9,
@@ -242,6 +244,7 @@ class IndicatorSnapshot:
         object.__setattr__(self, "interval", interval)
         object.__setattr__(self, "calculation_version", calculation_version)
         object.__setattr__(self, "readings", readings)
+        object.__setattr__(self, "_legacy_ready_override", legacy_ready_override)
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -263,8 +266,16 @@ class IndicatorSnapshot:
 
     @property
     def ready(self) -> bool:
-        """Return whether all declared requirements are ready."""
+        """Return readiness for this snapshot's declared requirement set.
 
+        Explicit-readings snapshots derive readiness solely from their readings.
+        The deprecated V1 compatibility constructor preserves an explicitly
+        supplied legacy readiness flag so existing callers cannot silently
+        become actionable during the SF-063 migration.
+        """
+
+        if self._legacy_ready_override is not None:
+            return self._legacy_ready_override
         return all(item.ready for item in self.readings)
 
     def reading(self, requirement: IndicatorRequirement) -> IndicatorReading:
@@ -306,32 +317,48 @@ class IndicatorSnapshot:
     # shared runtime state is requirement-driven.
     @property
     def ema9(self) -> Decimal | None:
+        """Return the legacy Strategy V1 EMA(9) compatibility value."""
+
         return self.ema(9)
 
     @property
     def ema20(self) -> Decimal | None:
+        """Return the legacy Strategy V1 EMA(20) compatibility value."""
+
         return self.ema(20)
 
     @property
     def ema50(self) -> Decimal | None:
+        """Return the legacy Strategy V1 EMA(50) compatibility value."""
+
         return self.ema(50)
 
     @property
     def rsi14(self) -> Decimal | None:
+        """Return the legacy Strategy V1 RSI(14) compatibility value."""
+
         return self.rsi(14)
 
     @property
     def adx14(self) -> Decimal | None:
+        """Return the legacy Strategy V1 ADX(14) compatibility value."""
+
         return self.adx(14)
 
     @property
     def macd_line(self) -> Decimal | None:
+        """Return the legacy Strategy V1 MACD-line compatibility value."""
+
         return self.macd().line
 
     @property
     def macd_signal(self) -> Decimal | None:
+        """Return the legacy Strategy V1 MACD-signal compatibility value."""
+
         return self.macd().signal
 
     @property
     def macd_histogram(self) -> Decimal | None:
+        """Return the legacy Strategy V1 MACD-histogram compatibility value."""
+
         return self.macd().histogram
