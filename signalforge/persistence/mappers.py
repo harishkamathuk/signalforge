@@ -659,7 +659,7 @@ def _state_from_payload(
     else:
         assert record.last_interval_end is not None
         interval = CandleInterval(record.last_interval_start, record.last_interval_end)
-    return IndicatorEngineState(
+    state = IndicatorEngineState(
         InstrumentId(record.instrument_id),
         record.calculation_version,
         IndicatorContinuity(record.continuity_state),
@@ -670,6 +670,14 @@ def _state_from_payload(
         adx_state,
         macd_state,
     )
+    # The relational count participates in optimistic checkpoint ordering while
+    # the payload carries recursive component state. Recovery must reject a row
+    # when those two authoritative representations disagree.
+    if state.completed_candle_count != record.completed_candle_count:
+        raise ValueError(
+            "Indicator checkpoint completed-candle count contradicts component state"
+        )
+    return state
 
 
 def indicator_checkpoint_record_from_state(
@@ -815,7 +823,11 @@ def indicator_checkpoint_state_from_record(
         IndicatorContinuity(record.continuity_state),
         interval,
         V1_INDICATOR_REQUIREMENTS,
-        (ema9, ema20, ema50),
+        tuple(
+            {9: ema9, 20: ema20, 50: ema50}[requirement.period]
+            for requirement in V1_INDICATOR_REQUIREMENTS.items
+            if isinstance(requirement, EmaRequirement)
+        ),
         rsi,
         adx,
         macd,
