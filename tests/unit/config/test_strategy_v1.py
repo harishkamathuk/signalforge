@@ -113,7 +113,9 @@ def test_sf063_preserves_accepted_v1_config_and_run_identity() -> None:
 
     identity = StrategyV1EvaluationConfig().identify()
 
-    assert identity.config_hash == "fd6ec6027dcd2d661d60c3ccfa4e7de3873b2400c8ad2e0ca1323f358b967956"
+    assert identity.config_hash == (
+        "fd6ec6027dcd2d661d60c3ccfa4e7de3873b2400c8ad2e0ca1323f358b967956"
+    )
     assert str(identity.config_id) == identity.config_hash
 
     run_id = deterministic_id(
