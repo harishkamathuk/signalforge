@@ -303,8 +303,9 @@ def test_sf063_v1_checkpoint_can_downgrade_to_0004(postgres_engine: Engine) -> N
             session.commit()
 
         command.downgrade(config, "20260902_0004")
+        checkpoint_columns = sa.inspect(postgres_engine).get_columns("indicator_checkpoints")
         assert "requirements_manifest" not in {
-            column["name"] for column in sa.inspect(postgres_engine).get_columns("indicator_checkpoints")
+            column["name"] for column in checkpoint_columns
         }
         command.upgrade(config, "head")
     finally:
