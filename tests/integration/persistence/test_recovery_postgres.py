@@ -348,6 +348,36 @@ def test_recovery_postgres_restores_rsi_only_checkpoint_and_validates_requiremen
         assert matched.indicator_state.ema_states == ()
         assert matched.indicator_state.adx_state is None
         assert matched.indicator_state.macd_state is None
+        restored_state = matched.indicator_state
+
+    next_offset = 20
+    next_close = Decimal("100.12345678901234567890") + Decimal(next_offset) / Decimal(
+        "10000000000000000000"
+    )
+    next_candle = CompletedCandle(
+        instrument_id=value.signal.instrument_id,
+        interval=CandleInterval.five_minutes(
+            value.evaluation.interval.start + timedelta(minutes=5 * next_offset)
+        ),
+        quality=CandleQuality.VALID,
+        open=Price(next_close),
+        high=Price(next_close + Decimal("0.02")),
+        low=Price(next_close - Decimal("0.03")),
+        close=Price(next_close),
+        volume=100 + next_offset,
+        source="recovery-rsi-only",
+        source_event_count=1,
+    )
+    expected = engine.update(next_candle)
+    resumed = IndicatorEngine(
+        value.signal.instrument_id,
+        value.run.engine_calculation_version,
+        requirements=requirements,
+        state=restored_state,
+    )
+    actual = resumed.update(next_candle)
+    assert actual == expected
+    assert resumed.state == engine.state
 
     with Session(postgres_engine) as session:
         with pytest.raises(
