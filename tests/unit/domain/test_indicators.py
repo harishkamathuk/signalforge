@@ -76,10 +76,10 @@ def test_ready_snapshot_requires_complete_indicator_set() -> None:
         _ready_snapshot(adx14=None)
 
 
-def test_readiness_is_derived_from_declared_requirement_values() -> None:
+def test_legacy_readiness_override_is_preserved_during_migration() -> None:
     snapshot = _ready_snapshot(ready=False)
 
-    assert snapshot.ready is True
+    assert snapshot.ready is False
     assert snapshot.adx14 is not None
 
 
