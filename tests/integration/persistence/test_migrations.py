@@ -254,19 +254,24 @@ def test_sf063_upgrade_preserves_0004_v1_checkpoint_and_resume(
         _reset_migrations(config)
 
 
-def test_sf063_downgrade_blocks_generic_only_checkpoint(postgres_engine: Engine) -> None:
-    """Do not silently discard generic-only recursive state on downgrade."""
+@pytest.mark.parametrize("advance", (False, True))
+def test_sf063_downgrade_blocks_generic_only_checkpoint(
+    postgres_engine: Engine,
+    advance: bool,
+) -> None:
+    """Do not silently discard empty or populated generic-only state on downgrade."""
 
     config = Config("alembic.ini")
     _reset_migrations(config)
-    run = _sf063_run("sf063-rsi-downgrade")
-    instrument_id = InstrumentId("NSE:SF063RSI")
+    run = _sf063_run(f"sf063-rsi-downgrade-{advance}")
+    instrument_id = InstrumentId(f"NSE:SF063RSI{int(advance)}")
     engine = IndicatorEngine(
         instrument_id,
         run.engine_calculation_version,
         requirements=IndicatorRequirements.of(RsiRequirement(14)),
     )
-    engine.update(_sf063_candle(instrument_id, 0))
+    if advance:
+        engine.update(_sf063_candle(instrument_id, 0))
 
     try:
         with Session(postgres_engine) as session:
