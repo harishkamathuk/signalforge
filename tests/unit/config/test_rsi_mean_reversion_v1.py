@@ -15,6 +15,9 @@ def test_reference_config_identity_and_status_are_deterministic() -> None:
     assert first.strategy_identity == StrategyIdentity("rsi_mean_reversion_v1", "1.0.0")
     assert first.semantic_mapping() == second.semantic_mapping()
     assert first.identify() == second.identify()
+    assert first.identify().config_hash == (
+        "c5e0abf5b3fa55744278038b4f5f34d2b9164052821181f48345d05d226fd02f"
+    )
     assert first.identify().status is ConfigStatus.EXPERIMENTAL
 
 
