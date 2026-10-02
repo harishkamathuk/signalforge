@@ -140,6 +140,45 @@ def test_explicit_v1_custom_parameters_match_legacy_replay(tmp_path: Path) -> No
     assert replay_command(legacy, input_path) == replay_command(explicit, input_path)
 
 
+def test_explicit_rsi_reference_strategy_resolves_and_runs(tmp_path: Path) -> None:
+    config = _write(
+        tmp_path / "rsi-reference.json",
+        _config_payload(
+            {
+                "id": "rsi_mean_reversion_v1",
+                "version": "1.0.0",
+                "parameters": {},
+            }
+        ),
+    )
+
+    summary = replay_command(config, _input(tmp_path))
+
+    assert summary["events"] == 2
+    assert summary["evaluations"] == 1
+    assert summary["signals"] == 0
+    assert summary["trades"] == 0
+    assert summary["decision_counts"] == {"rsi_unavailable": 1}
+
+
+def test_invalid_rsi_reference_config_fails_before_market_input_is_read(
+    tmp_path: Path,
+) -> None:
+    config = _write(
+        tmp_path / "invalid-rsi-reference.json",
+        _config_payload(
+            {
+                "id": "rsi_mean_reversion_v1",
+                "version": "1.0.0",
+                "parameters": {"rsi_threshold": "29"},
+            }
+        ),
+    )
+
+    with pytest.raises(StrategyParameterValidationError):
+        replay_command(config, tmp_path / "does-not-exist.json")
+
+
 def test_main_prints_json_summary_and_returns_zero(tmp_path: Path, capsys) -> None:
     exit_code = main(
         [
