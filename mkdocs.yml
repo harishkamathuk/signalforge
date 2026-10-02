@@ -10,6 +10,8 @@ nav:
   - Engineering Guides:
       - Persistence Development: persistence-development.md
       - Replay CLI: replay-cli.md
+  - Strategies:
+      - RSI Mean-Reversion V1 Reference: strategies/rsi-mean-reversion-v1.md
   - Architecture:
       - ADR-001 — Single-Security MVP Runtime Architecture: architecture/decisions/ADR-001-single-security-mvp-runtime-architecture.md
       - ADR-002 — Core Domain Models & State Machines: architecture/decisions/ADR-002-core-domain-models-state-machines.md
@@ -22,6 +24,7 @@ nav:
   - API:
       - Strategy Runtime: api/strategy-runtime.md
       - Strategy Registry: api/strategy-registry.md
+      - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - Indicators: api/indicators.md
 
 plugins:
