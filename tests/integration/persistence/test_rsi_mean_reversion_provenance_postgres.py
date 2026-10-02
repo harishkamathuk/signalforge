@@ -1,3 +1,8 @@
+import os
+from collections.abc import Iterator
+
+import pytest
+import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -11,6 +16,19 @@ from signalforge.persistence.repositories import (
 )
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
+
+
+
+@pytest.fixture(scope="module")
+def postgres_engine() -> Iterator[Engine]:
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url is None:
+        pytest.fail("DATABASE_URL is required for SF-065 PostgreSQL integration tests")
+    engine = sa.create_engine(database_url)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
 
 
 def test_reference_strategy_provenance_and_rsi_checkpoint_round_trip(
