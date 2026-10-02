@@ -33,6 +33,7 @@ from signalforge.runtime.strategy import (
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
+    StrategyDecision,
 )
 
 
@@ -289,7 +290,7 @@ class _ReferenceStrategy:
     def arm_intent(
         self,
         candle: CompletedCandle,
-        decision: _ReferenceDecision,
+        decision: StrategyDecision,
     ) -> ArmIntent:
         raise AssertionError("reference strategy never arms")
 
