@@ -24,7 +24,6 @@ from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CompletedCandle, MarketEvent
-from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
