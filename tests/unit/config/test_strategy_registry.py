@@ -128,9 +128,10 @@ def _test_factory(parameters: Mapping[str, object]) -> _TestStrategy:
     return _TestStrategy(_TestConfig.model_validate(dict(parameters)))
 
 
-def test_default_registry_contains_only_strategy_v1() -> None:
+def test_default_registry_contains_both_real_strategies() -> None:
     assert DEFAULT_STRATEGY_REGISTRY.registrations == (
         ("intraday_momentum_v1", "1.0.0"),
+        ("rsi_mean_reversion_v1", "1.0.0"),
     )
 
 
@@ -300,8 +301,29 @@ def test_non_mapping_strategy_input_is_rejected_by_replay_model(invalid: object)
         )
 
 
-def test_production_registry_does_not_pre_register_sf065_strategy() -> None:
-    with pytest.raises(UnknownStrategyError):
+def test_reference_strategy_resolves_through_production_registry() -> None:
+    strategy = DEFAULT_STRATEGY_REGISTRY.resolve(
+        StrategySelection("rsi_mean_reversion_v1", "1.0.0", {})
+    )
+
+    assert strategy.identity == StrategyIdentity("rsi_mean_reversion_v1", "1.0.0")
+    assert strategy.indicator_requirements == IndicatorRequirements.of(RsiRequirement(14))
+
+
+def test_reference_strategy_wrong_version_and_parameters_fail() -> None:
+    with pytest.raises(
+        UnsupportedStrategyVersionError,
+        match="Unsupported version 2.0.0",
+    ):
         DEFAULT_STRATEGY_REGISTRY.resolve(
-            StrategySelection("rsi_mean_reversion_v1", "1.0.0", {})
+            StrategySelection("rsi_mean_reversion_v1", "2.0.0", {})
+        )
+
+    with pytest.raises(StrategyParameterValidationError):
+        DEFAULT_STRATEGY_REGISTRY.resolve(
+            StrategySelection(
+                "rsi_mean_reversion_v1",
+                "1.0.0",
+                {"rsi_threshold": "29"},
+            )
         )
