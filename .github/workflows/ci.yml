@@ -39,6 +39,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -48,6 +50,16 @@ jobs:
 
       - name: Install project and development dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev,docs]'
+
+      - name: Committed diff whitespace
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE_SHA" ]; then
+            git diff --check "$PR_BASE_SHA"...HEAD
+          else
+            git diff --check HEAD^..HEAD
+          fi
 
       - name: Ruff
         run: ruff check .
@@ -60,6 +72,11 @@ jobs:
 
       - name: Apply Alembic migrations
         run: alembic upgrade head
+
+      - name: Verify Alembic state
+        run: |
+          alembic heads
+          alembic current
 
       - name: Pytest with coverage
         run: pytest --cov=signalforge --cov-report=term-missing
