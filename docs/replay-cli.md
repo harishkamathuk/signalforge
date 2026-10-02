@@ -34,6 +34,23 @@ The strategy envelope is strict. Unknown envelope fields, missing `id`,
 `version` or `parameters`, unsupported versions, and malformed strategy
 parameters fail during startup before replay market input is read.
 
+
+The experimental/reference RSI strategy is selected explicitly:
+
+```json
+{
+  "strategy": {
+    "id": "rsi_mean_reversion_v1",
+    "version": "1.0.0",
+    "parameters": {}
+  }
+}
+```
+
+It has no legacy implicit configuration form. Version `1.0.0` freezes the
+reference fixture's RSI(14), strict-below-30 qualification, signal-close trigger,
+signal-low stop, 1.0R target, and one-following-candle validity semantics.
+
 Strategy parameters are validated by the registered strategy's typed schema.
 For Strategy V1 this retains `extra="forbid"`; unknown parameters are not
 silently ignored.
