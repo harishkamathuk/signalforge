@@ -35,6 +35,7 @@ from signalforge.runtime.strategy import (
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
+    StrategyDecision,
 )
 
 
@@ -85,7 +86,11 @@ class _TestStrategy:
     ) -> _Decision:
         return _Decision(context.candle.instrument_id, context.candle.interval)
 
-    def arm_intent(self, candle: CompletedCandle, decision: _Decision) -> ArmIntent:
+    def arm_intent(
+        self,
+        candle: CompletedCandle,
+        decision: StrategyDecision,
+    ) -> ArmIntent:
         raise AssertionError("test-only strategy never arms")
 
     def evaluate_armed_market_event(
