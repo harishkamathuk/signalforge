@@ -13,7 +13,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
+from signalforge.config.strategy_registry import (
+    DEFAULT_STRATEGY_REGISTRY,
+    StrategyRegistry,
+    normalize_strategy_selection,
+)
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
@@ -24,8 +28,7 @@ from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
-from signalforge.runtime.strategy import StrategyDecision, StrategyRuntimeFacts
-from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
+from signalforge.runtime.strategy import Strategy, StrategyDecision, StrategyRuntimeFacts
 
 
 class ReplayTickRuleConfig(BaseModel):
@@ -43,7 +46,7 @@ class ReplayCommandConfig(BaseModel):
     quantity: int = Field(gt=0)
     engine_calculation_version: str
     tick_rules: tuple[ReplayTickRuleConfig, ...]
-    strategy: StrategyV1EvaluationConfig = StrategyV1EvaluationConfig()
+    strategy: dict[str, object] = Field(default_factory=dict)
 
 
 class ReplayEventInput(BaseModel):
@@ -74,6 +77,7 @@ def _read_json(path: Path) -> Any:
 def _build_runtime(
     config: ReplayCommandConfig,
     raw_events: Any,
+    strategy: Strategy,
 ) -> tuple[ReplayRuntime, ReplaySessionClock]:
     if not isinstance(raw_events, list):
         raise ValueError("Replay input must be a JSON array")
@@ -93,7 +97,6 @@ def _build_runtime(
         for item in parsed_events
     )
     source = InMemoryReplaySource(instrument_id=instrument_id, events=events)
-    strategy = IntradayMomentumV1Strategy(config.strategy)
     config_identity = strategy.config_identity
     run_id = deterministic_id(
         RunId,
@@ -193,9 +196,21 @@ def _summary(
     }
 
 
-def replay_command(config_path: Path, input_path: Path) -> dict[str, object]:
+def replay_command(
+    config_path: Path,
+    input_path: Path,
+    *,
+    registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY,
+) -> dict[str, object]:
+    """Run deterministic replay after resolving strategy configuration first."""
+
     config = ReplayCommandConfig.model_validate(_read_json(config_path))
-    runtime, clock = _build_runtime(config, _read_json(input_path))
+    selection = normalize_strategy_selection(config.strategy)
+    strategy = registry.resolve(selection)
+    # Strategy selection/typed parameter validation intentionally completes
+    # before market input is read so startup/config errors take precedence.
+    raw_events = _read_json(input_path)
+    runtime, clock = _build_runtime(config, raw_events, strategy)
     steps = clock.run_all()
     return _summary(runtime, steps)
 
