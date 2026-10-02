@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
 from signalforge.domain.provenance import StrategyIdentity
@@ -22,6 +22,16 @@ class RsiMeanReversionV1Config(BaseModel):
     rsi_strictly_below: Literal[True] = True
     target_r_multiple: Decimal = Decimal("1.0")
     validity_candles: Literal[1] = 1
+
+    @model_validator(mode="after")
+    def validate_frozen_semantics(self) -> "RsiMeanReversionV1Config":
+        """Reject parameter drift under the fixed 1.0.0 reference identity."""
+
+        if self.rsi_threshold != Decimal("30"):
+            raise ValueError("RSI threshold is fixed at 30 for version 1.0.0")
+        if self.target_r_multiple != Decimal("1.0"):
+            raise ValueError("Target R multiple is fixed at 1.0 for version 1.0.0")
+        return self
 
     @property
     def strategy_identity(self) -> StrategyIdentity:
