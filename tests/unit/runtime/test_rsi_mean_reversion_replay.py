@@ -257,3 +257,23 @@ def test_reference_shared_session_safety_preempts_strategy_policy() -> None:
     assert snapshot.arming is not None
     assert snapshot.arming.armed_setup.expiry_reason is ExpiryReason.ENTRY_CUTOFF_REACHED
     assert snapshot.arming.armed_setup.terminal_at == forced_at
+
+
+
+def test_reference_open_position_uses_shared_compulsory_intraday_exit() -> None:
+    prefix = _qualifying_prefix()
+    armed_at = datetime(2026, 8, 31, 11, 15, tzinfo=IST)
+    runtime = _runtime(
+        prefix + (_event(armed_at + timedelta(minutes=1), "86.10", "trigger"),)
+    )
+    runtime.run_all()
+    assert runtime.lifecycle.state is LifecycleState.OPEN
+
+    forced_at = datetime(2026, 8, 31, 15, 15, tzinfo=IST)
+    snapshot = runtime.lifecycle.process_market_event(
+        _event(forced_at, "86.15", "forced-exit")
+    )
+
+    assert snapshot.state is LifecycleState.CLOSED
+    assert snapshot.exit is not None
+    assert snapshot.exit.reason is ExitReason.FORCED_SESSION_EXIT
