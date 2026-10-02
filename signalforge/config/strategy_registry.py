@@ -8,8 +8,10 @@ from types import MappingProxyType
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.provenance import StrategyIdentity
+from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
 from signalforge.runtime.strategy import Strategy
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
@@ -194,12 +196,24 @@ def _build_intraday_momentum_v1(
     return IntradayMomentumV1Strategy(config)
 
 
+def _build_rsi_mean_reversion_v1(
+    parameters: Mapping[str, object],
+) -> Strategy:
+    config = RsiMeanReversionV1Config.model_validate(dict(parameters))
+    return RsiMeanReversionV1Strategy(config)
+
+
 DEFAULT_STRATEGY_REGISTRY = StrategyRegistry(
     (
         StrategyRegistration(
             "intraday_momentum_v1",
             "1.0.0",
             _build_intraday_momentum_v1,
+        ),
+        StrategyRegistration(
+            "rsi_mean_reversion_v1",
+            "1.0.0",
+            _build_rsi_mean_reversion_v1,
         ),
     )
 )
