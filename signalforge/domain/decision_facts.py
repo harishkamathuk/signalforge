@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
+
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
 
