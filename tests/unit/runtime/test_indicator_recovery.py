@@ -234,3 +234,20 @@ def test_successful_reconciliation_is_one_shot() -> None:
     assert result.engine.state.completed_candle_count == 6
     with pytest.raises(IndicatorRecoveryError, match="already terminal"):
         recovery.reconcile(())
+
+
+def test_interrupted_recovery_source_breaks_partial_state() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+
+    def interrupted_source():
+        yield RecoveryCandle(_candle(5), continuity_ok=True)
+        raise OSError("simulated source interruption")
+
+    with pytest.raises(IndicatorRecoveryError, match="source failed"):
+        recovery.reconcile(interrupted_source())
+
+    assert recovery.state.completed_candle_count == 6
+    assert recovery.state.continuity is IndicatorContinuity.BROKEN
+    with pytest.raises(IndicatorRecoveryError, match="already terminal"):
+        recovery.reconcile(())
