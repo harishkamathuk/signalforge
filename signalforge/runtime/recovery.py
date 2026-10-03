@@ -267,7 +267,7 @@ class RecoveryBootstrap:
                 entity_id=str(active_setup.signal_id),
             )
 
-        if trade is not None:
+        if trade is not None and trade.state is TradeState.OPEN:
             if position is None or position.trade_id != trade.trade_id:
                 raise ContradictoryFactError(
                     "OPEN lifecycle lacks a consistent Trade and Position"
@@ -350,6 +350,20 @@ class RecoveryBootstrap:
                 ),
             )
             active_transitions = required
+        elif trade is not None:
+            outcome = next(
+                (item for item in outcomes if item.fill_id == trade.entry_fill_id),
+                None,
+            )
+            if (
+                outcome is None
+                or outcome.outcome is not PositionOpenOutcomeType.OPENED
+                or position is None
+                or position.trade_id != trade.trade_id
+            ):
+                raise ContradictoryFactError(
+                    "CLOSED lifecycle lacks a consistent fill outcome and position"
+                )
 
         if any(
             item.outcome is PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK for item in outcomes
