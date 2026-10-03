@@ -72,17 +72,6 @@ def _signal(strategy, candle: CompletedCandle) -> Signal:
     )
 
 
-def _view(candle: CompletedCandle, raw_trigger: Decimal, tradable_trigger: Decimal) -> ArmedSetupView:
-    return ArmedSetupView(
-        signal_id=_signal(_v1(), candle).signal_id,
-        raw_trigger=Price(raw_trigger),
-        tradable_trigger=Price(tradable_trigger),
-        stop_price=candle.low,
-        armed_at=candle.interval.end,
-        valid_until=candle.interval.end + timedelta(minutes=5),
-        state=ArmedSetupState.ARMED,
-    )
-
 
 def _fill(strategy, signal: Signal, view: ArmedSetupView, price: Decimal) -> Fill:
     return Fill.create(
