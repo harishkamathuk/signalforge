@@ -159,7 +159,7 @@ def test_actionable_rollback_can_retry_exactly_once(
     with Session(postgres_engine) as session:
         with pytest.raises(InjectedFailure):
             PersistenceCoordinator(session).persist_actionable_evaluation(
-                evaluation=decision,
+                evaluation=value.decision_fact,
                 signal=value.signal,
                 setup=value.setup,
                 setup_transition=transition,
@@ -172,7 +172,7 @@ def test_actionable_rollback_can_retry_exactly_once(
 
     with Session(postgres_engine) as session:
         PersistenceCoordinator(session).persist_actionable_evaluation(
-            evaluation=decision,
+            evaluation=value.decision_fact,
             signal=value.signal,
             setup=value.setup,
             setup_transition=transition,
