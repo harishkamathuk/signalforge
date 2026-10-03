@@ -43,7 +43,10 @@ def test_recovered_armed_duplicate_trigger_input_does_not_duplicate_entry() -> N
     assert second.state is LifecycleState.OPEN
     assert first.execution is not None
     assert second.execution is not None
-    assert first.execution.entry_intent.entry_intent_id == second.execution.entry_intent.entry_intent_id
+    assert (
+        first.execution.entry_intent.entry_intent_id
+        == second.execution.entry_intent.entry_intent_id
+    )
     assert first.execution.fill.fill_id == second.execution.fill.fill_id
     assert first.open_result is not None
     assert second.open_result is not None
@@ -52,4 +55,7 @@ def test_recovered_armed_duplicate_trigger_input_does_not_duplicate_entry() -> N
     assert first.open_result.trade.trade_id == second.open_result.trade.trade_id
     assert first.open_result.position is not None
     assert second.open_result.position is not None
-    assert first.open_result.position.position_id == second.open_result.position.position_id
+    assert (
+        first.open_result.position.position_id
+        == second.open_result.position.position_id
+    )
