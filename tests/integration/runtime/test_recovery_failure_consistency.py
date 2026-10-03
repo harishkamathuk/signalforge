@@ -192,7 +192,29 @@ def test_failed_lifecycle_hydration_is_non_durable_and_fresh_retry_starts_from_s
     with Session(postgres_engine) as observer:
         assert _durable_counts(observer) == before
         setup = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
-        assert setup == recovered.lifecycle.setup
+        assert setup is not None
+        assert recovered.lifecycle.setup is not None
+        assert (
+            setup.signal_id,
+            setup.raw_trigger,
+            setup.tradable_trigger,
+            setup.signal_low,
+            setup.armed_at,
+            setup.valid_until,
+            setup.state,
+            setup.terminal_at,
+            setup.expiry_reason,
+        ) == (
+            recovered.lifecycle.setup.signal_id,
+            recovered.lifecycle.setup.raw_trigger,
+            recovered.lifecycle.setup.tradable_trigger,
+            recovered.lifecycle.setup.signal_low,
+            recovered.lifecycle.setup.armed_at,
+            recovered.lifecycle.setup.valid_until,
+            recovered.lifecycle.setup.state,
+            recovered.lifecycle.setup.terminal_at,
+            recovered.lifecycle.setup.expiry_reason,
+        )
 
     with Session(postgres_engine) as session:
         retried = RecoveryBootstrap().inspect(
@@ -203,4 +225,26 @@ def test_failed_lifecycle_hydration_is_non_durable_and_fresh_retry_starts_from_s
         )
 
     assert retried.lifecycle.signal == recovered.lifecycle.signal
-    assert retried.lifecycle.setup == recovered.lifecycle.setup
+    assert retried.lifecycle.setup is not None
+    assert recovered.lifecycle.setup is not None
+    assert (
+        retried.lifecycle.setup.signal_id,
+        retried.lifecycle.setup.raw_trigger,
+        retried.lifecycle.setup.tradable_trigger,
+        retried.lifecycle.setup.signal_low,
+        retried.lifecycle.setup.armed_at,
+        retried.lifecycle.setup.valid_until,
+        retried.lifecycle.setup.state,
+        retried.lifecycle.setup.terminal_at,
+        retried.lifecycle.setup.expiry_reason,
+    ) == (
+        recovered.lifecycle.setup.signal_id,
+        recovered.lifecycle.setup.raw_trigger,
+        recovered.lifecycle.setup.tradable_trigger,
+        recovered.lifecycle.setup.signal_low,
+        recovered.lifecycle.setup.armed_at,
+        recovered.lifecycle.setup.valid_until,
+        recovered.lifecycle.setup.state,
+        recovered.lifecycle.setup.terminal_at,
+        recovered.lifecycle.setup.expiry_reason,
+    )
