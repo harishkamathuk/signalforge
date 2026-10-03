@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -20,6 +20,8 @@ from signalforge.config.strategy_registry import (
 )
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
+from signalforge.domain.market import CandleQuality, CompletedCandle
+from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.strategy import (
     DecisionReason,
@@ -358,3 +360,64 @@ def test_cross_strategy_fresh_database_logical_output_is_reproducible(
     finally:
         command.downgrade(config, "base")
         command.upgrade(config, "head")
+
+
+
+def _candle(index: int) -> CompletedCandle:
+    start = datetime(2026, 10, 3, 9, 15, tzinfo=IST) + timedelta(minutes=5 * index)
+    close = Decimal("100") + Decimal(index) / Decimal("7")
+    return CompletedCandle(
+        instrument_id=INSTRUMENT,
+        interval=CandleInterval.five_minutes(start),
+        quality=CandleQuality.VALID,
+        open=Price(close),
+        high=Price(close + Decimal("1.1")),
+        low=Price(close - Decimal("0.9")),
+        close=Price(close + Decimal("0.123456789012345678")),
+        volume=1000 + index,
+        source="sf066-checkpoint",
+        source_event_count=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("strategy_id", "warmup"),
+    (("intraday_momentum_v1", 60), ("rsi_mean_reversion_v1", 20)),
+)
+def test_cross_strategy_checkpoint_resume_matches_uninterrupted_next_candle(
+    postgres_engine: Engine,
+    strategy_id: str,
+    warmup: int,
+) -> None:
+    strategy = _strategy(strategy_id)
+    run = _run(strategy_id, uuid4().hex)
+    source = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    )
+    for index in range(warmup):
+        source.update(_candle(index))
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        PostgresIndicatorCheckpointRepository(session).upsert(run, source.state)
+        session.commit()
+    with Session(postgres_engine) as session:
+        restored = PostgresIndicatorCheckpointRepository(session).get(
+            run.run_id,
+            INSTRUMENT,
+        )
+    assert restored == source.state
+    assert restored is not None
+
+    resumed = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+        state=restored,
+    )
+    next_candle = _candle(warmup)
+
+    assert resumed.update(next_candle) == source.update(next_candle)
+    assert resumed.state == source.state
