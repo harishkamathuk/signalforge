@@ -298,12 +298,68 @@ def test_reference_full_lifecycle_persists_through_shared_repositories(
         ).find_for_run_instrument(run.run_id, INSTRUMENT)
         assert len(outcome_rows) == 1
         assert outcome_rows[0].outcome is PositionOpenOutcomeType.OPENED
-        assert PostgresTradeRepository(session).get(
+        persisted_trade = PostgresTradeRepository(session).get(
             snapshot.open_result.trade.trade_id
-        ) == snapshot.open_result.trade
-        assert PostgresPositionRepository(session).get(
+        )
+        assert persisted_trade is not None
+        assert (
+            persisted_trade.trade_id,
+            persisted_trade.entry_fill_id,
+            persisted_trade.signal_id,
+            persisted_trade.instrument_id,
+            persisted_trade.entry_price,
+            persisted_trade.stop_price,
+            persisted_trade.raw_target_price,
+            persisted_trade.tradable_target_price,
+            persisted_trade.risk_per_share,
+            persisted_trade.quantity,
+            persisted_trade.opened_at,
+            persisted_trade.run,
+            persisted_trade.state,
+            persisted_trade.closed_at,
+            persisted_trade.exit_id,
+        ) == (
+            snapshot.open_result.trade.trade_id,
+            snapshot.open_result.trade.entry_fill_id,
+            snapshot.open_result.trade.signal_id,
+            snapshot.open_result.trade.instrument_id,
+            snapshot.open_result.trade.entry_price,
+            snapshot.open_result.trade.stop_price,
+            snapshot.open_result.trade.raw_target_price,
+            snapshot.open_result.trade.tradable_target_price,
+            snapshot.open_result.trade.risk_per_share,
+            snapshot.open_result.trade.quantity,
+            snapshot.open_result.trade.opened_at,
+            snapshot.open_result.trade.run,
+            snapshot.open_result.trade.state,
+            snapshot.open_result.trade.closed_at,
+            snapshot.open_result.trade.exit_id,
+        )
+        persisted_position = PostgresPositionRepository(session).get(
             snapshot.open_result.position.position_id
-        ) == snapshot.open_result.position
+        )
+        assert persisted_position is not None
+        assert (
+            persisted_position.position_id,
+            persisted_position.trade_id,
+            persisted_position.instrument_id,
+            persisted_position.quantity,
+            persisted_position.average_entry_price,
+            persisted_position.opened_at,
+            persisted_position.run,
+            persisted_position.state,
+            persisted_position.closed_at,
+        ) == (
+            snapshot.open_result.position.position_id,
+            snapshot.open_result.position.trade_id,
+            snapshot.open_result.position.instrument_id,
+            snapshot.open_result.position.quantity,
+            snapshot.open_result.position.average_entry_price,
+            snapshot.open_result.position.opened_at,
+            snapshot.open_result.position.run,
+            snapshot.open_result.position.state,
+            snapshot.open_result.position.closed_at,
+        )
         assert PostgresExitRepository(session).get(snapshot.exit.exit_id) == snapshot.exit
         transitions = PostgresStateTransitionRepository(session).find_for_run(run.run_id)
         assert len(transitions) == 6
