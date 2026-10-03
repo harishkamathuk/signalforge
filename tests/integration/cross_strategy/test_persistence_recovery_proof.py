@@ -196,16 +196,25 @@ def test_strategy_decision_contradictory_retry_fails(
             )
 
 
+@pytest.mark.parametrize(
+    ("persisted_strategy_id", "requested_strategy_id"),
+    (
+        ("intraday_momentum_v1", "rsi_mean_reversion_v1"),
+        ("rsi_mean_reversion_v1", "intraday_momentum_v1"),
+    ),
+)
 def test_recovery_rejects_cross_strategy_requirement_shape(
     postgres_engine: Engine,
+    persisted_strategy_id: str,
+    requested_strategy_id: str,
 ) -> None:
-    v1 = _strategy("intraday_momentum_v1")
-    reference = _strategy("rsi_mean_reversion_v1")
-    run = _run("intraday_momentum_v1", uuid4().hex)
+    persisted_strategy = _strategy(persisted_strategy_id)
+    requested_strategy = _strategy(requested_strategy_id)
+    run = _run(persisted_strategy_id, uuid4().hex)
     checkpoint = IndicatorEngine(
         INSTRUMENT,
         run.engine_calculation_version,
-        requirements=v1.indicator_requirements,
+        requirements=persisted_strategy.indicator_requirements,
     ).state
 
     with Session(postgres_engine) as session:
@@ -222,7 +231,7 @@ def test_recovery_rejects_cross_strategy_requirement_shape(
                 session=session,
                 requested_run=run,
                 instrument_id=INSTRUMENT,
-                indicator_requirements=reference.indicator_requirements,
+                indicator_requirements=requested_strategy.indicator_requirements,
             )
 
 
@@ -260,6 +269,49 @@ def test_recovery_identity_is_not_inferred_from_rsi_only_shape(
                 requested_run=contradictory,
                 instrument_id=INSTRUMENT,
                 indicator_requirements=IndicatorRequirements.of(RsiRequirement(14)),
+            )
+
+
+@pytest.mark.parametrize(
+    "strategy_id",
+    ("intraday_momentum_v1", "rsi_mean_reversion_v1"),
+)
+def test_recovery_rejects_checkpoint_calculation_version_mismatch(
+    postgres_engine: Engine,
+    strategy_id: str,
+) -> None:
+    """Reject a checkpoint whose calculation version contradicts requested runtime."""
+
+    strategy = _strategy(strategy_id)
+    run = _run(strategy_id, uuid4().hex)
+    checkpoint = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    ).state
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        PostgresIndicatorCheckpointRepository(session).upsert(run, checkpoint)
+        session.commit()
+
+    contradictory = RunIdentity(
+        run_id=run.run_id,
+        strategy=run.strategy,
+        config_id=run.config_id,
+        config_hash=run.config_hash,
+        engine_calculation_version="engine-v2",
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="provenance differs",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=contradictory,
+                instrument_id=INSTRUMENT,
+                indicator_requirements=strategy.indicator_requirements,
             )
 
 
