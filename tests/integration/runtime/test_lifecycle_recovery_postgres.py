@@ -308,13 +308,25 @@ def test_postgres_open_restart_hydrates_read_only_and_continues_from_frozen_econ
     assert hydrated.snapshot.execution.entry_intent == intent
     assert hydrated.snapshot.execution.fill == fill
     assert hydrated.snapshot.open_result is not None
-    assert hydrated.snapshot.open_result.trade == trade
-    assert hydrated.snapshot.open_result.position == position
+    assert hydrated.snapshot.open_result.trade is recovered.lifecycle.trade
+    assert hydrated.snapshot.open_result.position is recovered.lifecycle.position
     assert hydrated.snapshot.open_result.trade is not None
+    assert hydrated.snapshot.open_result.trade.trade_id == trade.trade_id
+    assert hydrated.snapshot.open_result.trade.entry_fill_id == trade.entry_fill_id
     assert hydrated.snapshot.open_result.trade.entry_price == fill.fill_price
     assert hydrated.snapshot.open_result.trade.stop_price == signal.signal_low
     assert hydrated.snapshot.open_result.trade.raw_target_price == Price(Decimal("103.00"))
     assert hydrated.snapshot.open_result.trade.tradable_target_price == Price(Decimal("103.00"))
+    assert hydrated.snapshot.open_result.trade.risk_per_share == trade.risk_per_share
+    assert hydrated.snapshot.open_result.trade.quantity == trade.quantity
+    assert hydrated.snapshot.open_result.position is not None
+    assert hydrated.snapshot.open_result.position.position_id == position.position_id
+    assert hydrated.snapshot.open_result.position.trade_id == trade.trade_id
+    assert hydrated.snapshot.open_result.position.quantity == position.quantity
+    assert (
+        hydrated.snapshot.open_result.position.average_entry_price
+        == position.average_entry_price
+    )
 
     with Session(postgres_engine) as session:
         assert _durable_counts(session) == before
