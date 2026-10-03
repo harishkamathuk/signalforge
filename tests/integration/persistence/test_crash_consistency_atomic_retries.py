@@ -3,11 +3,9 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -86,7 +84,14 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
             )
             is None
         )
-        assert PostgresStrategyDecisionRepository(observer).find_for_run(value.run.run_id) == ()
+        assert (
+            PostgresStrategyDecisionRepository(observer).get(
+                value.run.run_id,
+                value.signal.instrument_id,
+                value.evaluation.interval,
+            )
+            is None
+        )
 
     with Session(postgres_engine) as session:
         persisted_state, persisted_decision = (
@@ -106,9 +111,14 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
             )
             == state
         )
-        assert PostgresStrategyDecisionRepository(observer).find_for_run(
-            value.run.run_id
-        ) == (value.decision_fact,)
+        assert (
+            PostgresStrategyDecisionRepository(observer).get(
+                value.run.run_id,
+                value.signal.instrument_id,
+                value.evaluation.interval,
+            )
+            == value.decision_fact
+        )
 
 
 def test_actionable_rollback_can_retry_exactly_once(
