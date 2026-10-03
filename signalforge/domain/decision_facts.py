@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TypeAlias
-
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
 
-DecisionDiagnosticValue: TypeAlias = str | bool | int | None
+type DecisionDiagnosticValue = str | bool | int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +54,7 @@ class StrategyDecisionFact:
         actionable: bool,
         reasons: tuple[str, ...],
         diagnostics: dict[str, DecisionDiagnosticValue],
-    ) -> "StrategyDecisionFact":
+    ) -> StrategyDecisionFact:
         """Create a fact with deterministic diagnostic ordering."""
 
         return cls(
