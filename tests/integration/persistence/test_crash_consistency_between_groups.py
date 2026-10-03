@@ -18,7 +18,6 @@ from signalforge.domain.trades import TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.persistence.repositories import (
-    PostgresIndicatorCheckpointRepository,
     PostgresRunProvenanceRepository,
 )
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
