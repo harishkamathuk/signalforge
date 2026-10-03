@@ -286,12 +286,10 @@ def test_reference_full_lifecycle_persists_through_shared_repositories(
         assert PostgresExitRepository(session).get(snapshot.exit.exit_id) == snapshot.exit
         transitions = PostgresStateTransitionRepository(session).find_for_run(run.run_id)
         assert len(transitions) == 6
-        decisions = [
-            PostgresStrategyDecisionRepository(session).get(
-                run.run_id,
-                INSTRUMENT,
-                item.evaluation.interval,
-            )
-            for item in ()
-        ]
-        assert decisions == []
+        decision = PostgresStrategyDecisionRepository(session).get(
+            run.run_id,
+            INSTRUMENT,
+            snapshot.arming.signal.interval,
+        )
+        assert decision is not None
+        assert decision.decision_kind == "rsi_mean_reversion_v1.evaluation.v1"
