@@ -6,6 +6,7 @@ from typing import Protocol
 
 from signalforge.domain.armed import ArmedSetup
 from signalforge.domain.audit import StateTransition
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import (
@@ -25,7 +26,6 @@ from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import Trade
 from signalforge.runtime.indicators import IndicatorEngineState
@@ -39,17 +39,20 @@ class RunProvenanceRepository(Protocol):
     def get(self, run_id: RunId) -> RunIdentity | None: ...
 
 
-class StrategyEvaluationRepository(Protocol):
-    """Persist immutable run-scoped strategy decisions."""
+class StrategyDecisionRepository(Protocol):
+    """Persist immutable run-scoped strategy-neutral decision facts."""
 
-    def append(self, run_id: RunId, evaluation: StrategyEvaluation) -> StrategyEvaluation: ...
+    def append(self, run_id: RunId, fact: StrategyDecisionFact) -> StrategyDecisionFact: ...
 
     def get(
         self,
         run_id: RunId,
         instrument_id: InstrumentId,
         interval: CandleInterval,
-    ) -> StrategyEvaluation | None: ...
+    ) -> StrategyDecisionFact | None: ...
+
+
+StrategyEvaluationRepository = StrategyDecisionRepository
 
 
 class SignalRepository(Protocol):

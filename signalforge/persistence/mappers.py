@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
+from signalforge.domain.decision_facts import DecisionDiagnosticValue, StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import (
@@ -35,13 +36,6 @@ from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOp
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.strategy import (
-    DecisionReason,
-    MomentumResult,
-    SetupResult,
-    StrategyEvaluation,
-    TrendResult,
-)
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.persistence.models import (
@@ -103,42 +97,51 @@ def run_identity_from_records(
     )
 
 
-def strategy_evaluation_record_from_domain(
+def strategy_decision_record_from_domain(
     run_id: RunId,
-    evaluation: StrategyEvaluation,
+    fact: StrategyDecisionFact,
 ) -> StrategyEvaluationRecord:
+    """Map a strategy-neutral immutable decision fact to persistence."""
+
     return StrategyEvaluationRecord(
         run_id=str(run_id),
-        instrument_id=str(evaluation.instrument_id),
-        interval_start=evaluation.interval.start,
-        interval_end=evaluation.interval.end,
-        trend_passed=evaluation.trend.passed,
-        momentum_passed=evaluation.momentum.passed,
-        rsi_passed=evaluation.momentum.rsi_passed,
-        adx_passed=evaluation.momentum.adx_passed,
-        macd_signal_positive=evaluation.momentum.macd_signal_positive,
-        setup_passed=evaluation.setup.passed,
-        qualified=evaluation.qualified,
-        actionable=evaluation.actionable,
-        reasons=[reason.value for reason in evaluation.reasons],
+        instrument_id=str(fact.instrument_id),
+        interval_start=fact.interval.start,
+        interval_end=fact.interval.end,
+        decision_kind=fact.decision_kind,
+        diagnostics=dict(fact.diagnostics),
+        qualified=fact.qualified,
+        actionable=fact.actionable,
+        reasons=list(fact.reasons),
+        trend_passed=None,
+        momentum_passed=None,
+        rsi_passed=None,
+        adx_passed=None,
+        macd_signal_positive=None,
+        setup_passed=None,
     )
 
 
-def strategy_evaluation_from_record(record: StrategyEvaluationRecord) -> StrategyEvaluation:
-    return StrategyEvaluation(
+def strategy_decision_from_record(
+    record: StrategyEvaluationRecord,
+    strategy: StrategyIdentity,
+) -> StrategyDecisionFact:
+    """Hydrate a strategy-neutral decision fact from authoritative run provenance."""
+
+    diagnostics: dict[str, DecisionDiagnosticValue] = {}
+    for key, value in record.diagnostics.items():
+        if not isinstance(value, (str, bool, int, type(None))):
+            raise ValueError("Persisted strategy decision diagnostic has unsupported value")
+        diagnostics[key] = value
+    return StrategyDecisionFact.create(
         instrument_id=InstrumentId(record.instrument_id),
         interval=CandleInterval(record.interval_start, record.interval_end),
-        trend=TrendResult(record.trend_passed),
-        momentum=MomentumResult(
-            passed=record.momentum_passed,
-            rsi_passed=record.rsi_passed,
-            adx_passed=record.adx_passed,
-            macd_signal_positive=record.macd_signal_positive,
-        ),
-        setup=SetupResult(record.setup_passed),
+        strategy=strategy,
+        decision_kind=record.decision_kind,
         qualified=record.qualified,
         actionable=record.actionable,
-        reasons=tuple(DecisionReason(value) for value in record.reasons),
+        reasons=tuple(record.reasons),
+        diagnostics=diagnostics,
     )
 
 

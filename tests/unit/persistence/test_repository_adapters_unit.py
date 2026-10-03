@@ -21,6 +21,7 @@ def test_sf045_adapter_inventory_includes_only_accepted_repositories() -> None:
 
     assert {
         "PostgresRunProvenanceRepository",
+        "PostgresStrategyDecisionRepository",
         "PostgresStrategyEvaluationRepository",
         "PostgresSignalRepository",
         "PostgresTriggerEventRepository",
