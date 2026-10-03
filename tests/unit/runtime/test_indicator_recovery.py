@@ -224,7 +224,7 @@ def test_shared_recovery_module_has_no_strategy_or_lifecycle_dependency() -> Non
     ):
         assert forbidden not in source
 
- 
+
 def test_successful_reconciliation_is_one_shot() -> None:
     checkpoint = _checkpoint(split=5)
     recovery = IndicatorRecoveryReconciler(checkpoint)
