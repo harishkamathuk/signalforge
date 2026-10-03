@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
-from signalforge.domain.decision_facts import StrategyDecisionFact
+from signalforge.domain.decision_facts import DecisionDiagnosticValue, StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import (
@@ -125,6 +125,11 @@ def strategy_decision_record_from_domain(
 def strategy_decision_from_record(record: StrategyEvaluationRecord) -> StrategyDecisionFact:
     """Hydrate a strategy-neutral decision fact without strategy inference."""
 
+    diagnostics: dict[str, DecisionDiagnosticValue] = {}
+    for key, value in record.diagnostics.items():
+        if not isinstance(value, (str, bool, int, type(None))):
+            raise ValueError("Persisted strategy decision diagnostic has unsupported value")
+        diagnostics[key] = value
     return StrategyDecisionFact.create(
         instrument_id=InstrumentId(record.instrument_id),
         interval=CandleInterval(record.interval_start, record.interval_end),
@@ -132,7 +137,7 @@ def strategy_decision_from_record(record: StrategyEvaluationRecord) -> StrategyD
         qualified=record.qualified,
         actionable=record.actionable,
         reasons=tuple(record.reasons),
-        diagnostics=dict(record.diagnostics),
+        diagnostics=diagnostics,
     )
 
 
