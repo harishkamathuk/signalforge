@@ -187,6 +187,48 @@ class RecoveryBootstrap:
                 "rejected open outcome conflicts with persisted trade for the same fill"
             )
 
+        triggered_setups = tuple(
+            item for item in setups if item.state is ArmedSetupState.TRIGGERED
+        )
+        for triggered_setup in triggered_setups:
+            if any(item.signal_id == triggered_setup.signal_id for item in trades):
+                continue
+            matching_trigger = next(
+                (item for item in triggers if item.signal_id == triggered_setup.signal_id),
+                None,
+            )
+            matching_intent = next(
+                (item for item in intents if item.signal_id == triggered_setup.signal_id),
+                None,
+            )
+            matching_fill = next(
+                (item for item in fills if item.signal_id == triggered_setup.signal_id),
+                None,
+            )
+            matching_outcome = next(
+                (item for item in outcomes if item.signal_id == triggered_setup.signal_id),
+                None,
+            )
+            if matching_trigger is None or matching_intent is None:
+                raise ContradictoryFactError(
+                    "TRIGGERED setup lacks persisted trigger or entry intent"
+                )
+            if matching_fill is None:
+                raise ContradictoryFactError(
+                    "pending triggered entry cannot be resumed safely"
+                )
+            if (
+                matching_outcome is None
+                or matching_outcome.fill_id != matching_fill.fill_id
+            ):
+                raise ContradictoryFactError(
+                    "TRIGGERED setup lacks completed position-open outcome"
+                )
+            if matching_outcome.outcome is PositionOpenOutcomeType.OPENED:
+                raise ContradictoryFactError(
+                    "opened entry outcome lacks persisted Trade and Position"
+                )
+
         armed = tuple(item for item in setups if item.state is ArmedSetupState.ARMED)
         open_trades = tuple(item for item in trades if item.state is TradeState.OPEN)
         open_positions = tuple(item for item in positions if item.state is PositionState.OPEN)
