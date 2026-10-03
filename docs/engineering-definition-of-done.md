@@ -44,6 +44,31 @@ Review specifically for:
 
 A green test suite is necessary but is not by itself sufficient evidence of completion.
 
+### Pull-request review-thread discipline
+
+Before merge, inspect all pull-request review conversations, including human reviewers and
+automated/third-party reviewers such as Devin. Reviewer output is advisory evidence, not an
+authority: independently verify each finding against the current code, accepted specifications,
+ADRs and tests.
+
+For every actionable review-thread finding:
+
+- determine whether the finding is valid and material;
+- correct the implementation when required and add regression evidence where appropriate;
+- reply in the review thread with the disposition and concrete evidence;
+- resolve the thread only after the correction/disposition has been independently verified.
+
+If a finding is rejected or is no longer applicable, reply with the technical rationale and
+supporting evidence before resolving it. Do not resolve a thread merely because CI is green or
+because an automated reviewer reports success.
+
+Before merge, confirm that:
+
+- no material review thread remains unresolved;
+- material third-party review findings are reflected in the PR adversarial-review record;
+- the final required CI/validation run is green after the latest review-driven code or
+  documentation change.
+
 ## Recording findings
 
 Material findings must not remain only in chat.
