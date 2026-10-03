@@ -293,6 +293,105 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         assert len(result.lifecycle.transitions) == 4
 
 
+def test_recovery_postgres_rejects_triggered_setup_without_execution_ancestry(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-triggered-no-execution-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    trigger_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, triggered)
+        PostgresStateTransitionRepository(session).append(trigger_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="lacks persisted trigger or entry intent",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_armed_row_with_terminal_transition(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-armed-terminal-transition-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    expired_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="expired",
+        cause_type="time",
+        cause_id="persisted-expiry",
+        occurred_at=value.setup.valid_until,
+    )
+    with Session(postgres_engine) as session:
+        PostgresStateTransitionRepository(session).append(expired_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="terminal transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_open_trade_with_close_transition(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-open-close-transition-{uuid4().hex[:8]}")
+    _persist_open_graph(postgres_engine, value)
+    close_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id="contradictory-exit",
+        occurred_at=value.trade.opened_at + timedelta(minutes=1),
+    )
+    with Session(postgres_engine) as session:
+        PostgresStateTransitionRepository(session).append(close_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="OPEN trade conflicts with close transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
 def test_recovery_postgres_rejects_pending_triggered_entry(
     postgres_engine: Engine,
 ) -> None:
