@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
-from signalforge.domain.armed import ExpiryReason
+from signalforge.domain.armed import ArmedSetupState, ExpiryReason
 from signalforge.domain.execution import ExecutionMode, Fill
 from signalforge.domain.ids import EntryIntentId, InstrumentId, RunId, TriggerEventId
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
@@ -80,7 +80,7 @@ def _view(candle: CompletedCandle, raw_trigger: Decimal, tradable_trigger: Decim
         stop_price=candle.low,
         armed_at=candle.interval.end,
         valid_until=candle.interval.end + timedelta(minutes=5),
-        state="armed",
+        state=ArmedSetupState.ARMED,
     )
 
 
@@ -126,7 +126,7 @@ def test_v1_semantic_matrix_remains_exact() -> None:
         stop_price=intent.stop_price,
         armed_at=candle.interval.end,
         valid_until=intent.valid_until,
-        state="armed",
+        state=ArmedSetupState.ARMED,
     )
     breach_at = view.armed_at + timedelta(seconds=1)
     breach = MarketEvent(
@@ -158,7 +158,7 @@ def test_v1_retains_1505_strategy_cutoff() -> None:
         stop_price=Price(Decimal("99")),
         armed_at=candle.interval.end,
         valid_until=datetime(2026, 10, 3, 15, 10, tzinfo=IST),
-        state="armed",
+        state=ArmedSetupState.ARMED,
     )
 
     decision = strategy.evaluate_armed_time(
@@ -195,7 +195,7 @@ def test_reference_semantic_matrix_remains_independent_of_v1() -> None:
         stop_price=intent.stop_price,
         armed_at=candle.interval.end,
         valid_until=intent.valid_until,
-        state="armed",
+        state=ArmedSetupState.ARMED,
     )
     low_at = view.armed_at + timedelta(seconds=1)
     low_event = MarketEvent(
