@@ -9,7 +9,7 @@ from signalforge.domain.positions import PositionState
 from signalforge.domain.trades import TradeState
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryResult
 from signalforge.runtime.indicators import IndicatorContinuity
-from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleSnapshot
+from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleSnapshot, LifecycleState
 from signalforge.runtime.recovery import RecoveredLifecycle
 
 
@@ -36,6 +36,9 @@ class LifecycleRecoveryHydrator:
         coordinator: LifecycleCoordinator,
     ) -> LifecycleRecoveryResult:
         """Hydrate ARMED or OPEN state only after indicator reconciliation succeeded."""
+
+        if coordinator.state is not LifecycleState.IDLE:
+            raise LifecycleRecoveryError("lifecycle recovery requires a fresh IDLE coordinator")
 
         strategy_identity = coordinator.strategy.identity
         config_identity = coordinator.strategy.config_identity
