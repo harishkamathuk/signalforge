@@ -110,6 +110,15 @@ class IndicatorRecoveryReconciler:
             self._engine.break_continuity()
             self._terminal = True
             raise IndicatorRecoveryError(str(exc)) from exc
+        except Exception as exc:
+            # A recovery source may fail while advancing its iterator after a
+            # valid prefix. That leaves catch-up incomplete, so partial state
+            # must never remain eligible for normal runtime use.
+            self._engine.break_continuity()
+            self._terminal = True
+            raise IndicatorRecoveryError(
+                "authoritative recovery source failed before reconciliation completed"
+            ) from exc
 
         self._terminal = True
         return IndicatorRecoveryResult(self._engine, tuple(snapshots))
