@@ -55,6 +55,12 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     value = facts(f"sf052-completed-{uuid4().hex[:8]}")
+    decision = replace(
+        value.decision_fact,
+        qualified=False,
+        actionable=False,
+        reasons=("not_actionable",),
+    )
     state = IndicatorEngine(
         value.signal.instrument_id,
         value.run.engine_calculation_version,
@@ -74,7 +80,7 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
             PersistenceCoordinator(session).persist_completed_evaluation(
                 run=value.run,
                 state=state,
-                evaluation=value.decision_fact,
+                evaluation=decision,
             )
     monkeypatch.undo()
 
@@ -99,11 +105,11 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
             PersistenceCoordinator(session).persist_completed_evaluation(
                 run=value.run,
                 state=state,
-                evaluation=value.decision_fact,
+                evaluation=decision,
             )
         )
     assert persisted_state == state
-    assert persisted_decision == value.decision_fact
+    assert persisted_decision == decision
 
     with Session(postgres_engine) as observer:
         assert (
@@ -118,7 +124,7 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
                 value.signal.instrument_id,
                 value.evaluation.interval,
             )
-            == value.decision_fact
+            == decision
         )
 
 
@@ -153,7 +159,7 @@ def test_actionable_rollback_can_retry_exactly_once(
     with Session(postgres_engine) as session:
         with pytest.raises(InjectedFailure):
             PersistenceCoordinator(session).persist_actionable_evaluation(
-                evaluation=value.decision_fact,
+                evaluation=decision,
                 signal=value.signal,
                 setup=value.setup,
                 setup_transition=transition,
@@ -166,7 +172,7 @@ def test_actionable_rollback_can_retry_exactly_once(
 
     with Session(postgres_engine) as session:
         PersistenceCoordinator(session).persist_actionable_evaluation(
-            evaluation=value.decision_fact,
+            evaluation=decision,
             signal=value.signal,
             setup=value.setup,
             setup_transition=transition,
