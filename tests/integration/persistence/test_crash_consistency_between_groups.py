@@ -58,7 +58,7 @@ def _inspect(postgres_engine: Engine, value):
 def test_crash_after_completed_evaluation_is_resumable_without_invented_lifecycle(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-eval-boundary-{uuid4().hex}")
+    value = facts(f"sf052-eval-boundary-{uuid4().hex[:8]}")
     checkpoint = IndicatorEngine(
         value.signal.instrument_id,
         value.run.engine_calculation_version,
@@ -86,7 +86,7 @@ def test_crash_after_completed_evaluation_is_resumable_without_invented_lifecycl
 def test_crash_after_armed_commit_is_resumable_as_armed(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-armed-boundary-{uuid4().hex}")
+    value = facts(f"sf052-armed-boundary-{uuid4().hex[:8]}")
     _persist_armed_graph(postgres_engine, value)
 
     recovered = _inspect(postgres_engine, value)
@@ -102,7 +102,7 @@ def test_crash_after_armed_commit_is_resumable_as_armed(
 def test_crash_after_trigger_intent_commit_fails_closed(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-trigger-boundary-{uuid4().hex}")
+    value = facts(f"sf052-trigger-boundary-{uuid4().hex[:8]}")
     _commit_trigger_intent(postgres_engine, value)
 
     with pytest.raises(
@@ -115,7 +115,7 @@ def test_crash_after_trigger_intent_commit_fails_closed(
 def test_crash_after_open_commit_is_resumable_as_open(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-open-boundary-{uuid4().hex}")
+    value = facts(f"sf052-open-boundary-{uuid4().hex[:8]}")
     outcome = _persist_open_graph(postgres_engine, value)
 
     recovered = _inspect(postgres_engine, value)
@@ -132,7 +132,7 @@ def test_crash_after_open_commit_is_resumable_as_open(
 def test_crash_after_rejected_entry_commit_is_terminal_non_open(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-rejected-boundary-{uuid4().hex}")
+    value = facts(f"sf052-rejected-boundary-{uuid4().hex[:8]}")
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
@@ -157,7 +157,7 @@ def test_crash_after_rejected_entry_commit_is_terminal_non_open(
 def test_crash_after_expiry_commit_does_not_rearm(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-expiry-boundary-{uuid4().hex}")
+    value = facts(f"sf052-expiry-boundary-{uuid4().hex[:8]}")
     _persist_armed_graph(postgres_engine, value)
     expired = replace(value.setup)
     expired.expire(at=expired.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
@@ -189,7 +189,7 @@ def test_crash_after_expiry_commit_does_not_rearm(
 def test_crash_after_exit_commit_remains_closed(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-exit-boundary-{uuid4().hex}")
+    value = facts(f"sf052-exit-boundary-{uuid4().hex[:8]}")
     _persist_open_graph(postgres_engine, value)
     closed_trade = replace(value.trade)
     closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
