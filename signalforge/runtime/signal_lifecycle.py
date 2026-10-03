@@ -50,6 +50,42 @@ class SignalLifecycleManager:
     def trigger_event(self) -> TriggerEvent | None:
         return self._trigger_event
 
+    def hydrate(
+        self,
+        *,
+        signal: Signal,
+        setup: ArmedSetup,
+        trigger_event: TriggerEvent | None = None,
+    ) -> SignalArmingResult:
+        """Install authoritative persisted signal/setup state without replaying policy."""
+
+        if signal.run != self.run:
+            raise ValueError("Recovered Signal run must match lifecycle run")
+        if self.tick_schedule.instrument_id != signal.instrument_id:
+            raise ValueError("Recovered Signal instrument must match TickSizeSchedule")
+        if setup.signal_id != signal.signal_id:
+            raise ValueError("Recovered ArmedSetup must belong to the Signal")
+        if setup.state is ArmedSetupState.ARMED:
+            if trigger_event is not None:
+                raise ValueError("ARMED recovery cannot include a TriggerEvent")
+        elif setup.state is ArmedSetupState.TRIGGERED:
+            if trigger_event is None:
+                raise ValueError("TRIGGERED recovery requires a TriggerEvent")
+            if (
+                trigger_event.run != self.run
+                or trigger_event.signal_id != signal.signal_id
+                or trigger_event.instrument_id != signal.instrument_id
+                or trigger_event.reference_price != setup.tradable_trigger
+                or trigger_event.observed_at != setup.terminal_at
+            ):
+                raise ValueError("Recovered TriggerEvent contradicts the persisted setup")
+        else:
+            raise ValueError("SignalLifecycleManager hydrates only ARMED or TRIGGERED setup state")
+        result = SignalArmingResult(signal=signal, armed_setup=setup)
+        self._active = result
+        self._trigger_event = trigger_event
+        return result
+
     def arm_if_actionable(
         self,
         candle: CompletedCandle,
