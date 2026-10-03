@@ -265,8 +265,11 @@ class PostgresStrategyDecisionRepository(_PostgresRepository):
         run_id: RunId,
         fact: StrategyDecisionFact,
     ) -> StrategyDecisionFact:
-        if self._load_run(run_id) is None:
-            raise PersistenceDependencyError(f"run provenance {run_id!s} must be persisted first")
+        run = self._require_run_by_id(run_id)
+        if fact.strategy != run.strategy:
+            raise ContradictoryFactError(
+                "strategy decision identity contradicts persisted run provenance"
+            )
         candidate = strategy_decision_record_from_domain(run_id, fact)
 
         def find() -> StrategyEvaluationRecord | None:
@@ -286,7 +289,7 @@ class PostgresStrategyDecisionRepository(_PostgresRepository):
             record=candidate,
             requested=fact,
             find_existing=find,
-            hydrate=strategy_decision_from_record,
+            hydrate=lambda record: strategy_decision_from_record(record, run.strategy),
             fact_name="strategy decision",
         )
 
@@ -300,7 +303,10 @@ class PostgresStrategyDecisionRepository(_PostgresRepository):
             StrategyEvaluationRecord,
             (str(run_id), str(instrument_id), interval.start, interval.end),
         )
-        return None if record is None else strategy_decision_from_record(record)
+        if record is None:
+            return None
+        run = self._require_run_by_id(run_id)
+        return strategy_decision_from_record(record, run.strategy)
 
 
 PostgresStrategyEvaluationRepository = PostgresStrategyDecisionRepository
