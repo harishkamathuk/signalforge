@@ -1,7 +1,209 @@
-import inspect\nfrom dataclasses import replace\nfrom datetime import datetime, timedelta\nfrom decimal import Decimal\n\nimport pytest
+import inspect
+from dataclasses import replace
+from datetime import datetime, timedelta
+from decimal import Decimal
+
+import pytest
 
 import signalforge.runtime.indicator_recovery as indicator_recovery_module
-\nfrom signalforge.domain.ids import InstrumentId\nfrom signalforge.domain.indicators import IndicatorRequirements, RsiRequirement\nfrom signalforge.domain.market import CandleQuality, CompletedCandle\nfrom signalforge.domain.money import Price\nfrom signalforge.domain.time import IST, CandleInterval\nfrom signalforge.runtime.indicator_recovery import (\n    IndicatorRecoveryError,\n    IndicatorRecoveryReconciler,\n    RecoveryCandle,\n)\nfrom signalforge.runtime.indicators import (\n    V1_INDICATOR_REQUIREMENTS,\n    IndicatorContinuity,\n    IndicatorEngine,\n)\n\nINSTRUMENT = InstrumentId("NSE:SF050")\nVERSION = "engine-v1"\nSTART = datetime(2026, 9, 28, 9, 15, tzinfo=IST)\n\n\ndef _candle(\n    index: int,\n    *,\n    start: datetime | None = None,\n    instrument_id: InstrumentId = INSTRUMENT,\n    quality: CandleQuality = CandleQuality.VALID,\n) -> CompletedCandle:\n    interval = CandleInterval.five_minutes(start or (START + timedelta(minutes=5 * index)))\n    if quality is CandleQuality.MISSING:\n        return CompletedCandle(\n            instrument_id=instrument_id,\n            interval=interval,\n            quality=quality,\n            open=None,\n            high=None,\n            low=None,\n            close=None,\n            volume=None,\n            source="sf050-unit",\n            source_event_count=0,\n        )\n    base = Decimal("100") + Decimal(index) / Decimal("7")\n    return CompletedCandle(\n        instrument_id=instrument_id,\n        interval=interval,\n        quality=quality,\n        open=Price(base),\n        high=Price(base + Decimal("1.1")),\n        low=Price(base - Decimal("0.9")),\n        close=Price(base + Decimal("0.123456789012345678")),\n        volume=1000 + index,\n        source="sf050-unit",\n        source_event_count=1,\n    )\n\n\ndef _checkpoint(*, split: int, requirements=V1_INDICATOR_REQUIREMENTS):\n    engine = IndicatorEngine(INSTRUMENT, VERSION, requirements=requirements)\n    for index in range(split):\n        engine.update(_candle(index))\n    return engine.state\n\n\ndef test_zero_candle_recovery_restores_checkpoint_exactly() -> None:\n    checkpoint = _checkpoint(split=20)\n\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n\n    assert recovery.reconcile(()) == ()\n    assert recovery.state == checkpoint\n\n\n@pytest.mark.parametrize("split", (5, 25, 32, 49, 55))\ndef test_multi_candle_recovery_matches_uninterrupted_full_state(split: int) -> None:\n    total = 65\n    uninterrupted = IndicatorEngine(\n        INSTRUMENT, VERSION, requirements=V1_INDICATOR_REQUIREMENTS\n    )\n    expected = [uninterrupted.update(_candle(index)) for index in range(total)]\n    checkpoint = _checkpoint(split=split)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n\n    actual = recovery.reconcile(\n        RecoveryCandle(_candle(index), continuity_ok=True)\n        for index in range(split, total)\n    )\n\n    assert actual == tuple(expected[split:])\n    assert recovery.state == uninterrupted.state\n\n\ndef test_rsi_only_recovery_remains_rsi_only() -> None:\n    requirements = IndicatorRequirements.of(RsiRequirement(14))\n    uninterrupted = IndicatorEngine(INSTRUMENT, VERSION, requirements=requirements)\n    for index in range(20):\n        uninterrupted.update(_candle(index))\n\n    checkpoint = _checkpoint(split=10, requirements=requirements)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n    recovery.reconcile(\n        RecoveryCandle(_candle(index), continuity_ok=True)\n        for index in range(10, 20)\n    )\n\n    assert recovery.state == uninterrupted.state\n    assert recovery.state.ema_states == ()\n    assert recovery.state.adx_state is None\n    assert recovery.state.macd_state is None\n    assert recovery.state.rsi_state is not None\n\n\ndef test_persisted_broken_checkpoint_is_rejected() -> None:\n    checkpoint = replace(\n        _checkpoint(split=5),\n        continuity=IndicatorContinuity.BROKEN,\n    )\n\n    with pytest.raises(IndicatorRecoveryError, match="continuity is broken"):\n        IndicatorRecoveryReconciler(checkpoint)\n\n\ndef test_checkpoint_interval_cannot_be_reapplied() -> None:\n    checkpoint = _checkpoint(split=5)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n    before = recovery.state.completed_candle_count\n\n    with pytest.raises(IndicatorRecoveryError, match="strictly after"):\n        recovery.reconcile((RecoveryCandle(_candle(4), continuity_ok=True),))\n\n    assert recovery.state.completed_candle_count == before\n    assert recovery.state.continuity is IndicatorContinuity.BROKEN\n\n\ndef test_unproven_gap_breaks_recovery_without_advancing() -> None:\n    checkpoint = _checkpoint(split=5)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n    before = recovery.state.completed_candle_count\n    skipped = _candle(6)\n\n    with pytest.raises(IndicatorRecoveryError, match="cannot prove candle continuity"):\n        recovery.reconcile((RecoveryCandle(skipped, continuity_ok=False),))\n\n    assert recovery.state.completed_candle_count == before\n    assert recovery.state.continuity is IndicatorContinuity.BROKEN\n\n\ndef test_authoritatively_valid_cross_session_gap_can_continue() -> None:\n    friday = datetime(2026, 10, 2, 15, 25, tzinfo=IST)\n    monday = datetime(2026, 10, 5, 9, 15, tzinfo=IST)\n    source = IndicatorEngine(INSTRUMENT, VERSION, requirements=V1_INDICATOR_REQUIREMENTS)\n    source.update(_candle(0, start=friday))\n    checkpoint = source.state\n    expected = source.update(_candle(1, start=monday))\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n\n    actual = recovery.reconcile(\n        (RecoveryCandle(_candle(1, start=monday), continuity_ok=True),)\n    )\n\n    assert actual == (expected,)\n    assert recovery.state == source.state\n    assert recovery.state.continuity is IndicatorContinuity.HEALTHY\n\n\ndef test_wrong_instrument_fails_closed_without_advancing() -> None:\n    checkpoint = _checkpoint(split=5)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n    before = recovery.state.completed_candle_count\n\n    with pytest.raises(IndicatorRecoveryError, match="instrument contradicts"):\n        recovery.reconcile(\n            (\n                RecoveryCandle(\n                    _candle(5, instrument_id=InstrumentId("NSE:OTHER")),\n                    continuity_ok=True,\n                ),\n            )\n        )\n\n    assert recovery.state.completed_candle_count == before\n    assert recovery.state.continuity is IndicatorContinuity.BROKEN\n\n\ndef test_invalid_canonical_candle_fails_closed() -> None:\n    checkpoint = _checkpoint(split=5)\n    recovery = IndicatorRecoveryReconciler(checkpoint)\n    before = recovery.state.completed_candle_count\n\n    with pytest.raises(IndicatorRecoveryError, match="Invalid candle quality"):\n        recovery.reconcile(\n            (RecoveryCandle(_candle(5, quality=CandleQuality.MISSING), continuity_ok=True),)\n        )\n\n    assert recovery.state.completed_candle_count == before\n    assert recovery.state.continuity is IndicatorContinuity.BROKEN\n
+
+from signalforge.domain.ids import InstrumentId
+from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
+from signalforge.domain.market import CandleQuality, CompletedCandle
+from signalforge.domain.money import Price
+from signalforge.domain.time import IST, CandleInterval
+from signalforge.runtime.indicator_recovery import (
+    IndicatorRecoveryError,
+    IndicatorRecoveryReconciler,
+    RecoveryCandle,
+)
+from signalforge.runtime.indicators import (
+    V1_INDICATOR_REQUIREMENTS,
+    IndicatorContinuity,
+    IndicatorEngine,
+)
+
+INSTRUMENT = InstrumentId("NSE:SF050")
+VERSION = "engine-v1"
+START = datetime(2026, 9, 28, 9, 15, tzinfo=IST)
+
+
+def _candle(
+    index: int,
+    *,
+    start: datetime | None = None,
+    instrument_id: InstrumentId = INSTRUMENT,
+    quality: CandleQuality = CandleQuality.VALID,
+) -> CompletedCandle:
+    interval = CandleInterval.five_minutes(start or (START + timedelta(minutes=5 * index)))
+    if quality is CandleQuality.MISSING:
+        return CompletedCandle(
+            instrument_id=instrument_id,
+            interval=interval,
+            quality=quality,
+            open=None,
+            high=None,
+            low=None,
+            close=None,
+            volume=None,
+            source="sf050-unit",
+            source_event_count=0,
+        )
+    base = Decimal("100") + Decimal(index) / Decimal("7")
+    return CompletedCandle(
+        instrument_id=instrument_id,
+        interval=interval,
+        quality=quality,
+        open=Price(base),
+        high=Price(base + Decimal("1.1")),
+        low=Price(base - Decimal("0.9")),
+        close=Price(base + Decimal("0.123456789012345678")),
+        volume=1000 + index,
+        source="sf050-unit",
+        source_event_count=1,
+    )
+
+
+def _checkpoint(*, split: int, requirements=V1_INDICATOR_REQUIREMENTS):
+    engine = IndicatorEngine(INSTRUMENT, VERSION, requirements=requirements)
+    for index in range(split):
+        engine.update(_candle(index))
+    return engine.state
+
+
+def test_zero_candle_recovery_restores_checkpoint_exactly() -> None:
+    checkpoint = _checkpoint(split=20)
+
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+
+    assert recovery.reconcile(()) == ()
+    assert recovery.state == checkpoint
+
+
+@pytest.mark.parametrize("split", (5, 25, 32, 49, 55))
+def test_multi_candle_recovery_matches_uninterrupted_full_state(split: int) -> None:
+    total = 65
+    uninterrupted = IndicatorEngine(
+        INSTRUMENT, VERSION, requirements=V1_INDICATOR_REQUIREMENTS
+    )
+    expected = [uninterrupted.update(_candle(index)) for index in range(total)]
+    checkpoint = _checkpoint(split=split)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+
+    actual = recovery.reconcile(
+        RecoveryCandle(_candle(index), continuity_ok=True)
+        for index in range(split, total)
+    )
+
+    assert actual == tuple(expected[split:])
+    assert recovery.state == uninterrupted.state
+
+
+def test_rsi_only_recovery_remains_rsi_only() -> None:
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    uninterrupted = IndicatorEngine(INSTRUMENT, VERSION, requirements=requirements)
+    for index in range(20):
+        uninterrupted.update(_candle(index))
+
+    checkpoint = _checkpoint(split=10, requirements=requirements)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+    recovery.reconcile(
+        RecoveryCandle(_candle(index), continuity_ok=True)
+        for index in range(10, 20)
+    )
+
+    assert recovery.state == uninterrupted.state
+    assert recovery.state.ema_states == ()
+    assert recovery.state.adx_state is None
+    assert recovery.state.macd_state is None
+    assert recovery.state.rsi_state is not None
+
+
+def test_persisted_broken_checkpoint_is_rejected() -> None:
+    checkpoint = replace(
+        _checkpoint(split=5),
+        continuity=IndicatorContinuity.BROKEN,
+    )
+
+    with pytest.raises(IndicatorRecoveryError, match="continuity is broken"):
+        IndicatorRecoveryReconciler(checkpoint)
+
+
+def test_checkpoint_interval_cannot_be_reapplied() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+    before = recovery.state.completed_candle_count
+
+    with pytest.raises(IndicatorRecoveryError, match="strictly after"):
+        recovery.reconcile((RecoveryCandle(_candle(4), continuity_ok=True),))
+
+    assert recovery.state.completed_candle_count == before
+    assert recovery.state.continuity is IndicatorContinuity.BROKEN
+
+
+def test_unproven_gap_breaks_recovery_without_advancing() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+    before = recovery.state.completed_candle_count
+    skipped = _candle(6)
+
+    with pytest.raises(IndicatorRecoveryError, match="cannot prove candle continuity"):
+        recovery.reconcile((RecoveryCandle(skipped, continuity_ok=False),))
+
+    assert recovery.state.completed_candle_count == before
+    assert recovery.state.continuity is IndicatorContinuity.BROKEN
+
+
+def test_authoritatively_valid_cross_session_gap_can_continue() -> None:
+    friday = datetime(2026, 10, 2, 15, 25, tzinfo=IST)
+    monday = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    source = IndicatorEngine(INSTRUMENT, VERSION, requirements=V1_INDICATOR_REQUIREMENTS)
+    source.update(_candle(0, start=friday))
+    checkpoint = source.state
+    expected = source.update(_candle(1, start=monday))
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+
+    actual = recovery.reconcile(
+        (RecoveryCandle(_candle(1, start=monday), continuity_ok=True),)
+    )
+
+    assert actual == (expected,)
+    assert recovery.state == source.state
+    assert recovery.state.continuity is IndicatorContinuity.HEALTHY
+
+
+def test_wrong_instrument_fails_closed_without_advancing() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+    before = recovery.state.completed_candle_count
+
+    with pytest.raises(IndicatorRecoveryError, match="instrument contradicts"):
+        recovery.reconcile(
+            (
+                RecoveryCandle(
+                    _candle(5, instrument_id=InstrumentId("NSE:OTHER")),
+                    continuity_ok=True,
+                ),
+            )
+        )
+
+    assert recovery.state.completed_candle_count == before
+    assert recovery.state.continuity is IndicatorContinuity.BROKEN
+
+
+def test_invalid_canonical_candle_fails_closed() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+    before = recovery.state.completed_candle_count
+
+    with pytest.raises(IndicatorRecoveryError, match="Invalid candle quality"):
+        recovery.reconcile(
+            (RecoveryCandle(_candle(5, quality=CandleQuality.MISSING), continuity_ok=True),)
+        )
+
+    assert recovery.state.completed_candle_count == before
+    assert recovery.state.continuity is IndicatorContinuity.BROKEN
+
 
 def test_shared_recovery_module_has_no_strategy_or_lifecycle_dependency() -> None:
     """Keep SF-050 reconciliation below strategy/lifecycle orchestration."""
