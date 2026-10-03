@@ -261,11 +261,32 @@ class RecoveryBootstrap:
             )
             if any(item.signal_id == active_setup.signal_id for item in triggers):
                 raise ContradictoryFactError("ARMED setup conflicts with persisted trigger event")
-            active_transitions = _matching_transitions(
+            arm_transition = _require_transition(
                 transitions,
                 entity_type=TransitionEntityType.ARMED_SETUP,
                 entity_id=str(active_setup.signal_id),
+                from_state="none",
+                to_state=ArmedSetupState.ARMED.value,
             )
+            terminal_transitions = tuple(
+                item
+                for item in _matching_transitions(
+                    transitions,
+                    entity_type=TransitionEntityType.ARMED_SETUP,
+                    entity_id=str(active_setup.signal_id),
+                )
+                if item.from_state == ArmedSetupState.ARMED.value
+                and item.to_state
+                in {
+                    ArmedSetupState.TRIGGERED.value,
+                    ArmedSetupState.EXPIRED.value,
+                }
+            )
+            if terminal_transitions:
+                raise ContradictoryFactError(
+                    "persisted ARMED setup conflicts with terminal transition evidence"
+                )
+            active_transitions = (arm_transition,)
 
         if trade is not None and trade.state is TradeState.OPEN:
             if position is None or position.trade_id != trade.trade_id:
@@ -313,6 +334,37 @@ class RecoveryBootstrap:
                 trade=trade,
                 position=position,
             )
+            if any(
+                item.entity_type is TransitionEntityType.ARMED_SETUP
+                and item.entity_id == str(setup.signal_id)
+                and item.from_state == ArmedSetupState.ARMED.value
+                and item.to_state == ArmedSetupState.EXPIRED.value
+                for item in transitions
+            ):
+                raise ContradictoryFactError(
+                    "TRIGGERED setup conflicts with expiry transition evidence"
+                )
+            if any(
+                item.entity_type is TransitionEntityType.TRADE
+                and item.entity_id == str(trade.trade_id)
+                and item.from_state == TradeState.OPEN.value
+                and item.to_state == TradeState.CLOSED.value
+                for item in transitions
+            ):
+                raise ContradictoryFactError(
+                    "OPEN trade conflicts with close transition evidence"
+                )
+            if any(
+                item.entity_type is TransitionEntityType.POSITION
+                and item.entity_id == str(position.position_id)
+                and item.from_state == PositionState.OPEN.value
+                and item.to_state == PositionState.CLOSED.value
+                for item in transitions
+            ):
+                raise ContradictoryFactError(
+                    "OPEN position conflicts with close transition evidence"
+                )
+
             required = (
                 _require_transition(
                     transitions,
