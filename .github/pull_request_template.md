@@ -27,6 +27,10 @@ State relevant work deliberately not included.
 - [ ] Mandatory rationale comments were added for non-obvious invariants/orderings.
 - [ ] Generated API documentation was updated where applicable.
 - [ ] Scope does not pull later milestone work forward without an accepted reason.
+- [ ] Human and automated/third-party review threads (including Devin where present) were independently assessed.
+- [ ] Actionable review findings have an evidence-backed reply and regression coverage where appropriate.
+- [ ] No material review thread remains unresolved.
+- [ ] Final required CI/validation is green after the latest review-driven change.
 
 If an item is not applicable, explain why below rather than silently ignoring it.
 
