@@ -49,6 +49,7 @@ from signalforge.persistence.mappers import (
     trigger_event_from_record,
     trigger_event_record_from_domain,
 )
+from signalforge.runtime.decision_audit import project_v1_decision
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 AT = datetime(2026, 8, 31, 10, 0, tzinfo=IST)
