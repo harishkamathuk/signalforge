@@ -52,6 +52,13 @@ class LifecycleRecoveryHydrator:
         if indicator_state.continuity is not IndicatorContinuity.HEALTHY:
             raise LifecycleRecoveryError("indicator recovery is not healthy")
         if (
+            indicator_state.calculation_version != coordinator.run.engine_calculation_version
+            or indicator_state.requirements != coordinator.strategy.indicator_requirements
+        ):
+            raise LifecycleRecoveryError(
+                "indicator recovery identity contradicts lifecycle runtime"
+            )
+        if (
             indicator_state.instrument_id
             != coordinator.signal_lifecycle.tick_schedule.instrument_id
         ):
@@ -67,7 +74,7 @@ class LifecycleRecoveryHydrator:
         if setup is not None and setup.state is ArmedSetupState.ARMED:
             if signal is None:
                 raise LifecycleRecoveryError("ARMED recovery requires persisted Signal")
-            snapshot = coordinator.hydrate_armed(
+            snapshot = coordinator._hydrate_armed_recovered(
                 signal=signal,
                 setup=setup,
                 transitions=recovered.transitions,
@@ -85,7 +92,7 @@ class LifecycleRecoveryHydrator:
                 or position.state is not PositionState.OPEN
             ):
                 raise LifecycleRecoveryError("OPEN recovery graph is incomplete")
-            snapshot = coordinator.hydrate_open(
+            snapshot = coordinator._hydrate_open_recovered(
                 signal=signal,
                 setup=setup,
                 trigger=recovered.trigger,
