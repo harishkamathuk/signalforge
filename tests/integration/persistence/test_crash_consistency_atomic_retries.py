@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -355,7 +356,7 @@ def test_open_rollback_can_retry_exactly_once(
         position = PostgresPositionRepository(observer).get(value.position.position_id)
         assert trade is not None and trade.state is TradeState.OPEN
         assert position is not None and position.state is PositionState.OPEN
-        assert PostgresPositionOpenOutcomeRepository(observer).get(value.fill.fill_id) == outcome
+        assert PostgresPositionOpenOutcomeRepository(observer).get(outcome.outcome_id) == outcome
 
 
 def test_rejected_entry_rollback_can_retry_exactly_once(
@@ -395,7 +396,7 @@ def test_rejected_entry_rollback_can_retry_exactly_once(
 
     with Session(postgres_engine) as observer:
         assert PostgresFillRepository(observer).get(value.fill.fill_id) == value.fill
-        assert PostgresPositionOpenOutcomeRepository(observer).get(value.fill.fill_id) == outcome
+        assert PostgresPositionOpenOutcomeRepository(observer).get(outcome.outcome_id) == outcome
         assert PostgresTradeRepository(observer).find_for_run_instrument(
             value.run.run_id, value.signal.instrument_id
         ) == ()
