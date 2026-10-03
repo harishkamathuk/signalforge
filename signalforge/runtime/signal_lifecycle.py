@@ -50,7 +50,7 @@ class SignalLifecycleManager:
     def trigger_event(self) -> TriggerEvent | None:
         return self._trigger_event
 
-    def hydrate(
+    def _hydrate_recovered(
         self,
         *,
         signal: Signal,
