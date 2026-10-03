@@ -489,3 +489,44 @@ def test_terminal_or_inactive_recovery_is_not_reopened() -> None:
     )
 
     assert result.snapshot.state is LifecycleState.IDLE
+
+
+def test_terminal_recovery_rejects_non_idle_coordinator() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run, signal, setup, transition = _signal_setup(strategy, "terminal-non-idle")
+    coordinator = _coordinator(strategy, run)
+    hydrator = LifecycleRecoveryHydrator()
+    hydrator.hydrate(
+        indicator_result=_indicator_result(strategy),
+        recovered=RecoveredLifecycle(
+            setup,
+            signal,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            (transition,),
+        ),
+        coordinator=coordinator,
+    )
+
+    with pytest.raises(LifecycleRecoveryError, match="fresh IDLE"):
+        hydrator.hydrate(
+            indicator_result=_indicator_result(strategy),
+            recovered=RecoveredLifecycle(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (),
+            ),
+            coordinator=coordinator,
+        )
