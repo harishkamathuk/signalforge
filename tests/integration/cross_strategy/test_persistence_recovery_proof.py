@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from datetime import datetime
@@ -8,9 +9,11 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from alembic.config import Config
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from alembic import command
 from signalforge.config.strategy_registry import (
     DEFAULT_STRATEGY_REGISTRY,
     StrategySelection,
@@ -254,3 +257,104 @@ def test_recovery_identity_is_not_inferred_from_rsi_only_shape(
                 instrument_id=INSTRUMENT,
                 indicator_requirements=IndicatorRequirements.of(RsiRequirement(14)),
             )
+
+
+
+def test_cross_strategy_fresh_database_logical_output_is_reproducible(
+    postgres_engine: Engine,
+) -> None:
+    """Recreate the schema twice and require identical logical cross-strategy facts."""
+
+    config = Config("alembic.ini")
+
+    def run_clean() -> tuple[tuple[object, ...], ...]:
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
+        for strategy_id in ("intraday_momentum_v1", "rsi_mean_reversion_v1"):
+            strategy = _strategy(strategy_id)
+            run = _run(strategy_id, f"fresh-{strategy_id}")
+            fact = _decision_fact(strategy_id)
+            checkpoint = IndicatorEngine(
+                INSTRUMENT,
+                run.engine_calculation_version,
+                requirements=strategy.indicator_requirements,
+            ).state
+            with Session(postgres_engine) as session:
+                PostgresRunProvenanceRepository(session).add(run)
+                PostgresStrategyDecisionRepository(session).append(run.run_id, fact)
+                PostgresIndicatorCheckpointRepository(session).upsert(run, checkpoint)
+                session.commit()
+
+        rows: list[tuple[object, ...]] = []
+        with postgres_engine.connect() as connection:
+            configs = connection.execute(
+                sa.text(
+                    "SELECT strategy_id, strategy_version, config_id, config_hash "
+                    "FROM strategy_configs ORDER BY strategy_id"
+                )
+            ).mappings()
+            rows.extend(
+                (
+                    "config",
+                    row["strategy_id"],
+                    row["strategy_version"],
+                    row["config_id"],
+                    row["config_hash"],
+                )
+                for row in configs
+            )
+            decisions = connection.execute(
+                sa.text(
+                    "SELECT run_id, instrument_id, interval_start, interval_end, "
+                    "decision_kind, qualified, actionable, reasons, diagnostics "
+                    "FROM strategy_evaluations ORDER BY run_id"
+                )
+            ).mappings()
+            rows.extend(
+                (
+                    "decision",
+                    row["run_id"],
+                    row["instrument_id"],
+                    row["interval_start"].isoformat(),
+                    row["interval_end"].isoformat(),
+                    row["decision_kind"],
+                    row["qualified"],
+                    row["actionable"],
+                    json.dumps(row["reasons"], separators=(",", ":")),
+                    json.dumps(row["diagnostics"], sort_keys=True, separators=(",", ":")),
+                )
+                for row in decisions
+            )
+            checkpoints = connection.execute(
+                sa.text(
+                    "SELECT run_id, instrument_id, calculation_version, continuity_state, "
+                    "completed_candle_count, requirements_manifest, state_payload "
+                    "FROM indicator_checkpoints ORDER BY run_id"
+                )
+            ).mappings()
+            rows.extend(
+                (
+                    "checkpoint",
+                    row["run_id"],
+                    row["instrument_id"],
+                    row["calculation_version"],
+                    row["continuity_state"],
+                    row["completed_candle_count"],
+                    json.dumps(
+                        row["requirements_manifest"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    json.dumps(row["state_payload"], sort_keys=True, separators=(",", ":")),
+                )
+                for row in checkpoints
+            )
+        return tuple(rows)
+
+    try:
+        first = run_clean()
+        second = run_clean()
+        assert second == first
+    finally:
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
