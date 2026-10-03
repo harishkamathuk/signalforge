@@ -106,7 +106,7 @@ class LifecycleCoordinator:
             exit=self._exit,
         )
 
-    def hydrate_armed(
+    def _hydrate_armed_recovered(
         self,
         *,
         signal: Signal,
@@ -119,11 +119,11 @@ class LifecycleCoordinator:
             raise ValueError("Lifecycle hydration requires a fresh coordinator")
         if signal.run != self.run or setup.state is not ArmedSetupState.ARMED:
             raise ValueError("Recovered ARMED facts contradict lifecycle runtime")
-        self._arming = self.signal_lifecycle.hydrate(signal=signal, setup=setup)
+        self._arming = self.signal_lifecycle._hydrate_recovered(signal=signal, setup=setup)
         self._audit = self._validated_hydration_transitions(transitions)
         return self.snapshot()
 
-    def hydrate_open(
+    def _hydrate_open_recovered(
         self,
         *,
         signal: Signal,
@@ -149,51 +149,13 @@ class LifecycleCoordinator:
             raise ValueError("Recovered OPEN execution lineage is inconsistent")
         if position.trade_id != trade.trade_id:
             raise ValueError("Recovered Position must belong to the Trade")
-        self._arming = self.signal_lifecycle.hydrate(
+        self._arming = self.signal_lifecycle._hydrate_recovered(
             signal=signal,
             setup=setup,
             trigger_event=trigger,
         )
         self._execution = PaperExecutionResult(entry_intent=intent, fill=fill)
         self._open_result = PositionOpenResult(trade=trade, position=position)
-        self._audit = self._validated_hydration_transitions(transitions)
-        return self.snapshot()
-
-    def hydrate_closed(
-        self,
-        *,
-        signal: Signal,
-        setup: ArmedSetup,
-        trigger: TriggerEvent,
-        intent: EntryIntent,
-        fill: Fill,
-        trade: Trade,
-        position: Position,
-        exit_fact: Exit,
-        transitions: tuple[StateTransition, ...],
-    ) -> LifecycleSnapshot:
-        """Install authoritative terminal CLOSED state without replaying exits."""
-
-        if self.state is not LifecycleState.IDLE:
-            raise ValueError("Lifecycle hydration requires a fresh coordinator")
-        if signal.run != self.run or trade.run != self.run or position.run != self.run:
-            raise ValueError("Recovered CLOSED facts contradict lifecycle run")
-        if setup.state is not ArmedSetupState.TRIGGERED:
-            raise ValueError("CLOSED recovery requires the historical TRIGGERED setup")
-        if trade.state is not TradeState.CLOSED or position.state is not PositionState.CLOSED:
-            raise ValueError("CLOSED recovery requires terminal Trade and Position")
-        if trade.exit_id != exit_fact.exit_id:
-            raise ValueError("Recovered Trade must reference the persisted Exit")
-        if fill.signal_id != signal.signal_id or trade.entry_fill_id != fill.fill_id:
-            raise ValueError("Recovered CLOSED execution lineage is inconsistent")
-        self._arming = self.signal_lifecycle.hydrate(
-            signal=signal,
-            setup=setup,
-            trigger_event=trigger,
-        )
-        self._execution = PaperExecutionResult(entry_intent=intent, fill=fill)
-        self._open_result = PositionOpenResult(trade=trade, position=position)
-        self._exit = exit_fact
         self._audit = self._validated_hydration_transitions(transitions)
         return self.snapshot()
 
