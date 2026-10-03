@@ -122,8 +122,11 @@ def strategy_decision_record_from_domain(
     )
 
 
-def strategy_decision_from_record(record: StrategyEvaluationRecord) -> StrategyDecisionFact:
-    """Hydrate a strategy-neutral decision fact without strategy inference."""
+def strategy_decision_from_record(
+    record: StrategyEvaluationRecord,
+    strategy: StrategyIdentity,
+) -> StrategyDecisionFact:
+    """Hydrate a strategy-neutral decision fact from authoritative run provenance."""
 
     diagnostics: dict[str, DecisionDiagnosticValue] = {}
     for key, value in record.diagnostics.items():
@@ -133,6 +136,7 @@ def strategy_decision_from_record(record: StrategyEvaluationRecord) -> StrategyD
     return StrategyDecisionFact.create(
         instrument_id=InstrumentId(record.instrument_id),
         interval=CandleInterval(record.interval_start, record.interval_end),
+        strategy=strategy,
         decision_kind=record.decision_kind,
         qualified=record.qualified,
         actionable=record.actionable,
