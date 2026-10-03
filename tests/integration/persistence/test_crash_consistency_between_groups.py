@@ -27,7 +27,6 @@ from tests.integration.persistence.test_recovery_postgres import (
     _persist_open_graph,
 )
 from tests.integration.persistence.test_repository_adapters_postgres import (
-    _commit_trigger_intent,
     _transition,
     facts,
 )
@@ -54,6 +53,29 @@ def _inspect(postgres_engine: Engine, value):
             indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
 
+
+
+def _persist_trigger_group(postgres_engine: Engine, value) -> None:
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        PersistenceCoordinator(session).persist_trigger_intent(
+            trigger=value.trigger,
+            intent=value.intent,
+            setup=triggered,
+            setup_transition=transition,
+        )
 
 def test_crash_after_completed_evaluation_is_resumable_without_invented_lifecycle(
     postgres_engine: Engine,
@@ -109,7 +131,7 @@ def test_crash_after_trigger_intent_commit_fails_closed(
     postgres_engine: Engine,
 ) -> None:
     value = facts(f"sf052-trigger-boundary-{uuid4().hex[:8]}")
-    _commit_trigger_intent(postgres_engine, value)
+    _persist_trigger_group(postgres_engine, value)
 
     with pytest.raises(
         ContradictoryFactError,
@@ -139,7 +161,7 @@ def test_crash_after_rejected_entry_commit_is_terminal_non_open(
     postgres_engine: Engine,
 ) -> None:
     value = facts(f"sf052-rejected-boundary-{uuid4().hex[:8]}")
-    _commit_trigger_intent(postgres_engine, value)
+    _persist_trigger_group(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
         signal_id=value.signal.signal_id,
