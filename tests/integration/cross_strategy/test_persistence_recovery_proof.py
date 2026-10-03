@@ -44,6 +44,7 @@ from signalforge.runtime.decision_audit import (
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
+from tests.integration.persistence.test_migrations import _clear_downgrade_blockers
 
 INSTRUMENT = InstrumentId("NSE:CROSSSTRAT")
 INTERVAL = CandleInterval.five_minutes(datetime(2026, 10, 3, 10, 0, tzinfo=IST))
@@ -270,6 +271,7 @@ def test_cross_strategy_fresh_database_logical_output_is_reproducible(
     config = Config("alembic.ini")
 
     def run_clean() -> tuple[tuple[object, ...], ...]:
+        _clear_downgrade_blockers(postgres_engine)
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         for strategy_id in ("intraday_momentum_v1", "rsi_mean_reversion_v1"):
@@ -358,6 +360,7 @@ def test_cross_strategy_fresh_database_logical_output_is_reproducible(
         second = run_clean()
         assert second == first
     finally:
+        _clear_downgrade_blockers(postgres_engine)
         command.downgrade(config, "base")
         command.upgrade(config, "head")
 
