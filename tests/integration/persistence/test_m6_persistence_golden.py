@@ -29,7 +29,7 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
-    PostgresStrategyEvaluationRepository,
+    PostgresStrategyDecisionRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
@@ -138,14 +138,14 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
         session.commit()
         coordinator = PersistenceCoordinator(session)
         coordinator.persist_actionable_evaluation(
-            evaluation=value.evaluation,
+            evaluation=value.decision_fact,
             signal=value.signal,
             setup=value.setup,
             setup_transition=arm,
             checkpoint=checkpoint,
         )
         coordinator.persist_actionable_evaluation(
-            evaluation=value.evaluation,
+            evaluation=value.decision_fact,
             signal=value.signal,
             setup=value.setup,
             setup_transition=arm,
@@ -190,10 +190,10 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
     with Session(postgres_engine) as observer:
         assert PostgresRunProvenanceRepository(observer).get(value.run.run_id) == value.run
         assert (
-            PostgresStrategyEvaluationRepository(observer).get(
-                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            PostgresStrategyDecisionRepository(observer).get(
+                value.run.run_id, value.decision_fact.instrument_id, value.decision_fact.interval
             )
-            == value.evaluation
+            == value.decision_fact
         )
         assert PostgresSignalRepository(observer).get(value.signal.signal_id) == value.signal
         assert (
