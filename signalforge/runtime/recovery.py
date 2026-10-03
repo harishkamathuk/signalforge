@@ -443,7 +443,18 @@ def _validate_open_graph(
     trade: Trade,
     position: Position,
 ) -> None:
-    if any(item_run != run for item_run in (signal.run, trigger.run, intent.run, fill.run, outcome.run, trade.run, position.run)):
+    if any(
+        item_run != run
+        for item_run in (
+            signal.run,
+            trigger.run,
+            intent.run,
+            fill.run,
+            outcome.run,
+            trade.run,
+            position.run,
+        )
+    ):
         raise ContradictoryFactError("OPEN lifecycle facts contradict requested run provenance")
     if any(
         item_instrument != instrument_id
