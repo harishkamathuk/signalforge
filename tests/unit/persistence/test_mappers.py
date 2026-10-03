@@ -91,7 +91,7 @@ def test_provenance_and_evaluation_mappers_round_trip() -> None:
     )
     fact = project_v1_decision(evaluation)
     record = strategy_decision_record_from_domain(run.run_id, fact)
-    restored = strategy_decision_from_record(record)
+    restored = strategy_decision_from_record(record, run.strategy)
     assert _record_values(strategy_decision_record_from_domain(run.run_id, restored)) == (
         _record_values(record)
     )
