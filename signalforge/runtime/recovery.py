@@ -28,7 +28,7 @@ from signalforge.persistence.repositories import (
     PostgresStateTransitionRepository,
     PostgresTradeRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngineState
+from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngineState
 
 
 class RecoveryDisposition(StrEnum):
@@ -152,6 +152,8 @@ class RecoveryBootstrap:
             raise ContradictoryFactError(
                 "persisted indicator checkpoint requirements contradict requested strategy"
             )
+        if checkpoint is not None and checkpoint.continuity is IndicatorContinuity.BROKEN:
+            raise ContradictoryFactError("persisted indicator checkpoint continuity is broken")
         if len(outcomes) != len(fills):
             raise ContradictoryFactError("persisted fill lacks a completed position-open outcome")
         if any(

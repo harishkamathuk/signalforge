@@ -121,6 +121,14 @@ def test_complete_session_replay_produces_one_closed_trade_deterministically(
     assert first["final_lifecycle_state"] == "closed"
     assert first["run_id"] == second["run_id"]
     assert first["source_id"] == second["source_id"]
+    assert (
+        first["run_id"]
+        == "ace5ec067a78720d3f0d4ab28dd47cc05924e6143a54ba8192690a9944cac80a"
+    )
+    assert (
+        first["source_id"]
+        == "b00a6d65ded8d5449a48ed012eb04e00b4bf65621e9939cd3f5b344940b3acbb"
+    )
 
 
 def test_overnight_gaps_do_not_create_synthetic_completed_candles(tmp_path: Path) -> None:

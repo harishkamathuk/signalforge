@@ -41,7 +41,11 @@ from signalforge.runtime.decision_audit import (
     project_rsi_mean_reversion_decision,
     project_v1_decision,
 )
-from signalforge.runtime.indicators import IndicatorEngine
+from signalforge.runtime.indicator_recovery import (
+    IndicatorRecoveryReconciler,
+    RecoveryCandle,
+)
+from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
 from tests.integration.persistence.test_migrations import _clear_downgrade_blockers
@@ -532,4 +536,107 @@ def test_strategy_decision_cannot_cross_run_strategy_provenance(
             PostgresStrategyDecisionRepository(session).append(
                 run.run_id,
                 reference_fact,
+            )
+
+
+@pytest.mark.parametrize(
+    ("strategy_id", "split", "total"),
+    (
+        ("intraday_momentum_v1", 25, 65),
+        ("rsi_mean_reversion_v1", 10, 25),
+    ),
+)
+def test_cross_strategy_persisted_checkpoint_reconciles_to_uninterrupted_state(
+    postgres_engine: Engine,
+    strategy_id: str,
+    split: int,
+    total: int,
+) -> None:
+    """Recover both real strategies through the same generic SF-050 path."""
+
+    strategy = _strategy(strategy_id)
+    run = _run(strategy_id, uuid4().hex)
+
+    uninterrupted = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    )
+    expected = [uninterrupted.update(_candle(index)) for index in range(total)]
+
+    checkpoint_source = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    )
+    for index in range(split):
+        checkpoint_source.update(_candle(index))
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        PostgresIndicatorCheckpointRepository(session).upsert(run, checkpoint_source.state)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        recovered = RecoveryBootstrap().inspect(
+            session=session,
+            requested_run=run,
+            instrument_id=INSTRUMENT,
+            indicator_requirements=strategy.indicator_requirements,
+        )
+
+    assert recovered.indicator_state == checkpoint_source.state
+    assert recovered.indicator_state is not None
+    reconciliation = IndicatorRecoveryReconciler(recovered.indicator_state)
+    result = reconciliation.reconcile(
+        RecoveryCandle(_candle(index), continuity_ok=True)
+        for index in range(split, total)
+    )
+
+    assert result.snapshots == tuple(expected[split:])
+    assert result.engine.state == uninterrupted.state
+    assert reconciliation.state == uninterrupted.state
+    if strategy_id == "rsi_mean_reversion_v1":
+        assert reconciliation.state.ema_states == ()
+        assert reconciliation.state.adx_state is None
+        assert reconciliation.state.macd_state is None
+        assert reconciliation.state.rsi_state is not None
+
+
+@pytest.mark.parametrize(
+    "strategy_id",
+    ("intraday_momentum_v1", "rsi_mean_reversion_v1"),
+)
+def test_recovery_bootstrap_rejects_persisted_broken_indicator_checkpoint(
+    postgres_engine: Engine,
+    strategy_id: str,
+) -> None:
+    """A durable BROKEN checkpoint cannot be silently healed during startup."""
+
+    strategy = _strategy(strategy_id)
+    run = _run(strategy_id, uuid4().hex)
+    engine = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    )
+    engine.update(_candle(0))
+    engine.break_continuity()
+    assert engine.state.continuity is IndicatorContinuity.BROKEN
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        PostgresIndicatorCheckpointRepository(session).upsert(run, engine.state)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="checkpoint continuity is broken",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=run,
+                instrument_id=INSTRUMENT,
+                indicator_requirements=strategy.indicator_requirements,
             )
