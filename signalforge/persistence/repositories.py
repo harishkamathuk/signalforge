@@ -402,6 +402,18 @@ class PostgresTriggerEventRepository(_PostgresRepository):
             raise PersistenceDependencyError("trigger event references missing run provenance")
         return trigger_event_from_record(record, run)
 
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[TriggerEvent, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(TriggerEventRecord).where(
+                TriggerEventRecord.run_id == str(run_id),
+                TriggerEventRecord.instrument_id == str(instrument_id),
+            )
+        ).all()
+        return tuple(trigger_event_from_record(record, run) for record in records)
+
 
 class PostgresEntryIntentRepository(_PostgresRepository):
     def _find(self, intent: EntryIntent) -> EntryIntentRecord | None:
@@ -442,6 +454,18 @@ class PostgresEntryIntentRepository(_PostgresRepository):
         if run is None:
             raise PersistenceDependencyError("entry intent references missing run provenance")
         return entry_intent_from_record(record, run)
+
+    def find_for_run_instrument(
+        self, run_id: RunId, instrument_id: InstrumentId
+    ) -> tuple[EntryIntent, ...]:
+        run = self._require_run_by_id(run_id)
+        records = self._session.scalars(
+            sa.select(EntryIntentRecord).where(
+                EntryIntentRecord.run_id == str(run_id),
+                EntryIntentRecord.instrument_id == str(instrument_id),
+            )
+        ).all()
+        return tuple(entry_intent_from_record(record, run) for record in records)
 
 
 class PostgresFillRepository(_PostgresRepository):
