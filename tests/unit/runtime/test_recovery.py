@@ -57,6 +57,8 @@ def _repos(monkeypatch: pytest.MonkeyPatch, run: RunIdentity | None) -> None:
     for name in (
         "PostgresSignalRepository",
         "PostgresArmedSetupRepository",
+        "PostgresTriggerEventRepository",
+        "PostgresEntryIntentRepository",
         "PostgresFillRepository",
         "PostgresPositionOpenOutcomeRepository",
         "PostgresTradeRepository",
@@ -119,6 +121,8 @@ def _stateful_repos(
     *,
     signals: tuple[object, ...] = (),
     setups: tuple[object, ...] = (),
+    triggers: tuple[object, ...] = (),
+    intents: tuple[object, ...] = (),
     fills: tuple[object, ...] = (),
     outcomes: tuple[object, ...] = (),
     trades: tuple[object, ...] = (),
@@ -159,6 +163,8 @@ def _stateful_repos(
     for name, values in (
         ("PostgresSignalRepository", signals),
         ("PostgresArmedSetupRepository", setups),
+        ("PostgresTriggerEventRepository", triggers),
+        ("PostgresEntryIntentRepository", intents),
         ("PostgresFillRepository", fills),
         ("PostgresPositionOpenOutcomeRepository", outcomes),
         ("PostgresTradeRepository", trades),
