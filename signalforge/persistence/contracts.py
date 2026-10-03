@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Protocol
 
 from signalforge.domain.armed import ArmedSetup
-from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.audit import StateTransition
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import (
