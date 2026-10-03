@@ -6,7 +6,6 @@ from decimal import Decimal
 import pytest
 
 import signalforge.runtime.indicator_recovery as indicator_recovery_module
-
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
