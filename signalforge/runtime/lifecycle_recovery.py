@@ -37,6 +37,17 @@ class LifecycleRecoveryHydrator:
     ) -> LifecycleRecoveryResult:
         """Hydrate ARMED or OPEN state only after indicator reconciliation succeeded."""
 
+        strategy_identity = coordinator.strategy.identity
+        config_identity = coordinator.strategy.config_identity
+        if (
+            strategy_identity != coordinator.run.strategy
+            or config_identity.config_id != coordinator.run.config_id
+            or config_identity.config_hash != coordinator.run.config_hash
+        ):
+            raise LifecycleRecoveryError(
+                "configured strategy identity contradicts recovered lifecycle run"
+            )
+
         indicator_state = indicator_result.engine.state
         if indicator_state.continuity is not IndicatorContinuity.HEALTHY:
             raise LifecycleRecoveryError("indicator recovery is not healthy")
