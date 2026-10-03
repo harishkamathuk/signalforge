@@ -362,3 +362,130 @@ def test_lifecycle_hydration_rejects_broken_indicator_prerequisite() -> None:
             ),
             coordinator=_coordinator(strategy, run),
         )
+
+
+def test_lifecycle_hydration_rejects_strategy_identity_mismatch() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    reference = RsiMeanReversionV1Strategy(RsiMeanReversionV1Config())
+    run, signal, setup, transition = _signal_setup(strategy, "strategy-mismatch")
+
+    with pytest.raises(LifecycleRecoveryError, match="configured strategy identity"):
+        LifecycleRecoveryHydrator().hydrate(
+            indicator_result=_indicator_result(strategy),
+            recovered=RecoveredLifecycle(
+                setup,
+                signal,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (transition,),
+            ),
+            coordinator=_coordinator(reference, run),
+        )
+
+
+def test_lifecycle_hydration_rejects_indicator_identity_mismatch() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run, signal, setup, transition = _signal_setup(strategy, "indicator-identity")
+    wrong = IndicatorEngine(
+        INSTRUMENT,
+        "engine-v2",
+        requirements=strategy.indicator_requirements,
+    )
+
+    with pytest.raises(LifecycleRecoveryError, match="indicator recovery identity"):
+        LifecycleRecoveryHydrator().hydrate(
+            indicator_result=IndicatorRecoveryReconciler(wrong.state).reconcile(()),
+            recovered=RecoveredLifecycle(
+                setup,
+                signal,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (transition,),
+            ),
+            coordinator=_coordinator(strategy, run),
+        )
+
+
+def test_lifecycle_hydration_rejects_indicator_instrument_mismatch() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run, signal, setup, transition = _signal_setup(strategy, "indicator-instrument")
+    other = IndicatorEngine(
+        InstrumentId("NSE:OTHER"),
+        "engine-v1",
+        requirements=strategy.indicator_requirements,
+    )
+
+    with pytest.raises(LifecycleRecoveryError, match="instrument contradicts"):
+        LifecycleRecoveryHydrator().hydrate(
+            indicator_result=IndicatorRecoveryReconciler(other.state).reconcile(()),
+            recovered=RecoveredLifecycle(
+                setup,
+                signal,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (transition,),
+            ),
+            coordinator=_coordinator(strategy, run),
+        )
+
+
+def test_armed_hydration_requires_persisted_signal() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run, _signal, setup, transition = _signal_setup(strategy, "missing-signal")
+
+    with pytest.raises(LifecycleRecoveryError, match="requires persisted Signal"):
+        LifecycleRecoveryHydrator().hydrate(
+            indicator_result=_indicator_result(strategy),
+            recovered=RecoveredLifecycle(
+                setup,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (transition,),
+            ),
+            coordinator=_coordinator(strategy, run),
+        )
+
+
+def test_terminal_or_inactive_recovery_is_not_reopened() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run = _run(strategy, "terminal")
+
+    result = LifecycleRecoveryHydrator().hydrate(
+        indicator_result=_indicator_result(strategy),
+        recovered=RecoveredLifecycle(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            (),
+        ),
+        coordinator=_coordinator(strategy, run),
+    )
+
+    assert result.snapshot.state is LifecycleState.IDLE
