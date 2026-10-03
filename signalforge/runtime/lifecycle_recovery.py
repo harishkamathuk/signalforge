@@ -51,7 +51,10 @@ class LifecycleRecoveryHydrator:
         indicator_state = indicator_result.engine.state
         if indicator_state.continuity is not IndicatorContinuity.HEALTHY:
             raise LifecycleRecoveryError("indicator recovery is not healthy")
-        if indicator_state.instrument_id != coordinator.signal_lifecycle.tick_schedule.instrument_id:
+        if (
+            indicator_state.instrument_id
+            != coordinator.signal_lifecycle.tick_schedule.instrument_id
+        ):
             raise LifecycleRecoveryError(
                 "indicator recovery instrument contradicts lifecycle runtime"
             )
