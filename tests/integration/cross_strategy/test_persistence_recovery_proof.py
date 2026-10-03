@@ -480,6 +480,42 @@ def test_cross_strategy_checkpoint_resume_matches_uninterrupted_next_candle(
 
 
 
+
+
+def test_corrupt_persisted_decision_identity_is_explicit_contradiction(
+    postgres_engine: Engine,
+) -> None:
+    """Classify durable decision/run identity corruption as a persistence contradiction."""
+
+    run = _run("intraday_momentum_v1", uuid4().hex)
+    fact = _decision_fact("intraday_momentum_v1")
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        PostgresStrategyDecisionRepository(session).append(run.run_id, fact)
+        session.commit()
+
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "UPDATE strategy_evaluations "
+                "SET decision_kind = 'rsi_mean_reversion_v1.evaluation.v1' "
+                "WHERE run_id = :run_id"
+            ),
+            {"run_id": str(run.run_id)},
+        )
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="persisted strategy decision contradicts",
+        ):
+            PostgresStrategyDecisionRepository(session).get(
+                run.run_id,
+                fact.instrument_id,
+                fact.interval,
+            )
+
+
 def test_strategy_decision_cannot_cross_run_strategy_provenance(
     postgres_engine: Engine,
 ) -> None:
