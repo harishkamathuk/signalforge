@@ -2,6 +2,7 @@
 
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.identity import canonical_decimal
+from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
 
@@ -15,6 +16,7 @@ def project_v1_decision(evaluation: StrategyEvaluation) -> StrategyDecisionFact:
     return StrategyDecisionFact.create(
         instrument_id=evaluation.instrument_id,
         interval=evaluation.interval,
+        strategy=StrategyIdentity("intraday_momentum_v1", "1.0.0"),
         decision_kind=V1_DECISION_KIND,
         qualified=evaluation.qualified,
         actionable=evaluation.actionable,
@@ -38,6 +40,7 @@ def project_rsi_mean_reversion_decision(
     return StrategyDecisionFact.create(
         instrument_id=decision.instrument_id,
         interval=decision.interval,
+        strategy=StrategyIdentity("rsi_mean_reversion_v1", "1.0.0"),
         decision_kind=RSI_MEAN_REVERSION_DECISION_KIND,
         qualified=decision.qualified,
         actionable=decision.actionable,
