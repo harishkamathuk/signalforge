@@ -34,11 +34,11 @@ from signalforge.persistence.models import (
     TradeRecord,
 )
 from signalforge.persistence.repositories import (
-    PostgresStateTransitionRepository,
     PostgresArmedSetupRepository,
     PostgresIndicatorCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresRunProvenanceRepository,
+    PostgresStateTransitionRepository,
 )
 from signalforge.runtime.indicators import (
     V1_INDICATOR_REQUIREMENTS,
