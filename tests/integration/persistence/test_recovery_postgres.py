@@ -254,8 +254,42 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         assert result.lifecycle.intent == opened.intent
         assert result.lifecycle.fill == opened.fill
         assert result.lifecycle.outcome == outcome
-        assert result.lifecycle.trade == opened.trade
-        assert result.lifecycle.position == opened.position
+        assert result.lifecycle.trade is not None
+        assert result.lifecycle.position is not None
+        assert (
+            result.lifecycle.trade.trade_id,
+            result.lifecycle.trade.entry_fill_id,
+            result.lifecycle.trade.entry_price,
+            result.lifecycle.trade.stop_price,
+            result.lifecycle.trade.raw_target_price,
+            result.lifecycle.trade.tradable_target_price,
+            result.lifecycle.trade.risk_per_share,
+            result.lifecycle.trade.quantity,
+            result.lifecycle.trade.state,
+        ) == (
+            opened.trade.trade_id,
+            opened.trade.entry_fill_id,
+            opened.trade.entry_price,
+            opened.trade.stop_price,
+            opened.trade.raw_target_price,
+            opened.trade.tradable_target_price,
+            opened.trade.risk_per_share,
+            opened.trade.quantity,
+            opened.trade.state,
+        )
+        assert (
+            result.lifecycle.position.position_id,
+            result.lifecycle.position.trade_id,
+            result.lifecycle.position.quantity,
+            result.lifecycle.position.average_entry_price,
+            result.lifecycle.position.state,
+        ) == (
+            opened.position.position_id,
+            opened.position.trade_id,
+            opened.position.quantity,
+            opened.position.average_entry_price,
+            opened.position.state,
+        )
         assert len(result.lifecycle.transitions) == 4
 
 
