@@ -77,7 +77,7 @@ def _candle(instrument_id, index: int) -> CompletedCandle:
 def test_interrupted_indicator_recovery_is_non_durable_and_fresh_retry_converges(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-indicator-recovery-{uuid4().hex}")
+    value = facts(f"sf052-indicator-recovery-{uuid4().hex[:8]}")
     checkpoint_engine = IndicatorEngine(
         value.signal.instrument_id,
         value.run.engine_calculation_version,
@@ -151,7 +151,7 @@ def test_interrupted_indicator_recovery_is_non_durable_and_fresh_retry_converges
 def test_failed_lifecycle_hydration_is_non_durable_and_fresh_retry_starts_from_same_graph(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf052-lifecycle-recovery-{uuid4().hex}")
+    value = facts(f"sf052-lifecycle-recovery-{uuid4().hex[:8]}")
     _persist_armed_graph(postgres_engine, value)
 
     with Session(postgres_engine) as session:
