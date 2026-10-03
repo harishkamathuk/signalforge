@@ -75,7 +75,10 @@ def test_zero_candle_recovery_restores_checkpoint_exactly() -> None:
 
     recovery = IndicatorRecoveryReconciler(checkpoint)
 
-    assert recovery.reconcile(()) == ()
+    result = recovery.reconcile(())
+
+    assert result.snapshots == ()
+    assert result.engine.state == checkpoint
     assert recovery.state == checkpoint
 
 
@@ -89,12 +92,13 @@ def test_multi_candle_recovery_matches_uninterrupted_full_state(split: int) -> N
     checkpoint = _checkpoint(split=split)
     recovery = IndicatorRecoveryReconciler(checkpoint)
 
-    actual = recovery.reconcile(
+    result = recovery.reconcile(
         RecoveryCandle(_candle(index), continuity_ok=True)
         for index in range(split, total)
     )
 
-    assert actual == tuple(expected[split:])
+    assert result.snapshots == tuple(expected[split:])
+    assert result.engine.state == uninterrupted.state
     assert recovery.state == uninterrupted.state
 
 
@@ -106,11 +110,12 @@ def test_rsi_only_recovery_remains_rsi_only() -> None:
 
     checkpoint = _checkpoint(split=10, requirements=requirements)
     recovery = IndicatorRecoveryReconciler(checkpoint)
-    recovery.reconcile(
+    result = recovery.reconcile(
         RecoveryCandle(_candle(index), continuity_ok=True)
         for index in range(10, 20)
     )
 
+    assert result.engine.state == uninterrupted.state
     assert recovery.state == uninterrupted.state
     assert recovery.state.ema_states == ()
     assert recovery.state.adx_state is None
@@ -162,11 +167,12 @@ def test_authoritatively_valid_cross_session_gap_can_continue() -> None:
     expected = source.update(_candle(1, start=monday))
     recovery = IndicatorRecoveryReconciler(checkpoint)
 
-    actual = recovery.reconcile(
+    result = recovery.reconcile(
         (RecoveryCandle(_candle(1, start=monday), continuity_ok=True),)
     )
 
-    assert actual == (expected,)
+    assert result.snapshots == (expected,)
+    assert result.engine.state == source.state
     assert recovery.state == source.state
     assert recovery.state.continuity is IndicatorContinuity.HEALTHY
 
@@ -217,3 +223,14 @@ def test_shared_recovery_module_has_no_strategy_or_lifecycle_dependency() -> Non
         "V1_INDICATOR_REQUIREMENTS",
     ):
         assert forbidden not in source
+
+ 
+def test_successful_reconciliation_is_one_shot() -> None:
+    checkpoint = _checkpoint(split=5)
+    recovery = IndicatorRecoveryReconciler(checkpoint)
+
+    result = recovery.reconcile((RecoveryCandle(_candle(5), continuity_ok=True),))
+
+    assert result.engine.state.completed_candle_count == 6
+    with pytest.raises(IndicatorRecoveryError, match="already terminal"):
+        recovery.reconcile(())
