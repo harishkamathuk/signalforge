@@ -34,9 +34,11 @@ from signalforge.persistence.models import (
     TradeRecord,
 )
 from signalforge.persistence.repositories import (
+    PostgresArmedSetupRepository,
     PostgresIndicatorCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresRunProvenanceRepository,
+    PostgresStateTransitionRepository,
 )
 from signalforge.runtime.indicators import (
     V1_INDICATOR_REQUIREMENTS,
@@ -46,7 +48,6 @@ from signalforge.runtime.indicators import (
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import (
     Facts,
-    _commit_armed_setup,
     _commit_open_position,
     _transition,
     facts,
@@ -101,6 +102,88 @@ def _durable_counts(session: Session) -> dict[str, int]:
     }
 
 
+def _persist_armed_graph(postgres_engine: Engine, value: Facts) -> None:
+    transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="none",
+        after="armed",
+        cause_type="strategy_evaluation",
+        cause_id="evaluation",
+        occurred_at=value.setup.armed_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        session.commit()
+        PersistenceCoordinator(session).persist_actionable_evaluation(
+            evaluation=value.decision_fact,
+            signal=value.signal,
+            setup=value.setup,
+            setup_transition=transition,
+        )
+
+
+def _persist_open_graph(postgres_engine: Engine, value: Facts) -> PositionOpenOutcome:
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    trigger_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=value.signal.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=value.fill.filled_at,
+        run=value.run,
+    )
+    trade_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="none",
+        after="open",
+        cause_type="fill",
+        cause_id=str(value.fill.fill_id),
+        occurred_at=value.trade.opened_at,
+    )
+    position_transition = _transition(
+        value,
+        entity=TransitionEntityType.POSITION,
+        entity_id=str(value.position.position_id),
+        before="none",
+        after="open",
+        cause_type="trade",
+        cause_id=str(value.trade.trade_id),
+        occurred_at=value.position.opened_at,
+    )
+    with Session(postgres_engine) as session:
+        coordinator = PersistenceCoordinator(session)
+        coordinator.persist_trigger_intent(
+            trigger=value.trigger,
+            intent=value.intent,
+            setup=triggered,
+            setup_transition=trigger_transition,
+        )
+        coordinator.persist_opened_entry(
+            fill=value.fill,
+            outcome=outcome,
+            trade=value.trade,
+            position=value.position,
+            trade_transition=trade_transition,
+            position_transition=position_transition,
+        )
+    return outcome
+
+
 @pytest.fixture(scope="module")
 def postgres_engine() -> Iterator[Engine]:
     database_url = os.environ.get("DATABASE_URL")
@@ -144,7 +227,7 @@ def test_recovery_postgres_clean_and_pre_checkpoint_run_are_read_only(
 
 def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engine) -> None:
     armed = facts(f"recovery-armed-{uuid4().hex[:8]}")
-    _commit_armed_setup(postgres_engine, armed)
+    _persist_armed_graph(postgres_engine, armed)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
             session=session,
@@ -155,18 +238,10 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         assert result.lifecycle.setup is not None
         assert result.lifecycle.setup.state is ArmedSetupState.ARMED
         assert result.lifecycle.signal == armed.signal
+        assert len(result.lifecycle.transitions) == 1
+
     opened = facts(f"recovery-open-{uuid4().hex[:8]}")
-    _commit_open_position(postgres_engine, opened)
-    outcome = PositionOpenOutcome.create(
-        fill_id=opened.fill.fill_id,
-        signal_id=opened.signal.signal_id,
-        outcome=PositionOpenOutcomeType.OPENED,
-        decided_at=opened.fill.filled_at,
-        run=opened.run,
-    )
-    with Session(postgres_engine) as session:
-        PostgresPositionOpenOutcomeRepository(session).append(outcome)
-        session.commit()
+    outcome = _persist_open_graph(postgres_engine, opened)
     with Session(postgres_engine) as session:
         result = RecoveryBootstrap().inspect(
             session=session,
@@ -174,14 +249,216 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
             instrument_id=opened.signal.instrument_id,
             indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
+        assert result.lifecycle.setup is not None
+        assert result.lifecycle.setup.state is ArmedSetupState.TRIGGERED
+        assert result.lifecycle.signal == opened.signal
+        assert result.lifecycle.trigger == opened.trigger
+        assert result.lifecycle.intent == opened.intent
+        assert result.lifecycle.fill == opened.fill
+        assert result.lifecycle.outcome == outcome
+        assert result.lifecycle.trade is not None
+        assert result.lifecycle.position is not None
         assert (
-            result.lifecycle.trade is not None and result.lifecycle.trade.state is TradeState.OPEN
+            result.lifecycle.trade.trade_id,
+            result.lifecycle.trade.entry_fill_id,
+            result.lifecycle.trade.entry_price,
+            result.lifecycle.trade.stop_price,
+            result.lifecycle.trade.raw_target_price,
+            result.lifecycle.trade.tradable_target_price,
+            result.lifecycle.trade.risk_per_share,
+            result.lifecycle.trade.quantity,
+            result.lifecycle.trade.state,
+        ) == (
+            opened.trade.trade_id,
+            opened.trade.entry_fill_id,
+            opened.trade.entry_price,
+            opened.trade.stop_price,
+            opened.trade.raw_target_price,
+            opened.trade.tradable_target_price,
+            opened.trade.risk_per_share,
+            opened.trade.quantity,
+            opened.trade.state,
         )
         assert (
-            result.lifecycle.position is not None
-            and result.lifecycle.position.state is PositionState.OPEN
+            result.lifecycle.position.position_id,
+            result.lifecycle.position.trade_id,
+            result.lifecycle.position.quantity,
+            result.lifecycle.position.average_entry_price,
+            result.lifecycle.position.state,
+        ) == (
+            opened.position.position_id,
+            opened.position.trade_id,
+            opened.position.quantity,
+            opened.position.average_entry_price,
+            opened.position.state,
         )
-        assert result.lifecycle.outcome is not None
+        assert len(result.lifecycle.transitions) == 4
+
+
+def test_recovery_postgres_rejects_triggered_setup_without_execution_ancestry(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-triggered-no-execution-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    trigger_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        PostgresArmedSetupRepository(session).upsert(value.run.run_id, triggered)
+        PostgresStateTransitionRepository(session).append(trigger_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="lacks persisted trigger or entry intent",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_armed_row_with_terminal_transition(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-armed-terminal-transition-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    expired_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="expired",
+        cause_type="time",
+        cause_id="persisted-expiry",
+        occurred_at=value.setup.valid_until,
+    )
+    with Session(postgres_engine) as session:
+        PostgresStateTransitionRepository(session).append(expired_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="terminal transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_open_trade_with_close_transition(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-open-close-transition-{uuid4().hex[:8]}")
+    _persist_open_graph(postgres_engine, value)
+    close_transition = _transition(
+        value,
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(value.trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id="contradictory-exit",
+        occurred_at=value.trade.opened_at + timedelta(minutes=1),
+    )
+    with Session(postgres_engine) as session:
+        PostgresStateTransitionRepository(session).append(close_transition)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="OPEN trade conflicts with close transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_pending_triggered_entry(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-pending-trigger-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    trigger_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        PersistenceCoordinator(session).persist_trigger_intent(
+            trigger=value.trigger,
+            intent=value.intent,
+            setup=triggered,
+            setup_transition=trigger_transition,
+        )
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="pending triggered entry",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
+def test_recovery_postgres_rejects_open_graph_without_transition_evidence(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-open-missing-transition-{uuid4().hex[:8]}")
+    _commit_open_position(postgres_engine, value)
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=value.signal.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=value.fill.filled_at,
+        run=value.run,
+    )
+    with Session(postgres_engine) as session:
+        PostgresPositionOpenOutcomeRepository(session).append(outcome)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="required transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
 
 
 def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -> None:
@@ -283,7 +560,7 @@ def test_recovery_postgres_inspection_does_not_change_durable_graph(
     postgres_engine: Engine,
 ) -> None:
     value = facts(f"recovery-read-only-{uuid4().hex[:8]}")
-    _commit_armed_setup(postgres_engine, value)
+    _persist_armed_graph(postgres_engine, value)
     with Session(postgres_engine) as session:
         before = _durable_counts(session)
     with Session(postgres_engine) as session:

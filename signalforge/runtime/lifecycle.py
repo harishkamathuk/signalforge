@@ -6,14 +6,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from signalforge.domain.armed import ArmedSetupState, ExpiryReason
+from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
+from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.signals import Signal
 from signalforge.domain.time import require_aware
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
@@ -103,6 +105,69 @@ class LifecycleCoordinator:
             open_result=self._open_result,
             exit=self._exit,
         )
+
+    def _hydrate_armed_recovered(
+        self,
+        *,
+        signal: Signal,
+        setup: ArmedSetup,
+        transitions: tuple[StateTransition, ...],
+    ) -> LifecycleSnapshot:
+        """Install authoritative persisted ARMED state without replaying policy."""
+
+        if self.state is not LifecycleState.IDLE:
+            raise ValueError("Lifecycle hydration requires a fresh coordinator")
+        if signal.run != self.run or setup.state is not ArmedSetupState.ARMED:
+            raise ValueError("Recovered ARMED facts contradict lifecycle runtime")
+        self._arming = self.signal_lifecycle._hydrate_recovered(signal=signal, setup=setup)
+        self._audit = self._validated_hydration_transitions(transitions)
+        return self.snapshot()
+
+    def _hydrate_open_recovered(
+        self,
+        *,
+        signal: Signal,
+        setup: ArmedSetup,
+        trigger: TriggerEvent,
+        intent: EntryIntent,
+        fill: Fill,
+        trade: Trade,
+        position: Position,
+        transitions: tuple[StateTransition, ...],
+    ) -> LifecycleSnapshot:
+        """Install authoritative persisted OPEN state without recreating economics."""
+
+        if self.state is not LifecycleState.IDLE:
+            raise ValueError("Lifecycle hydration requires a fresh coordinator")
+        if signal.run != self.run or trade.run != self.run or position.run != self.run:
+            raise ValueError("Recovered OPEN facts contradict lifecycle run")
+        if setup.state is not ArmedSetupState.TRIGGERED:
+            raise ValueError("OPEN recovery requires a TRIGGERED setup")
+        if trade.state is not TradeState.OPEN or position.state is not PositionState.OPEN:
+            raise ValueError("OPEN recovery requires OPEN Trade and Position")
+        if fill.signal_id != signal.signal_id or trade.entry_fill_id != fill.fill_id:
+            raise ValueError("Recovered OPEN execution lineage is inconsistent")
+        if position.trade_id != trade.trade_id:
+            raise ValueError("Recovered Position must belong to the Trade")
+        self._arming = self.signal_lifecycle._hydrate_recovered(
+            signal=signal,
+            setup=setup,
+            trigger_event=trigger,
+        )
+        self._execution = PaperExecutionResult(entry_intent=intent, fill=fill)
+        self._open_result = PositionOpenResult(trade=trade, position=position)
+        self._audit = self._validated_hydration_transitions(transitions)
+        return self.snapshot()
+
+    def _validated_hydration_transitions(
+        self, transitions: tuple[StateTransition, ...]
+    ) -> dict[str, StateTransition]:
+        if any(item.run != self.run for item in transitions):
+            raise ValueError("Recovered transitions contradict lifecycle run")
+        keyed = {str(item.transition_id): item for item in transitions}
+        if len(keyed) != len(transitions):
+            raise ValueError("Recovered transitions contain duplicate identities")
+        return keyed
 
     def process_evaluation(
         self,
