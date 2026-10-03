@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.time import CandleInterval
 
 type DecisionDiagnosticValue = str | bool | int | None
@@ -22,6 +23,7 @@ class StrategyDecisionFact:
 
     instrument_id: InstrumentId
     interval: CandleInterval
+    strategy: StrategyIdentity
     decision_kind: str
     qualified: bool
     actionable: bool
@@ -50,6 +52,7 @@ class StrategyDecisionFact:
         *,
         instrument_id: InstrumentId,
         interval: CandleInterval,
+        strategy: StrategyIdentity,
         decision_kind: str,
         qualified: bool,
         actionable: bool,
@@ -61,6 +64,7 @@ class StrategyDecisionFact:
         return cls(
             instrument_id=instrument_id,
             interval=interval,
+            strategy=strategy,
             decision_kind=decision_kind,
             qualified=qualified,
             actionable=actionable,
