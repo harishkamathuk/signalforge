@@ -256,9 +256,30 @@ def test_reference_full_lifecycle_persists_through_shared_repositories(
             PostgresSignalRepository(session).get(snapshot.arming.signal.signal_id)
             == snapshot.arming.signal
         )
+        persisted_setup = PostgresArmedSetupRepository(session).get(
+            snapshot.arming.signal.signal_id
+        )
+        assert persisted_setup is not None
         assert (
-            PostgresArmedSetupRepository(session).get(snapshot.arming.signal.signal_id)
-            == snapshot.arming.armed_setup
+            persisted_setup.signal_id,
+            persisted_setup.raw_trigger,
+            persisted_setup.tradable_trigger,
+            persisted_setup.signal_low,
+            persisted_setup.armed_at,
+            persisted_setup.valid_until,
+            persisted_setup.state,
+            persisted_setup.terminal_at,
+            persisted_setup.expiry_reason,
+        ) == (
+            snapshot.arming.armed_setup.signal_id,
+            snapshot.arming.armed_setup.raw_trigger,
+            snapshot.arming.armed_setup.tradable_trigger,
+            snapshot.arming.armed_setup.signal_low,
+            snapshot.arming.armed_setup.armed_at,
+            snapshot.arming.armed_setup.valid_until,
+            snapshot.arming.armed_setup.state,
+            snapshot.arming.armed_setup.terminal_at,
+            snapshot.arming.armed_setup.expiry_reason,
         )
         trigger = runtime.lifecycle.signal_lifecycle.trigger_event
         assert trigger is not None
