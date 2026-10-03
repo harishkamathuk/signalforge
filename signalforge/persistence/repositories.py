@@ -283,13 +283,21 @@ class PostgresStrategyDecisionRepository(_PostgresRepository):
                 ),
             )
 
+        def hydrate(record: StrategyEvaluationRecord) -> StrategyDecisionFact:
+            try:
+                return strategy_decision_from_record(record, run.strategy)
+            except (TypeError, ValueError) as exc:
+                raise ContradictoryFactError(
+                    "persisted strategy decision contradicts run provenance or domain contract"
+                ) from exc
+
         return _append_immutable(
             session=self._session,
             table=StrategyEvaluationRecord.__table__,
             record=candidate,
             requested=fact,
             find_existing=find,
-            hydrate=lambda record: strategy_decision_from_record(record, run.strategy),
+            hydrate=hydrate,
             fact_name="strategy decision",
         )
 
@@ -306,7 +314,12 @@ class PostgresStrategyDecisionRepository(_PostgresRepository):
         if record is None:
             return None
         run = self._require_run_by_id(run_id)
-        return strategy_decision_from_record(record, run.strategy)
+        try:
+            return strategy_decision_from_record(record, run.strategy)
+        except (TypeError, ValueError) as exc:
+            raise ContradictoryFactError(
+                "persisted strategy decision contradicts run provenance or domain contract"
+            ) from exc
 
 
 PostgresStrategyEvaluationRepository = PostgresStrategyDecisionRepository
