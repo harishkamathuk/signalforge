@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from alembic import command
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import ConfigId, InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
@@ -28,6 +29,7 @@ from signalforge.persistence.models import (
 from signalforge.persistence.repositories import (
     PostgresIndicatorCheckpointRepository,
     PostgresRunProvenanceRepository,
+    PostgresStrategyDecisionRepository,
 )
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 
@@ -128,6 +130,7 @@ def test_schema_enforces_core_lifecycle_constraints(postgres_engine: Engine) -> 
 
 def test_initial_migration_is_reversible_and_reproducible(postgres_engine: Engine) -> None:
     config = Config("alembic.ini")
+    _clear_downgrade_blockers(postgres_engine)
     command.downgrade(config, "base")
     assert not (EXPECTED_TABLES & set(sa.inspect(postgres_engine).get_table_names()))
     command.upgrade(config, "head")
@@ -162,7 +165,21 @@ def _sf063_candle(instrument_id: InstrumentId, offset: int) -> CompletedCandle:
     )
 
 
-def _reset_migrations(config: Config) -> None:
+def _clear_downgrade_blockers(postgres_engine: Engine) -> None:
+    """Remove test data that deliberately blocks lossy migration downgrades."""
+
+    tables = set(sa.inspect(postgres_engine).get_table_names())
+    with postgres_engine.begin() as connection:
+        if "strategy_evaluations" in tables:
+            connection.execute(sa.text("DELETE FROM strategy_evaluations"))
+        if "indicator_checkpoints" in tables:
+            connection.execute(sa.text("DELETE FROM indicator_checkpoints"))
+
+
+def _reset_migrations(config: Config, postgres_engine: Engine) -> None:
+    """Destructively recreate the test schema without weakening downgrade guards."""
+
+    _clear_downgrade_blockers(postgres_engine)
     command.downgrade(config, "base")
     command.upgrade(config, "head")
 
@@ -173,7 +190,7 @@ def test_sf063_upgrade_preserves_0004_v1_checkpoint_and_resume(
     """Prove a real pre-SF-063 checkpoint survives 0004 -> 0005 and resumes exactly."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     command.downgrade(config, "20260902_0004")
     instrument_id = InstrumentId("NSE:SF063LEGACY")
     run = _sf063_run("sf063-legacy-run")
@@ -251,7 +268,7 @@ def test_sf063_upgrade_preserves_0004_v1_checkpoint_and_resume(
         assert actual == expected
         assert resumed.state == source.state
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 @pytest.mark.parametrize("advance", (False, True))
@@ -262,7 +279,7 @@ def test_sf063_downgrade_blocks_generic_only_checkpoint(
     """Do not silently discard empty or populated generic-only state on downgrade."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run = _sf063_run(f"sf063-rsi-downgrade-{advance}")
     instrument_id = InstrumentId(f"NSE:SF063RSI{int(advance)}")
     engine = IndicatorEngine(
@@ -284,14 +301,14 @@ def test_sf063_downgrade_blocks_generic_only_checkpoint(
     finally:
         with postgres_engine.begin() as connection:
             connection.execute(sa.text("DELETE FROM indicator_checkpoints"))
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 def test_sf063_v1_checkpoint_can_downgrade_to_0004(postgres_engine: Engine) -> None:
     """V1 checkpoints retain the historical columns required by the downgrade."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run = _sf063_run("sf063-v1-downgrade")
     instrument_id = InstrumentId("NSE:SF063V1")
     engine = IndicatorEngine(
@@ -314,4 +331,172 @@ def test_sf063_v1_checkpoint_can_downgrade_to_0004(postgres_engine: Engine) -> N
         }
         command.upgrade(config, "head")
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
+
+
+
+def _sf066_decision(kind: str, *, run_suffix: str) -> tuple[RunIdentity, StrategyDecisionFact]:
+    strategy_id = (
+        "intraday_momentum_v1"
+        if kind == "intraday_momentum_v1.evaluation.v1"
+        else "rsi_mean_reversion_v1"
+    )
+    run = RunIdentity(
+        run_id=RunId(f"sf066-{run_suffix}"),
+        strategy=StrategyIdentity(strategy_id, "1.0.0"),
+        config_id=ConfigId(("c" if strategy_id.startswith("intraday") else "d") * 64),
+        config_hash=("c" if strategy_id.startswith("intraday") else "d") * 64,
+        engine_calculation_version="engine-v1",
+    )
+    diagnostics = (
+        {
+            "adx_passed": True,
+            "macd_signal_positive": None,
+            "momentum_passed": True,
+            "rsi_passed": True,
+            "setup_passed": True,
+            "trend_passed": True,
+        }
+        if strategy_id.startswith("intraday")
+        else {"rsi14": "29.5", "rsi_ready": True}
+    )
+    fact = StrategyDecisionFact.create(
+        instrument_id=InstrumentId("NSE:SF066"),
+        interval=CandleInterval.five_minutes(datetime(2026, 10, 3, 4, 30, tzinfo=UTC)),
+        strategy=run.strategy,
+        decision_kind=kind,
+        qualified=True,
+        actionable=True,
+        reasons=("qualified", "actionable")
+        if strategy_id.startswith("intraday")
+        else ("rsi_below_threshold",),
+        diagnostics=diagnostics,
+    )
+    return run, fact
+
+
+def test_sf066_upgrade_preserves_legacy_v1_evaluation(postgres_engine: Engine) -> None:
+    """Upgrade a genuine 0005 V1 row into the generic decision representation."""
+
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20260930_0005")
+    run, expected = _sf066_decision(
+        "intraday_momentum_v1.evaluation.v1",
+        run_suffix="legacy-upgrade",
+    )
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES (:config_id, :strategy_id, :strategy_version, :config_hash)"
+                ),
+                {
+                    "config_id": str(run.config_id),
+                    "strategy_id": run.strategy.strategy_id,
+                    "strategy_version": run.strategy.strategy_version,
+                    "config_hash": run.config_hash,
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs (run_id, config_id, engine_calculation_version) "
+                    "VALUES (:run_id, :config_id, :version)"
+                ),
+                {
+                    "run_id": str(run.run_id),
+                    "config_id": str(run.config_id),
+                    "version": run.engine_calculation_version,
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_evaluations "
+                    "(run_id, instrument_id, interval_start, interval_end, "
+                    "trend_passed, momentum_passed, rsi_passed, adx_passed, "
+                    "macd_signal_positive, setup_passed, qualified, actionable, reasons) "
+                    "VALUES (:run_id, :instrument_id, :start, :end, true, true, true, "
+                    "true, NULL, true, true, true, CAST(:reasons AS jsonb))"
+                ),
+                {
+                    "run_id": str(run.run_id),
+                    "instrument_id": str(expected.instrument_id),
+                    "start": expected.interval.start,
+                    "end": expected.interval.end,
+                    "reasons": '["qualified","actionable"]',
+                },
+            )
+
+        command.upgrade(config, "head")
+        with Session(postgres_engine) as session:
+            restored = PostgresStrategyDecisionRepository(session).get(
+                run.run_id,
+                expected.instrument_id,
+                expected.interval,
+            )
+        assert restored == expected
+    finally:
+        _reset_migrations(config, postgres_engine)
+
+
+def test_sf066_reference_decision_blocks_lossy_downgrade(postgres_engine: Engine) -> None:
+    """Reject downgrade when a reference decision cannot fit the legacy V1 schema."""
+
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    run, fact = _sf066_decision(
+        "rsi_mean_reversion_v1.evaluation.v1",
+        run_suffix="reference-downgrade",
+    )
+    try:
+        with Session(postgres_engine) as session:
+            PostgresRunProvenanceRepository(session).add(run)
+            PostgresStrategyDecisionRepository(session).append(run.run_id, fact)
+            session.commit()
+
+        with pytest.raises(RuntimeError, match="non-V1 strategy decision facts"):
+            command.downgrade(config, "20260930_0005")
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.execute(sa.text("DELETE FROM strategy_evaluations"))
+        _reset_migrations(config, postgres_engine)
+
+
+def test_sf066_generic_v1_decision_downgrades_losslessly(postgres_engine: Engine) -> None:
+    """Translate a new generic V1 decision back to the historical V1 columns."""
+
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    run, fact = _sf066_decision(
+        "intraday_momentum_v1.evaluation.v1",
+        run_suffix="v1-downgrade",
+    )
+    try:
+        with Session(postgres_engine) as session:
+            PostgresRunProvenanceRepository(session).add(run)
+            PostgresStrategyDecisionRepository(session).append(run.run_id, fact)
+            session.commit()
+
+        command.downgrade(config, "20260930_0005")
+        with postgres_engine.connect() as connection:
+            row = connection.execute(
+                sa.text(
+                    "SELECT trend_passed, momentum_passed, rsi_passed, adx_passed, "
+                    "macd_signal_positive, setup_passed "
+                    "FROM strategy_evaluations WHERE run_id = :run_id"
+                ),
+                {"run_id": str(run.run_id)},
+            ).mappings().one()
+        assert dict(row) == {
+            "trend_passed": True,
+            "momentum_passed": True,
+            "rsi_passed": True,
+            "adx_passed": True,
+            "macd_signal_positive": None,
+            "setup_passed": True,
+        }
+        command.upgrade(config, "head")
+    finally:
+        _reset_migrations(config, postgres_engine)

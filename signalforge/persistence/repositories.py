@@ -18,6 +18,7 @@ from sqlalchemy.sql.selectable import FromClause, TableClause
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState
 from signalforge.domain.audit import StateTransition
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import (
@@ -37,7 +38,6 @@ from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.persistence.errors import (
@@ -67,8 +67,8 @@ from signalforge.persistence.mappers import (
     state_transition_from_record,
     state_transition_record_from_domain,
     strategy_config_record_from_domain,
-    strategy_evaluation_from_record,
-    strategy_evaluation_record_from_domain,
+    strategy_decision_from_record,
+    strategy_decision_record_from_domain,
     trade_from_record,
     trade_record_from_domain,
     trigger_event_from_record,
@@ -257,35 +257,48 @@ class PostgresRunProvenanceRepository(_PostgresRepository):
         return self._load_run(run_id)
 
 
-class PostgresStrategyEvaluationRepository(_PostgresRepository):
+class PostgresStrategyDecisionRepository(_PostgresRepository):
+    """Persist immutable strategy-neutral completed-candle decision facts."""
+
     def append(
         self,
         run_id: RunId,
-        evaluation: StrategyEvaluation,
-    ) -> StrategyEvaluation:
-        if self._load_run(run_id) is None:
-            raise PersistenceDependencyError(f"run provenance {run_id!s} must be persisted first")
-        candidate = strategy_evaluation_record_from_domain(run_id, evaluation)
+        fact: StrategyDecisionFact,
+    ) -> StrategyDecisionFact:
+        run = self._require_run_by_id(run_id)
+        if fact.strategy != run.strategy:
+            raise ContradictoryFactError(
+                "strategy decision identity contradicts persisted run provenance"
+            )
+        candidate = strategy_decision_record_from_domain(run_id, fact)
 
         def find() -> StrategyEvaluationRecord | None:
             return self._session.get(
                 StrategyEvaluationRecord,
                 (
                     str(run_id),
-                    str(evaluation.instrument_id),
-                    evaluation.interval.start,
-                    evaluation.interval.end,
+                    str(fact.instrument_id),
+                    fact.interval.start,
+                    fact.interval.end,
                 ),
             )
+
+        def hydrate(record: StrategyEvaluationRecord) -> StrategyDecisionFact:
+            try:
+                return strategy_decision_from_record(record, run.strategy)
+            except (TypeError, ValueError) as exc:
+                raise ContradictoryFactError(
+                    "persisted strategy decision contradicts run provenance or domain contract"
+                ) from exc
 
         return _append_immutable(
             session=self._session,
             table=StrategyEvaluationRecord.__table__,
             record=candidate,
-            requested=evaluation,
+            requested=fact,
             find_existing=find,
-            hydrate=strategy_evaluation_from_record,
-            fact_name="strategy evaluation",
+            hydrate=hydrate,
+            fact_name="strategy decision",
         )
 
     def get(
@@ -293,12 +306,23 @@ class PostgresStrategyEvaluationRepository(_PostgresRepository):
         run_id: RunId,
         instrument_id: InstrumentId,
         interval: CandleInterval,
-    ) -> StrategyEvaluation | None:
+    ) -> StrategyDecisionFact | None:
         record = self._session.get(
             StrategyEvaluationRecord,
             (str(run_id), str(instrument_id), interval.start, interval.end),
         )
-        return None if record is None else strategy_evaluation_from_record(record)
+        if record is None:
+            return None
+        run = self._require_run_by_id(run_id)
+        try:
+            return strategy_decision_from_record(record, run.strategy)
+        except (TypeError, ValueError) as exc:
+            raise ContradictoryFactError(
+                "persisted strategy decision contradicts run provenance or domain contract"
+            ) from exc
+
+
+PostgresStrategyEvaluationRepository = PostgresStrategyDecisionRepository
 
 
 class PostgresSignalRepository(_PostgresRepository):

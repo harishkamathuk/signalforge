@@ -17,6 +17,7 @@ from signalforge.config.identity import ConfigStatus
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import ConfigId, FillId, InstrumentId, RunId, SignalId
@@ -49,10 +50,11 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
-    PostgresStrategyEvaluationRepository,
+    PostgresStrategyDecisionRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicators import (
     V1_INDICATOR_REQUIREMENTS,
     IndicatorContinuity,
@@ -94,6 +96,7 @@ def session(postgres_engine: Engine) -> Iterator[Session]:
 class Facts:
     run: RunIdentity
     evaluation: StrategyEvaluation
+    decision_fact: StrategyDecisionFact
     signal: Signal
     setup: ArmedSetup
     trigger: TriggerEvent
@@ -201,6 +204,7 @@ def facts(suffix: str = "base", *, at: datetime = AT) -> Facts:
     return Facts(
         run,
         evaluation,
+        project_v1_decision(evaluation),
         signal,
         setup,
         trigger,
@@ -216,8 +220,8 @@ def facts(suffix: str = "base", *, at: datetime = AT) -> Facts:
 def persist_graph(session: Session, value: Facts) -> None:
     assert PostgresRunProvenanceRepository(session).add(value.run) == value.run
     assert (
-        PostgresStrategyEvaluationRepository(session).append(value.run.run_id, value.evaluation)
-        == value.evaluation
+        PostgresStrategyDecisionRepository(session).append(value.run.run_id, value.decision_fact)
+        == value.decision_fact
     )
     assert PostgresSignalRepository(session).append(value.signal) == value.signal
     assert PostgresTriggerEventRepository(session).append(value.trigger) == value.trigger
@@ -321,7 +325,7 @@ def test_coordinator_arming_boundary_rolls_back_each_write(
         monkeypatch,
         after=after,
         names=(
-            "PostgresStrategyEvaluationRepository",
+            "PostgresStrategyDecisionRepository",
             "PostgresSignalRepository",
             "PostgresArmedSetupRepository",
             "PostgresStateTransitionRepository",
@@ -330,7 +334,7 @@ def test_coordinator_arming_boundary_rolls_back_each_write(
     with Session(postgres_engine) as session:
         with pytest.raises(InjectedFailure):
             PersistenceCoordinator(session).persist_actionable_evaluation(
-                evaluation=value.evaluation,
+                evaluation=value.decision_fact,
                 signal=value.signal,
                 setup=value.setup,
                 setup_transition=transition,
@@ -614,7 +618,7 @@ def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Sessio
     persist_graph(session, value)
 
     provenance = PostgresRunProvenanceRepository(session)
-    evaluations = PostgresStrategyEvaluationRepository(session)
+    evaluations = PostgresStrategyDecisionRepository(session)
     signals = PostgresSignalRepository(session)
     triggers = PostgresTriggerEventRepository(session)
     intents = PostgresEntryIntentRepository(session)
@@ -623,9 +627,10 @@ def test_all_immutable_repositories_round_trip_and_retry_exactly(session: Sessio
     transitions = PostgresStateTransitionRepository(session)
 
     assert provenance.add(value.run) == provenance.get(value.run.run_id) == value.run
-    assert evaluations.append(value.run.run_id, value.evaluation) == value.evaluation
+    assert evaluations.append(value.run.run_id, value.decision_fact) == value.decision_fact
     assert (
-        evaluations.get(value.run.run_id, INSTRUMENT, value.evaluation.interval) == value.evaluation
+        evaluations.get(value.run.run_id, INSTRUMENT, value.decision_fact.interval)
+        == value.decision_fact
     )
     assert signals.append(value.signal) == signals.get(value.signal.signal_id) == value.signal
     assert (
@@ -669,7 +674,7 @@ def test_contradictory_reuse_is_typed_and_outer_transaction_remains_usable(
             PostgresRunProvenanceRepository(session),
             replace(value.run, engine_calculation_version="engine-v2"),
         ),
-        (PostgresStrategyEvaluationRepository(session), unqualified),
+        (PostgresStrategyDecisionRepository(session), project_v1_decision(unqualified)),
         (
             PostgresSignalRepository(session),
             replace(value.signal, signal_close=Price(Decimal("102.00"))),
@@ -703,7 +708,7 @@ def test_contradictory_reuse_is_typed_and_outer_transaction_remains_usable(
         with pytest.raises(ContradictoryFactError):
             if isinstance(repository, PostgresRunProvenanceRepository):
                 repository.add(contradictory)  # type: ignore[arg-type]
-            elif isinstance(repository, PostgresStrategyEvaluationRepository):
+            elif isinstance(repository, PostgresStrategyDecisionRepository):
                 repository.append(value.run.run_id, contradictory)  # type: ignore[arg-type]
             else:
                 repository.append(contradictory)  # type: ignore[attr-defined]
@@ -1052,12 +1057,12 @@ def test_coordinator_exact_and_committed_retries_for_all_boundaries(
         session.commit()
         coordinator = PersistenceCoordinator(session)
         first = coordinator.persist_actionable_evaluation(
-            evaluation=arm.evaluation,
+            evaluation=arm.decision_fact,
             signal=arm.signal,
             setup=arm.setup,
             setup_transition=arm_transition,
         )
-        assert first[0] == arm.evaluation
+        assert first[0] == arm.decision_fact
         assert first[1] == arm.signal
         assert first[2].signal_id == arm.setup.signal_id
         assert first[2].state is ArmedSetupState.ARMED
@@ -1065,7 +1070,7 @@ def test_coordinator_exact_and_committed_retries_for_all_boundaries(
         assert first[3].transition_id == arm_transition.transition_id
         assert (
             coordinator.persist_actionable_evaluation(
-                evaluation=arm.evaluation,
+                evaluation=arm.decision_fact,
                 signal=arm.signal,
                 setup=arm.setup,
                 setup_transition=arm_transition,
@@ -1075,7 +1080,7 @@ def test_coordinator_exact_and_committed_retries_for_all_boundaries(
     with Session(postgres_engine) as session:
         assert (
             PersistenceCoordinator(session).persist_actionable_evaluation(
-                evaluation=arm.evaluation,
+                evaluation=arm.decision_fact,
                 signal=arm.signal,
                 setup=arm.setup,
                 setup_transition=arm_transition,
@@ -1626,13 +1631,13 @@ def test_coordinator_completed_evaluation_rolls_back_checkpoint_and_evaluation(
         after=after,
         names=(
             "PostgresIndicatorCheckpointRepository",
-            "PostgresStrategyEvaluationRepository",
+            "PostgresStrategyDecisionRepository",
         ),
     )
     with Session(postgres_engine) as session:
         with pytest.raises(InjectedFailure):
             PersistenceCoordinator(session).persist_completed_evaluation(
-                run=value.run, state=state, evaluation=value.evaluation
+                run=value.run, state=state, evaluation=value.decision_fact
             )
     with Session(postgres_engine) as observer:
         assert (
@@ -1642,8 +1647,8 @@ def test_coordinator_completed_evaluation_rolls_back_checkpoint_and_evaluation(
             is None
         )
         assert (
-            PostgresStrategyEvaluationRepository(observer).get(
-                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            PostgresStrategyDecisionRepository(observer).get(
+                value.run.run_id, value.decision_fact.instrument_id, value.decision_fact.interval
             )
             is None
         )
@@ -1677,7 +1682,7 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
         after=after,
         names=(
             "PostgresIndicatorCheckpointRepository",
-            "PostgresStrategyEvaluationRepository",
+            "PostgresStrategyDecisionRepository",
             "PostgresSignalRepository",
             "PostgresArmedSetupRepository",
             "PostgresStateTransitionRepository",
@@ -1686,7 +1691,7 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
     with Session(postgres_engine) as session:
         with pytest.raises(InjectedFailure):
             PersistenceCoordinator(session).persist_actionable_evaluation(
-                evaluation=value.evaluation,
+                evaluation=value.decision_fact,
                 signal=value.signal,
                 setup=value.setup,
                 setup_transition=transition,
@@ -1700,7 +1705,7 @@ def test_coordinator_checkpointed_arming_rolls_back_every_write(
             is None
         )
         assert (
-            PostgresStrategyEvaluationRepository(observer).get(
+            PostgresStrategyDecisionRepository(observer).get(
                 value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
             )
             is None

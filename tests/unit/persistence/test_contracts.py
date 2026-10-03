@@ -6,6 +6,7 @@ from signalforge.persistence import contracts
 
 EXPECTED_CONTRACTS = {
     "RunProvenanceRepository",
+    "StrategyDecisionRepository",
     "StrategyEvaluationRepository",
     "SignalRepository",
     "ArmedSetupRepository",

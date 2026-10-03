@@ -29,12 +29,15 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
-    PostgresStrategyEvaluationRepository,
+    PostgresStrategyDecisionRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
-from tests.integration.persistence.test_migrations import EXPECTED_TABLES
+from tests.integration.persistence.test_migrations import (
+    EXPECTED_TABLES,
+    _clear_downgrade_blockers,
+)
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _transition,
     facts,
@@ -138,14 +141,14 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
         session.commit()
         coordinator = PersistenceCoordinator(session)
         coordinator.persist_actionable_evaluation(
-            evaluation=value.evaluation,
+            evaluation=value.decision_fact,
             signal=value.signal,
             setup=value.setup,
             setup_transition=arm,
             checkpoint=checkpoint,
         )
         coordinator.persist_actionable_evaluation(
-            evaluation=value.evaluation,
+            evaluation=value.decision_fact,
             signal=value.signal,
             setup=value.setup,
             setup_transition=arm,
@@ -190,10 +193,10 @@ def test_m6_complete_lifecycle_is_durable_and_idempotent(postgres_engine: Engine
     with Session(postgres_engine) as observer:
         assert PostgresRunProvenanceRepository(observer).get(value.run.run_id) == value.run
         assert (
-            PostgresStrategyEvaluationRepository(observer).get(
-                value.run.run_id, value.evaluation.instrument_id, value.evaluation.interval
+            PostgresStrategyDecisionRepository(observer).get(
+                value.run.run_id, value.decision_fact.instrument_id, value.decision_fact.interval
             )
-            == value.evaluation
+            == value.decision_fact
         )
         assert PostgresSignalRepository(observer).get(value.signal.signal_id) == value.signal
         assert (
@@ -236,6 +239,7 @@ def test_m6_fresh_database_reproducibility(
     config = Config("alembic.ini")
 
     def run_clean() -> dict[str, tuple[str, ...]]:
+        _clear_downgrade_blockers(postgres_engine)
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         monkeypatch.setattr(

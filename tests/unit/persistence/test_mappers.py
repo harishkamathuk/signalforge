@@ -42,13 +42,14 @@ from signalforge.persistence.mappers import (
     state_transition_from_record,
     state_transition_record_from_domain,
     strategy_config_record_from_domain,
-    strategy_evaluation_from_record,
-    strategy_evaluation_record_from_domain,
+    strategy_decision_from_record,
+    strategy_decision_record_from_domain,
     trade_from_record,
     trade_record_from_domain,
     trigger_event_from_record,
     trigger_event_record_from_domain,
 )
+from signalforge.runtime.decision_audit import project_v1_decision
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 AT = datetime(2026, 8, 31, 10, 0, tzinfo=IST)
@@ -88,9 +89,10 @@ def test_provenance_and_evaluation_mappers_round_trip() -> None:
         actionable=True,
         reasons=(DecisionReason.QUALIFIED, DecisionReason.ACTIONABLE),
     )
-    record = strategy_evaluation_record_from_domain(run.run_id, evaluation)
-    restored = strategy_evaluation_from_record(record)
-    assert _record_values(strategy_evaluation_record_from_domain(run.run_id, restored)) == (
+    fact = project_v1_decision(evaluation)
+    record = strategy_decision_record_from_domain(run.run_id, fact)
+    restored = strategy_decision_from_record(record, run.strategy)
+    assert _record_values(strategy_decision_record_from_domain(run.run_id, restored)) == (
         _record_values(record)
     )
 
