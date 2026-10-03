@@ -34,7 +34,10 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
-from tests.integration.persistence.test_migrations import EXPECTED_TABLES
+from tests.integration.persistence.test_migrations import (
+    EXPECTED_TABLES,
+    _clear_downgrade_blockers,
+)
 from tests.integration.persistence.test_repository_adapters_postgres import (
     _transition,
     facts,
@@ -236,6 +239,7 @@ def test_m6_fresh_database_reproducibility(
     config = Config("alembic.ini")
 
     def run_clean() -> dict[str, tuple[str, ...]]:
+        _clear_downgrade_blockers(postgres_engine)
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         monkeypatch.setattr(
