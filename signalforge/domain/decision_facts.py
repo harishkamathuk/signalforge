@@ -33,6 +33,10 @@ class StrategyDecisionFact:
     def __post_init__(self) -> None:
         if not self.decision_kind.strip():
             raise ValueError("Strategy decision kind must not be empty")
+        if not self.decision_kind.startswith(f"{self.strategy.strategy_id}."):
+            raise ValueError(
+                "Strategy decision kind must be namespaced by its strategy identity"
+            )
         if self.actionable and not self.qualified:
             raise ValueError("Actionable strategy decision fact must be qualified")
         keys = tuple(key for key, _ in self.diagnostics)
