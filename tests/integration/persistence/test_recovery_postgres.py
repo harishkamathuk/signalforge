@@ -260,6 +260,35 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         assert len(result.lifecycle.transitions) == 4
 
 
+def test_recovery_postgres_rejects_open_graph_without_transition_evidence(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-open-missing-transition-{uuid4().hex[:8]}")
+    _commit_open_position(postgres_engine, value)
+    outcome = PositionOpenOutcome.create(
+        fill_id=value.fill.fill_id,
+        signal_id=value.signal.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=value.fill.filled_at,
+        run=value.run,
+    )
+    with Session(postgres_engine) as session:
+        PostgresPositionOpenOutcomeRepository(session).append(outcome)
+        session.commit()
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="required transition evidence",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
 def test_recovery_postgres_validates_closed_lifecycle(postgres_engine: Engine) -> None:
     value = facts(f"recovery-closed-{uuid4().hex[:8]}")
     _commit_open_position(postgres_engine, value)
