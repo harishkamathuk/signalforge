@@ -363,6 +363,7 @@ def _sf066_decision(kind: str, *, run_suffix: str) -> tuple[RunIdentity, Strateg
     fact = StrategyDecisionFact.create(
         instrument_id=InstrumentId("NSE:SF066"),
         interval=CandleInterval.five_minutes(datetime(2026, 10, 3, 4, 30, tzinfo=UTC)),
+        strategy=run.strategy,
         decision_kind=kind,
         qualified=True,
         actionable=True,
