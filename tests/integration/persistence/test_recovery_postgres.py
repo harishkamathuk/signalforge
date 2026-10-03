@@ -46,7 +46,6 @@ from signalforge.runtime.indicators import (
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from tests.integration.persistence.test_repository_adapters_postgres import (
     Facts,
-    _commit_armed_setup,
     _commit_open_position,
     _transition,
     facts,
