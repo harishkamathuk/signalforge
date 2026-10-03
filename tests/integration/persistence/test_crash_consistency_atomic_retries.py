@@ -175,7 +175,10 @@ def test_actionable_rollback_can_retry_exactly_once(
     with Session(postgres_engine) as observer:
         setup = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
         assert setup is not None and setup.state is ArmedSetupState.ARMED
-        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) == transition
+        assert (
+            PostgresStateTransitionRepository(observer).get(transition.transition_id)
+            == transition
+        )
 
 
 def test_trigger_rollback_can_retry_exactly_once(
@@ -227,7 +230,10 @@ def test_trigger_rollback_can_retry_exactly_once(
     with Session(postgres_engine) as observer:
         setup = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
         assert setup is not None and setup.state is ArmedSetupState.TRIGGERED
-        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) == transition
+        assert (
+            PostgresStateTransitionRepository(observer).get(transition.transition_id)
+            == transition
+        )
 
 
 def test_expiry_rollback_can_retry_exactly_once(
@@ -276,7 +282,10 @@ def test_expiry_rollback_can_retry_exactly_once(
     with Session(postgres_engine) as observer:
         setup = PostgresArmedSetupRepository(observer).get(value.signal.signal_id)
         assert setup is not None and setup.state is ArmedSetupState.EXPIRED
-        assert PostgresStateTransitionRepository(observer).get(transition.transition_id) == transition
+        assert (
+            PostgresStateTransitionRepository(observer).get(transition.transition_id)
+            == transition
+        )
 
 
 def test_open_rollback_can_retry_exactly_once(
