@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Never
 
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CompletedCandle
@@ -94,6 +95,6 @@ class IndicatorRecoveryReconciler:
 
         return tuple(snapshots)
 
-    def _fail(self, message: str) -> None:
+    def _fail(self, message: str) -> Never:
         self._engine.break_continuity()
         raise IndicatorRecoveryError(message)
