@@ -530,3 +530,49 @@ def test_terminal_recovery_rejects_non_idle_coordinator() -> None:
             ),
             coordinator=coordinator,
         )
+
+
+def test_hydration_validation_failure_does_not_partially_install_state() -> None:
+    strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    run, signal, setup, transition = _signal_setup(strategy, "sf052-atomic-hydration")
+    coordinator = _coordinator(strategy, run)
+
+    with pytest.raises(ValueError, match="duplicate identities"):
+        LifecycleRecoveryHydrator().hydrate(
+            indicator_result=_indicator_result(strategy),
+            recovered=RecoveredLifecycle(
+                setup,
+                signal,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                (transition, transition),
+            ),
+            coordinator=coordinator,
+        )
+
+    assert coordinator.state is LifecycleState.IDLE
+    assert coordinator.signal_lifecycle.active is None
+    assert coordinator.audit_transitions == ()
+
+    recovered = LifecycleRecoveryHydrator().hydrate(
+        indicator_result=_indicator_result(strategy),
+        recovered=RecoveredLifecycle(
+            setup,
+            signal,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            (transition,),
+        ),
+        coordinator=coordinator,
+    )
+    assert recovered.snapshot.state is LifecycleState.ARMED
