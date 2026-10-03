@@ -293,6 +293,44 @@ def test_recovery_postgres_discovers_armed_and_open_graphs(postgres_engine: Engi
         assert len(result.lifecycle.transitions) == 4
 
 
+def test_recovery_postgres_rejects_pending_triggered_entry(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"recovery-pending-trigger-{uuid4().hex[:8]}")
+    _persist_armed_graph(postgres_engine, value)
+    triggered = replace(value.setup)
+    triggered.trigger(at=value.trigger.observed_at)
+    trigger_transition = _transition(
+        value,
+        entity=TransitionEntityType.ARMED_SETUP,
+        entity_id=str(value.signal.signal_id),
+        before="armed",
+        after="triggered",
+        cause_type="trigger_event",
+        cause_id=str(value.trigger.trigger_event_id),
+        occurred_at=value.trigger.observed_at,
+    )
+    with Session(postgres_engine) as session:
+        PersistenceCoordinator(session).persist_trigger_intent(
+            trigger=value.trigger,
+            intent=value.intent,
+            setup=triggered,
+            setup_transition=trigger_transition,
+        )
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="pending triggered entry",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=value.run,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
+            )
+
+
 def test_recovery_postgres_rejects_open_graph_without_transition_evidence(
     postgres_engine: Engine,
 ) -> None:
