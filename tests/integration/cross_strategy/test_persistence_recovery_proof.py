@@ -588,12 +588,13 @@ def test_cross_strategy_persisted_checkpoint_reconciles_to_uninterrupted_state(
     assert recovered.indicator_state == checkpoint_source.state
     assert recovered.indicator_state is not None
     reconciliation = IndicatorRecoveryReconciler(recovered.indicator_state)
-    actual = reconciliation.reconcile(
+    result = reconciliation.reconcile(
         RecoveryCandle(_candle(index), continuity_ok=True)
         for index in range(split, total)
     )
 
-    assert actual == tuple(expected[split:])
+    assert result.snapshots == tuple(expected[split:])
+    assert result.engine.state == uninterrupted.state
     assert reconciliation.state == uninterrupted.state
     if strategy_id == "rsi_mean_reversion_v1":
         assert reconciliation.state.ema_states == ()
