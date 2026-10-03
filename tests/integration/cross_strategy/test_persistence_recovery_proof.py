@@ -539,7 +539,6 @@ def test_strategy_decision_cannot_cross_run_strategy_provenance(
             )
 
 
-
 @pytest.mark.parametrize(
     ("strategy_id", "split", "total"),
     (
