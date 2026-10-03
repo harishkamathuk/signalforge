@@ -119,8 +119,10 @@ class LifecycleCoordinator:
             raise ValueError("Lifecycle hydration requires a fresh coordinator")
         if signal.run != self.run or setup.state is not ArmedSetupState.ARMED:
             raise ValueError("Recovered ARMED facts contradict lifecycle runtime")
-        self._arming = self.signal_lifecycle._hydrate_recovered(signal=signal, setup=setup)
-        self._audit = self._validated_hydration_transitions(transitions)
+        audit = self._validated_hydration_transitions(transitions)
+        arming = self.signal_lifecycle._hydrate_recovered(signal=signal, setup=setup)
+        self._arming = arming
+        self._audit = audit
         return self.snapshot()
 
     def _hydrate_open_recovered(
@@ -149,14 +151,18 @@ class LifecycleCoordinator:
             raise ValueError("Recovered OPEN execution lineage is inconsistent")
         if position.trade_id != trade.trade_id:
             raise ValueError("Recovered Position must belong to the Trade")
-        self._arming = self.signal_lifecycle._hydrate_recovered(
+        audit = self._validated_hydration_transitions(transitions)
+        arming = self.signal_lifecycle._hydrate_recovered(
             signal=signal,
             setup=setup,
             trigger_event=trigger,
         )
-        self._execution = PaperExecutionResult(entry_intent=intent, fill=fill)
-        self._open_result = PositionOpenResult(trade=trade, position=position)
-        self._audit = self._validated_hydration_transitions(transitions)
+        execution = PaperExecutionResult(entry_intent=intent, fill=fill)
+        open_result = PositionOpenResult(trade=trade, position=position)
+        self._arming = arming
+        self._execution = execution
+        self._open_result = open_result
+        self._audit = audit
         return self.snapshot()
 
     def _validated_hydration_transitions(
