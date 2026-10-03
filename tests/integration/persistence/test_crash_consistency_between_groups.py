@@ -59,6 +59,12 @@ def test_crash_after_completed_evaluation_is_resumable_without_invented_lifecycl
     postgres_engine: Engine,
 ) -> None:
     value = facts(f"sf052-eval-boundary-{uuid4().hex[:8]}")
+    decision = replace(
+        value.decision_fact,
+        qualified=False,
+        actionable=False,
+        reasons=("not_actionable",),
+    )
     checkpoint = IndicatorEngine(
         value.signal.instrument_id,
         value.run.engine_calculation_version,
@@ -70,7 +76,7 @@ def test_crash_after_completed_evaluation_is_resumable_without_invented_lifecycl
         PersistenceCoordinator(session).persist_completed_evaluation(
             run=value.run,
             state=checkpoint,
-            evaluation=value.decision_fact,
+            evaluation=decision,
         )
 
     recovered = _inspect(postgres_engine, value)
