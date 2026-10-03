@@ -425,3 +425,23 @@ def test_cross_strategy_checkpoint_resume_matches_uninterrupted_next_candle(
 
     assert resumed.update(next_candle) == source.update(next_candle)
     assert resumed.state == source.state
+
+
+
+def test_strategy_decision_cannot_cross_run_strategy_provenance(
+    postgres_engine: Engine,
+) -> None:
+    """Reject a reference decision fact stored under Strategy V1 provenance."""
+
+    run = _run("intraday_momentum_v1", uuid4().hex)
+    reference_fact = _decision_fact("rsi_mean_reversion_v1")
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        with pytest.raises(
+            ContradictoryFactError,
+            match="decision identity contradicts persisted run provenance",
+        ):
+            PostgresStrategyDecisionRepository(session).append(
+                run.run_id,
+                reference_fact,
+            )
