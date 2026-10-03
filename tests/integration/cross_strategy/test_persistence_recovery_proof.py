@@ -181,6 +181,7 @@ def test_strategy_decision_contradictory_retry_fails(
     contradictory = type(fact)(
         instrument_id=fact.instrument_id,
         interval=fact.interval,
+        strategy=fact.strategy,
         decision_kind=fact.decision_kind,
         qualified=fact.qualified,
         actionable=fact.actionable,
