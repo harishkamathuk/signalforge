@@ -54,7 +54,7 @@ def postgres_engine() -> Iterator[Engine]:
 def test_completed_evaluation_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-completed-{uuid4().hex}")
+    value = facts(f"sf052-completed-{uuid4().hex[:8]}")
     state = IndicatorEngine(
         value.signal.instrument_id,
         value.run.engine_calculation_version,
@@ -125,7 +125,7 @@ def test_completed_evaluation_rollback_can_retry_exactly_once(
 def test_actionable_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-arm-{uuid4().hex}")
+    value = facts(f"sf052-arm-{uuid4().hex[:8]}")
     transition = _transition(
         value,
         entity=TransitionEntityType.ARMED_SETUP,
@@ -184,7 +184,7 @@ def test_actionable_rollback_can_retry_exactly_once(
 def test_trigger_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-trigger-{uuid4().hex}")
+    value = facts(f"sf052-trigger-{uuid4().hex[:8]}")
     _commit_armed_setup(postgres_engine, value)
     triggered = replace(value.setup)
     triggered.trigger(at=value.trigger.observed_at)
@@ -239,7 +239,7 @@ def test_trigger_rollback_can_retry_exactly_once(
 def test_expiry_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-expiry-{uuid4().hex}")
+    value = facts(f"sf052-expiry-{uuid4().hex[:8]}")
     _commit_armed_setup(postgres_engine, value)
     expired = replace(value.setup)
     expired.expire(at=expired.valid_until, reason=ExpiryReason.VALIDITY_WINDOW_END)
@@ -291,7 +291,7 @@ def test_expiry_rollback_can_retry_exactly_once(
 def test_open_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-open-{uuid4().hex}")
+    value = facts(f"sf052-open-{uuid4().hex[:8]}")
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
@@ -371,7 +371,7 @@ def test_open_rollback_can_retry_exactly_once(
 def test_rejected_entry_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-reject-{uuid4().hex}")
+    value = facts(f"sf052-reject-{uuid4().hex[:8]}")
     _commit_trigger_intent(postgres_engine, value)
     outcome = PositionOpenOutcome.create(
         fill_id=value.fill.fill_id,
@@ -414,7 +414,7 @@ def test_rejected_entry_rollback_can_retry_exactly_once(
 def test_exit_rollback_can_retry_exactly_once(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    value = facts(f"sf052-exit-{uuid4().hex}")
+    value = facts(f"sf052-exit-{uuid4().hex[:8]}")
     _commit_open_position(postgres_engine, value)
     closed_trade = replace(value.trade)
     closed_trade.close(exit_id=value.exit_fact.exit_id, at=value.exit_fact.exited_at)
