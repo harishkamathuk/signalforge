@@ -177,11 +177,14 @@ class RecoveryBootstrap:
             raise ContradictoryFactError("persisted indicator checkpoint continuity is broken")
         if len(outcomes) != len(fills):
             raise ContradictoryFactError("persisted fill lacks a completed position-open outcome")
-        if any(
-            item.outcome is PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK for item in outcomes
-        ) and (trades or positions):
+        rejected_fill_ids = {
+            item.fill_id
+            for item in outcomes
+            if item.outcome is PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK
+        }
+        if any(item.entry_fill_id in rejected_fill_ids for item in trades):
             raise ContradictoryFactError(
-                "rejected open outcome conflicts with persisted trade or position"
+                "rejected open outcome conflicts with persisted trade for the same fill"
             )
 
         armed = tuple(item for item in setups if item.state is ArmedSetupState.ARMED)
@@ -416,13 +419,6 @@ class RecoveryBootstrap:
                 raise ContradictoryFactError(
                     "CLOSED lifecycle lacks a consistent fill outcome and position"
                 )
-
-        if any(
-            item.outcome is PositionOpenOutcomeType.REJECTED_NON_POSITIVE_RISK for item in outcomes
-        ) and (open_trades or open_positions):
-            raise ContradictoryFactError(
-                "rejected open outcome conflicts with persisted trade or position"
-            )
 
         exit_fact = exits[0] if len(exits) == 1 else None
         return RecoveryResult(
