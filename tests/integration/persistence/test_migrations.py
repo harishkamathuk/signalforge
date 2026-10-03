@@ -130,6 +130,7 @@ def test_schema_enforces_core_lifecycle_constraints(postgres_engine: Engine) -> 
 
 def test_initial_migration_is_reversible_and_reproducible(postgres_engine: Engine) -> None:
     config = Config("alembic.ini")
+    _clear_downgrade_blockers(postgres_engine)
     command.downgrade(config, "base")
     assert not (EXPECTED_TABLES & set(sa.inspect(postgres_engine).get_table_names()))
     command.upgrade(config, "head")
@@ -164,7 +165,21 @@ def _sf063_candle(instrument_id: InstrumentId, offset: int) -> CompletedCandle:
     )
 
 
-def _reset_migrations(config: Config) -> None:
+def _clear_downgrade_blockers(postgres_engine: Engine) -> None:
+    """Remove test data that deliberately blocks lossy migration downgrades."""
+
+    tables = set(sa.inspect(postgres_engine).get_table_names())
+    with postgres_engine.begin() as connection:
+        if "strategy_evaluations" in tables:
+            connection.execute(sa.text("DELETE FROM strategy_evaluations"))
+        if "indicator_checkpoints" in tables:
+            connection.execute(sa.text("DELETE FROM indicator_checkpoints"))
+
+
+def _reset_migrations(config: Config, postgres_engine: Engine) -> None:
+    """Destructively recreate the test schema without weakening downgrade guards."""
+
+    _clear_downgrade_blockers(postgres_engine)
     command.downgrade(config, "base")
     command.upgrade(config, "head")
 
@@ -175,7 +190,7 @@ def test_sf063_upgrade_preserves_0004_v1_checkpoint_and_resume(
     """Prove a real pre-SF-063 checkpoint survives 0004 -> 0005 and resumes exactly."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     command.downgrade(config, "20260902_0004")
     instrument_id = InstrumentId("NSE:SF063LEGACY")
     run = _sf063_run("sf063-legacy-run")
@@ -253,7 +268,7 @@ def test_sf063_upgrade_preserves_0004_v1_checkpoint_and_resume(
         assert actual == expected
         assert resumed.state == source.state
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 @pytest.mark.parametrize("advance", (False, True))
@@ -264,7 +279,7 @@ def test_sf063_downgrade_blocks_generic_only_checkpoint(
     """Do not silently discard empty or populated generic-only state on downgrade."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run = _sf063_run(f"sf063-rsi-downgrade-{advance}")
     instrument_id = InstrumentId(f"NSE:SF063RSI{int(advance)}")
     engine = IndicatorEngine(
@@ -286,14 +301,14 @@ def test_sf063_downgrade_blocks_generic_only_checkpoint(
     finally:
         with postgres_engine.begin() as connection:
             connection.execute(sa.text("DELETE FROM indicator_checkpoints"))
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 def test_sf063_v1_checkpoint_can_downgrade_to_0004(postgres_engine: Engine) -> None:
     """V1 checkpoints retain the historical columns required by the downgrade."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run = _sf063_run("sf063-v1-downgrade")
     instrument_id = InstrumentId("NSE:SF063V1")
     engine = IndicatorEngine(
@@ -316,7 +331,7 @@ def test_sf063_v1_checkpoint_can_downgrade_to_0004(postgres_engine: Engine) -> N
         }
         command.upgrade(config, "head")
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 
@@ -363,7 +378,7 @@ def test_sf066_upgrade_preserves_legacy_v1_evaluation(postgres_engine: Engine) -
     """Upgrade a genuine 0005 V1 row into the generic decision representation."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     command.downgrade(config, "20260930_0005")
     run, expected = _sf066_decision(
         "intraday_momentum_v1.evaluation.v1",
@@ -422,14 +437,14 @@ def test_sf066_upgrade_preserves_legacy_v1_evaluation(postgres_engine: Engine) -
             )
         assert restored == expected
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 def test_sf066_reference_decision_blocks_lossy_downgrade(postgres_engine: Engine) -> None:
     """Reject downgrade when a reference decision cannot fit the legacy V1 schema."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run, fact = _sf066_decision(
         "rsi_mean_reversion_v1.evaluation.v1",
         run_suffix="reference-downgrade",
@@ -445,14 +460,14 @@ def test_sf066_reference_decision_blocks_lossy_downgrade(postgres_engine: Engine
     finally:
         with postgres_engine.begin() as connection:
             connection.execute(sa.text("DELETE FROM strategy_evaluations"))
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
 
 
 def test_sf066_generic_v1_decision_downgrades_losslessly(postgres_engine: Engine) -> None:
     """Translate a new generic V1 decision back to the historical V1 columns."""
 
     config = Config("alembic.ini")
-    _reset_migrations(config)
+    _reset_migrations(config, postgres_engine)
     run, fact = _sf066_decision(
         "intraday_momentum_v1.evaluation.v1",
         run_suffix="v1-downgrade",
@@ -483,4 +498,4 @@ def test_sf066_generic_v1_decision_downgrades_losslessly(postgres_engine: Engine
         }
         command.upgrade(config, "head")
     finally:
-        _reset_migrations(config)
+        _reset_migrations(config, postgres_engine)
