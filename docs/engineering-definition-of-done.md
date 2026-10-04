@@ -44,6 +44,36 @@ Review specifically for:
 
 A green test suite is necessary but is not by itself sufficient evidence of completion.
 
+### Boundary and determinism review
+
+When a change introduces or materially changes a serialization, configuration, persistence,
+market-data, broker/API, identity/hash, timestamp/timezone, numeric, or filesystem/data-source
+boundary, explicitly ask:
+
+> What information can be lost, changed, collapsed, reordered or interpreted differently as data
+> crosses this boundary?
+
+Review the applicable boundary for:
+
+- precision loss;
+- canonicalization differences;
+- round-trip fidelity;
+- deterministic ordering;
+- timezone normalization;
+- duplicate or ambiguous values;
+- large/small magnitude boundaries;
+- invalid-but-parseable inputs;
+- identity collisions;
+- ambient/global-context sensitivity.
+
+This is a conditional review discipline, not an additional approval gate. Apply only the checks
+that are relevant to the changed boundary. If no new or materially changed boundary exists, state
+that explicitly rather than manufacturing irrelevant checks.
+
+When a material boundary invariant is identified, prefer focused regression evidence that proves
+the invariant directly. The durable protection should be the executable contract, not reviewer or
+author memory.
+
 ### Pull-request review-thread discipline
 
 Before merge, inspect all pull-request review conversations, including human reviewers and
