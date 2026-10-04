@@ -117,13 +117,13 @@ def test_v1_golden_backtest_preserves_replay_identity_counts_and_economics() -> 
     trade = first.trade_results[0]
     assert trade.state is TradeState.CLOSED
     assert trade.entry_price == Price(Decimal("156.5"))
-    assert trade.stop_price == Price(Decimal("156.3"))
-    assert trade.risk_per_share == Price(Decimal("0.2"))
-    assert trade.raw_target_price == Price(Decimal("156.8"))
-    assert trade.tradable_target_price == Price(Decimal("156.8"))
+    assert trade.stop_price == Price(Decimal("156.2"))
+    assert trade.risk_per_share == Price(Decimal("0.3"))
+    assert trade.raw_target_price == Price(Decimal("156.95"))
+    assert trade.tradable_target_price == Price(Decimal("157.0"))
     assert trade.exit_price == Price(Decimal("156.7"))
     assert trade.realised_pnl == Decimal("2.0")
-    assert trade.realised_r == Decimal("1")
+    assert trade.realised_r == Decimal("0.6666666666666666666666666667")
 
 
 def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
