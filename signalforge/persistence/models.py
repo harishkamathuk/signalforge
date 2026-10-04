@@ -538,6 +538,31 @@ class IndicatorCheckpointRecord(Base):
     macd_signal_seed_sum: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
 
 
+class MarketInputCheckpointRecord(Base):
+    """Authoritative current raw-input progress and forming-candle state."""
+
+    __tablename__ = "market_input_checkpoints"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "run_id",
+            "instrument_id",
+            name="pk_market_input_checkpoints",
+        ),
+        CheckConstraint("sequence >= 0", name="ck_market_input_sequence_nonnegative"),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    instrument_id: Mapped[str] = mapped_column(String(INSTRUMENT_LENGTH), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_event_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    payload_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    candle_state_payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class LifecycleStateRecord(Base):
     """Authoritative current coordinator identity/state per run/instrument."""
 
