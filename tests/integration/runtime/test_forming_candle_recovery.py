@@ -463,3 +463,163 @@ def test_persistence_failure_terminalizes_mutated_runtime_and_rolls_back_checkpo
 
     with pytest.raises(RestartSafeReplayError, match="terminal"):
         durable.process_input(inputs[1])
+
+
+def _recover_without_market_checkpoint(
+    postgres_engine: Engine,
+    *,
+    source: InMemoryReplaySource,
+    run: RunIdentity,
+    strategy: IntradayMomentumV1Strategy,
+) -> RestartSafeReplayRuntime:
+    with Session(postgres_engine) as session:
+        recovered = RecoveryBootstrap().inspect(
+            session=session,
+            requested_run=run,
+            instrument_id=INSTRUMENT,
+            indicator_requirements=strategy.indicator_requirements,
+        )
+    assert recovered.market_input_checkpoint is None
+    indicator_engine = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    )
+    indicator_result = IndicatorRecoveryReconciler(indicator_engine.state).reconcile(())
+    lifecycle = LifecycleCoordinator(
+        run=run,
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    LifecycleRecoveryHydrator().hydrate(
+        indicator_result=indicator_result,
+        recovered=recovered.lifecycle,
+        coordinator=lifecycle,
+    )
+    runtime = _runtime(
+        source=source,
+        run=run,
+        strategy=strategy,
+        candle_engine=CandleEngine(instrument_id=INSTRUMENT),
+        indicator_engine=indicator_result.engine,
+        lifecycle=lifecycle,
+    )
+    return RestartSafeReplayRuntime(
+        runtime=runtime,
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+
+
+def test_trigger_open_input_commit_rolls_back_as_one_unit_and_retries(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from signalforge.persistence.repositories import PostgresArmedSetupRepository
+
+    strategy = _strategy()
+    run = _run(strategy, f"atomic-{uuid4().hex[:8]}")
+    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=_events())
+    lifecycle = LifecycleCoordinator(
+        run=run,
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    _persist_armed(postgres_engine, run, lifecycle)
+
+    original = PostgresMarketInputCheckpointRepository.upsert
+
+    def fail_after_checkpoint(self, run_arg, checkpoint):
+        original(self, run_arg, checkpoint)
+        raise RuntimeError("injected atomic input failure")
+
+    monkeypatch.setattr(
+        PostgresMarketInputCheckpointRepository,
+        "upsert",
+        fail_after_checkpoint,
+    )
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(
+            source=source,
+            run=run,
+            strategy=strategy,
+            lifecycle=lifecycle,
+        ),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+    first_input = tuple(source)[0]
+
+    with pytest.raises(RuntimeError, match="atomic input failure"):
+        durable.process_input(first_input)
+    assert durable.terminal
+
+    with Session(postgres_engine) as observer:
+        setup_rows = PostgresArmedSetupRepository(observer).find_for_run_instrument(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert len(setup_rows) == 1
+        assert setup_rows[0].state.value == "armed"
+        assert (
+            PostgresTriggerEventRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+            == ()
+        )
+        assert (
+            PostgresFillRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+            == ()
+        )
+        assert (
+            PostgresTradeRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+            == ()
+        )
+        assert (
+            PostgresMarketInputCheckpointRepository(observer).get(
+                run.run_id,
+                INSTRUMENT,
+            )
+            is None
+        )
+
+    monkeypatch.undo()
+    recovered = _recover_without_market_checkpoint(
+        postgres_engine,
+        source=source,
+        run=run,
+        strategy=strategy,
+    )
+    retried = recovered.process_input(first_input)
+    assert not retried.duplicate
+    assert retried.replay_step is not None
+    assert retried.replay_step.lifecycle.state is LifecycleState.OPEN
+
+    with Session(postgres_engine) as observer:
+        assert len(
+            PostgresTriggerEventRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
+        assert len(
+            PostgresFillRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
+        assert len(
+            PostgresTradeRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
