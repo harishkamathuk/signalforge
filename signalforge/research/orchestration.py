@@ -64,7 +64,7 @@ class ResearchOrchestrator:
                     instrument_id=instrument_id,
                     source=sources[instrument_id],
                 )
-            except Exception as exc:
+            except ValueError as exc:
                 raise ResearchExperimentError(
                     f"Research experiment failed for instrument {instrument_id}"
                 ) from exc
