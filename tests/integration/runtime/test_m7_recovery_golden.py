@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState
-from signalforge.domain.audit import TransitionEntityType
+from signalforge.domain.audit import StateTransition, TransitionEntityType
 from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import FillId, InstrumentId, RunId
@@ -59,7 +59,7 @@ from tests.integration.persistence.test_recovery_postgres import (
     _persist_armed_graph,
     _persist_open_graph,
 )
-from tests.integration.persistence.test_repository_adapters_postgres import Facts, _transition
+from tests.integration.persistence.test_repository_adapters_postgres import Facts
 
 INSTRUMENT = InstrumentId("NSE:SF045B")
 
@@ -172,28 +172,15 @@ def _facts(suffix: str) -> Facts:
         execution_mode=ExecutionMode.PAPER,
         exited_at=fill.filled_at + timedelta(minutes=5),
     )
-    transition = _transition(
-        Facts(
-            run=run,
-            evaluation=evaluation,
-            decision_fact=project_v1_decision(evaluation),
-            signal=signal,
-            setup=setup,
-            trigger=trigger,
-            intent=intent,
-            fill=fill,
-            trade=trade,
-            position=position,
-            exit_fact=exit_fact,
-            transition=None,  # type: ignore[arg-type]
-        ),
-        entity=TransitionEntityType.TRADE,
+    transition = StateTransition.create(
+        entity_type=TransitionEntityType.TRADE,
         entity_id=str(trade.trade_id),
-        before="open",
-        after="closed",
+        from_state="open",
+        to_state="closed",
         cause_type="exit",
         cause_id=str(exit_fact.exit_id),
         occurred_at=exit_fact.exited_at,
+        run=run,
     )
     return Facts(
         run=run,
