@@ -27,6 +27,7 @@ nav:
       - Strategy Runtime: api/strategy-runtime.md
       - Strategy Registry: api/strategy-registry.md
       - Strategy Decision Persistence: api/strategy-decision-persistence.md
+      - Market-Input Recovery: api/market-input-recovery.md
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - Indicators: api/indicators.md
 
