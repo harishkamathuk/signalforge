@@ -155,6 +155,32 @@ def test_analytics_are_independent_of_ambient_decimal_precision() -> None:
     )
 
 
+def test_exact_sums_preserve_small_values_across_wide_exponent_spans() -> None:
+    result = calculate_analytics(
+        (
+            _trade(1, pnl="1E+70", realised_r="1E+70"),
+            _trade(2, pnl="1", realised_r="1"),
+        )
+    )
+
+    exact_total = Decimal("1" + ("0" * 69) + "1")
+    assert result.gross_profit == exact_total
+    assert result.gross_pnl == exact_total
+
+
+def test_drawdown_preserves_small_tail_after_wide_exponent_cancellation() -> None:
+    result = calculate_analytics(
+        (
+            _trade(1, pnl="1", realised_r="1E+70"),
+            _trade(2, pnl="-1", realised_r="-1E+70"),
+            _trade(3, pnl="-1", realised_r="-1"),
+        )
+    )
+
+    exact_drawdown = Decimal("1" + ("0" * 69) + "1")
+    assert result.max_drawdown_r == exact_drawdown
+
+
 def test_max_drawdown_uses_exit_time_then_instrument_then_research_trade_id() -> None:
     first = _trade(1, pnl="10", realised_r="1", instrument="NSE:BBB")
     second = _trade(2, pnl="-5", realised_r="-0.5", instrument="NSE:AAA")
