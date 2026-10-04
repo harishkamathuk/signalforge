@@ -169,4 +169,4 @@ def test_orchestrator_reports_instrument_when_independent_backtest_fails() -> No
         )
 
     assert exc_info.value.__cause__ is not None
-    assert "regular-session" in str(exc_info.value.__cause__)
+    assert isinstance(exc_info.value.__cause__, ValueError)
