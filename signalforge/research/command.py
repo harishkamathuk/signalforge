@@ -267,17 +267,21 @@ def _serialize_trade(trade: BacktestTradeResult) -> dict[str, object]:
         "entry_fill_id": str(trade.entry_fill_id),
         "signal_id": str(trade.signal_id),
         "instrument_id": str(trade.instrument_id),
-        "entry_price": str(trade.entry_price.value),
-        "stop_price": str(trade.stop_price.value),
-        "raw_target_price": str(trade.raw_target_price.value),
-        "tradable_target_price": str(trade.tradable_target_price.value),
-        "risk_per_share": str(trade.risk_per_share.value),
+        "entry_price": _decimal_string(trade.entry_price.value),
+        "stop_price": _decimal_string(trade.stop_price.value),
+        "raw_target_price": _decimal_string(trade.raw_target_price.value),
+        "tradable_target_price": _decimal_string(trade.tradable_target_price.value),
+        "risk_per_share": _decimal_string(trade.risk_per_share.value),
         "quantity": trade.quantity.value,
         "opened_at": trade.opened_at.isoformat(),
         "state": trade.state.value,
         "exit_id": None if trade.exit_id is None else str(trade.exit_id),
         "exit_reason": None if trade.exit_reason is None else trade.exit_reason.value,
-        "exit_price": None if trade.exit_price is None else str(trade.exit_price.value),
+        "exit_price": (
+            None
+            if trade.exit_price is None
+            else _decimal_string(trade.exit_price.value)
+        ),
         "exited_at": None if trade.exited_at is None else trade.exited_at.isoformat(),
         "realised_pnl": _decimal_or_none(trade.realised_pnl),
         "realised_r": _decimal_or_none(trade.realised_r),
@@ -290,7 +294,7 @@ def _serialize_rejection(rejection: BacktestEntryRejection) -> dict[str, object]
         "backtest_run_id": str(rejection.backtest_run_id),
         "fill_id": str(rejection.fill_id),
         "instrument_id": str(rejection.instrument_id),
-        "fill_price": str(rejection.fill_price.value),
+        "fill_price": _decimal_string(rejection.fill_price.value),
         "filled_at": rejection.filled_at.isoformat(),
         "reason": rejection.reason.value,
     }
@@ -308,13 +312,24 @@ def _serialize_analytics(analytics: ResearchAnalytics) -> dict[str, object]:
         "win_rate": _decimal_or_none(analytics.win_rate),
         "expectancy_r": _decimal_or_none(analytics.expectancy_r),
         "profit_factor": _decimal_or_none(analytics.profit_factor),
-        "gross_profit": str(analytics.gross_profit),
-        "gross_loss": str(analytics.gross_loss),
-        "gross_pnl": str(analytics.gross_pnl),
-        "max_drawdown_r": str(analytics.max_drawdown_r),
+        "gross_profit": _decimal_string(analytics.gross_profit),
+        "gross_loss": _decimal_string(analytics.gross_loss),
+        "gross_pnl": _decimal_string(analytics.gross_pnl),
+        "max_drawdown_r": _decimal_string(analytics.max_drawdown_r),
         "exit_reason_counts": dict(analytics.exit_reason_counts),
     }
 
 
 def _decimal_or_none(value: Decimal | None) -> str | None:
-    return None if value is None else str(value)
+    return None if value is None else _decimal_string(value)
+
+
+def _decimal_string(value: Decimal) -> str:
+    """Serialize a finite Decimal by numeric value rather than incidental scale."""
+
+    if not value.is_finite():
+        raise ValueError("Research output Decimal values must be finite")
+    normalized = value.normalize()
+    if normalized == 0:
+        return "0"
+    return format(normalized, "f")
