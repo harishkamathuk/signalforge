@@ -9,7 +9,12 @@ from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.time import IST
-from signalforge.runtime.candles import CandleEngine, LateMarketEvent, five_minute_interval
+from signalforge.runtime.candles import (
+    CandleEngine,
+    CandleEngineState,
+    LateMarketEvent,
+    five_minute_interval,
+)
 
 TEST_INSTRUMENT = InstrumentId("NSE:TEST")
 
@@ -145,3 +150,62 @@ def test_engine_rejects_source_changes_within_one_candle() -> None:
                 source="other-feed",
             )
         )
+
+
+def test_engine_state_restores_forming_candle_losslessly() -> None:
+    engine = CandleEngine(instrument_id=TEST_INSTRUMENT)
+    for minute, price, quantity in (
+        (15, "100", 2),
+        (16, "102", 3),
+        (18, "99", 5),
+    ):
+        engine.process(
+            _event(
+                at=datetime(2026, 8, 28, 9, minute, tzinfo=IST),
+                price=price,
+                quantity=quantity,
+            )
+        )
+
+    state = engine.state
+    restored = CandleEngine(instrument_id=TEST_INSTRUMENT, state=state)
+
+    assert restored.state == state
+    expected = engine.process(
+        _event(at=datetime(2026, 8, 28, 9, 20, tzinfo=IST), price="103", quantity=7)
+    )
+    actual = restored.process(
+        _event(at=datetime(2026, 8, 28, 9, 20, tzinfo=IST), price="103", quantity=7)
+    )
+    assert actual == expected
+    assert restored.state == engine.state
+
+
+def test_candle_engine_state_rejects_partial_or_overlapping_state() -> None:
+    interval = five_minute_interval(datetime(2026, 8, 28, 9, 15, tzinfo=IST))
+    with pytest.raises(ValueError, match="complete or absent"):
+        CandleEngineState(
+            instrument_id=TEST_INSTRUMENT,
+            active_interval=interval,
+            source="test-feed",
+        )
+
+    with pytest.raises(ValueError, match="overlaps active interval"):
+        CandleEngineState(
+            instrument_id=TEST_INSTRUMENT,
+            active_interval=interval,
+            source="test-feed",
+            open=Price(Decimal("100")),
+            high=Price(Decimal("101")),
+            low=Price(Decimal("99")),
+            close=Price(Decimal("100")),
+            volume=1,
+            source_event_count=1,
+            last_emitted_end=interval.start + (interval.end - interval.start),
+        )
+
+
+def test_engine_rejects_state_for_different_instrument() -> None:
+    state = CandleEngineState(instrument_id=InstrumentId("NSE:OTHER"))
+    with pytest.raises(ValueError, match="instrument does not match"):
+        CandleEngine(instrument_id=TEST_INSTRUMENT, state=state)
