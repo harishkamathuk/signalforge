@@ -175,6 +175,7 @@ def _stateful_repos(
     ):
         monkeypatch.setattr(recovery, name, repository(values))
     monkeypatch.setattr(recovery, "PostgresIndicatorCheckpointRepository", CheckpointRepo)
+    monkeypatch.setattr(recovery, "PostgresMarketInputCheckpointRepository", CheckpointRepo)
 
 
 def _inspect(
