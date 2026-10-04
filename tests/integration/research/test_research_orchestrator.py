@@ -143,6 +143,28 @@ def test_orchestrator_validates_complete_source_mapping_before_running_any_instr
         )
 
 
+def test_orchestrator_does_not_mask_unexpected_backtest_defects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_a = _source(A)
+    source_b = _source(B)
+    experiment = _experiment(source_a, source_b)
+
+    def explode(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("internal backtest defect")
+
+    monkeypatch.setattr(
+        "signalforge.research.orchestration.BacktestRunner.run",
+        explode,
+    )
+
+    with pytest.raises(RuntimeError, match="internal backtest defect"):
+        ResearchOrchestrator().run(
+            experiment=experiment,
+            sources={A: source_a, B: source_b},
+        )
+
+
 def test_orchestrator_reports_instrument_when_independent_backtest_fails() -> None:
     source_a = _source(A)
     regular_b = _events(B)
