@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
 
 from signalforge.research.backtest import BacktestTradeResult
 
@@ -27,6 +28,7 @@ class ResearchAnalytics:
     gross_pnl: Decimal
     max_drawdown_r: Decimal
     exit_reason_counts: tuple[tuple[str, int], ...]
+    economics_basis: Literal["gross"] = "gross"
 
 
 def calculate_analytics(trades: tuple[BacktestTradeResult, ...]) -> ResearchAnalytics:
