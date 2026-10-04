@@ -31,6 +31,7 @@ nav:
       - Market-Input Recovery: api/market-input-recovery.md
       - Research Identity Contracts: api/research-contracts.md
       - Per-Instrument Backtest Runner: api/backtest-runner.md
+      - Research Orchestration & Analytics: api/research-orchestration.md
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - Indicators: api/indicators.md
 
