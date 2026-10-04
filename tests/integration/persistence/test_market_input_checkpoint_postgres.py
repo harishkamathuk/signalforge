@@ -179,3 +179,42 @@ def test_market_input_checkpoint_rejects_source_regression_gap_and_conflict(
                     value.run,
                     checkpoint,
                 )
+
+
+def test_corrupt_persisted_forming_candle_fails_closed(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"sf067corrupt-{uuid4().hex[:8]}")
+    engine = CandleEngine(instrument_id=value.signal.instrument_id)
+    engine.process(_event(value, 0))
+    checkpoint = _checkpoint(value, 0, engine)
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        session.commit()
+        PostgresMarketInputCheckpointRepository(session).upsert(value.run, checkpoint)
+        session.commit()
+
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+                UPDATE market_input_checkpoints
+                SET candle_state_payload =
+                    jsonb_set(candle_state_payload, '{high}', '"98"'::jsonb)
+                WHERE run_id = :run_id
+                  AND instrument_id = :instrument_id
+                """
+            ),
+            {
+                "run_id": str(value.run.run_id),
+                "instrument_id": str(value.signal.instrument_id),
+            },
+        )
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(ContradictoryFactError, match="checkpoint is invalid"):
+            PostgresMarketInputCheckpointRepository(session).get(
+                value.run.run_id,
+                value.signal.instrument_id,
+            )
