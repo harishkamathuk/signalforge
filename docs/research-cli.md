@@ -87,7 +87,7 @@ The research-result-v1 output contains:
 - aggregate gross analytics;
 - per-instrument gross analytics.
 
-Decimal economics are serialized as JSON strings to avoid binary floating-point reinterpretation.
+Decimal economics are serialized as canonical numeric JSON strings (non-semantic trailing scale removed) to avoid binary floating-point reinterpretation and incidental Decimal formatting drift.
 No filesystem path is emitted into the result, so identical semantic inputs are reproducible
 across machines/directories.
 
