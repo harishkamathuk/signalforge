@@ -623,3 +623,177 @@ def test_trigger_open_input_commit_rolls_back_as_one_unit_and_retries(
                 INSTRUMENT,
             )
         ) == 1
+
+
+def test_exit_input_commit_rolls_back_as_one_unit_and_retries(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy, f"exit-atomic-{uuid4().hex[:8]}")
+    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=_events())
+    lifecycle = LifecycleCoordinator(
+        run=run,
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=strategy,
+    )
+    _persist_armed(postgres_engine, run, lifecycle)
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(
+            source=source,
+            run=run,
+            strategy=strategy,
+            lifecycle=lifecycle,
+        ),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+    inputs = tuple(source)
+    opened = durable.process_input(inputs[0])
+    assert opened.replay_step is not None
+    assert opened.replay_step.lifecycle.state is LifecycleState.OPEN
+    checkpoint_before_exit = opened.checkpoint
+
+    original = PostgresMarketInputCheckpointRepository.upsert
+
+    def fail_after_checkpoint(self, run_arg, checkpoint):
+        original(self, run_arg, checkpoint)
+        raise RuntimeError("injected exit input failure")
+
+    monkeypatch.setattr(
+        PostgresMarketInputCheckpointRepository,
+        "upsert",
+        fail_after_checkpoint,
+    )
+    with pytest.raises(RuntimeError, match="exit input failure"):
+        durable.process_input(inputs[1])
+    assert durable.terminal
+
+    with Session(postgres_engine) as observer:
+        trades = PostgresTradeRepository(observer).find_for_run_instrument(
+            run.run_id,
+            INSTRUMENT,
+        )
+        positions = PostgresPositionRepository(observer).find_for_run_instrument(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert len(trades) == len(positions) == 1
+        assert trades[0].state.value == "open"
+        assert positions[0].state.value == "open"
+        assert (
+            PostgresExitRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+            == ()
+        )
+        persisted = PostgresMarketInputCheckpointRepository(observer).get(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert persisted == checkpoint_before_exit
+
+    monkeypatch.undo()
+    recovered = _recover_runtime(
+        postgres_engine,
+        source=source,
+        run=run,
+        strategy=strategy,
+    )
+    retried = recovered.process_input(inputs[1])
+    assert retried.replay_step is not None
+    assert retried.replay_step.lifecycle.state is LifecycleState.CLOSED
+    with Session(postgres_engine) as observer:
+        assert len(
+            PostgresExitRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
+
+
+def test_boundary_input_commit_rolls_back_indicator_decision_and_checkpoint(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy, f"boundary-atomic-{uuid4().hex[:8]}")
+    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=_forming_events())
+    inputs = tuple(source)
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        session.commit()
+
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(source=source, run=run, strategy=strategy),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+    for item in inputs[:3]:
+        durable.process_input(item)
+    checkpoint_before_boundary = durable.checkpoint
+    assert checkpoint_before_boundary is not None
+
+    original = PostgresMarketInputCheckpointRepository.upsert
+
+    def fail_after_checkpoint(self, run_arg, checkpoint):
+        original(self, run_arg, checkpoint)
+        raise RuntimeError("injected boundary input failure")
+
+    monkeypatch.setattr(
+        PostgresMarketInputCheckpointRepository,
+        "upsert",
+        fail_after_checkpoint,
+    )
+    with pytest.raises(RuntimeError, match="boundary input failure"):
+        durable.process_input(inputs[3])
+    assert durable.terminal
+
+    with Session(postgres_engine) as observer:
+        persisted = PostgresMarketInputCheckpointRepository(observer).get(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert persisted == checkpoint_before_boundary
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                run.run_id,
+                INSTRUMENT,
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyDecisionRepository(observer).get(
+                run.run_id,
+                INSTRUMENT,
+                _forming_events()[0].exchange_timestamp.replace(
+                    second=0,
+                    microsecond=0,
+                )
+                and CandleInterval.five_minutes(
+                    _forming_events()[0].exchange_timestamp
+                ),
+            )
+            is None
+        )
+
+    monkeypatch.undo()
+    recovered = _recover_runtime(
+        postgres_engine,
+        source=source,
+        run=run,
+        strategy=strategy,
+    )
+    retried = recovered.process_input(inputs[3])
+    assert retried.replay_step is not None
+    assert retried.replay_step.completed_candle is not None
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresIndicatorCheckpointRepository(observer).get(
+                run.run_id,
+                INSTRUMENT,
+            )
+            == recovered.runtime.indicator_engine.state
+        )
