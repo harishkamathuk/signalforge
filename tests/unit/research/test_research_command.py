@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from signalforge.config.strategy_registry import UnknownStrategyError
-from signalforge.research.command import research_run_command
+from signalforge.domain.ids import InstrumentId
+from signalforge.research.command import (
+    _decimal_string,
+    _load_source,
+    research_run_command,
+)
 
 GOLDEN = Path("examples/research/golden-experiment.json")
 
@@ -189,3 +195,38 @@ def test_research_config_rejects_extra_fields_before_sources_are_read(
 
     with pytest.raises(ValidationError):
         research_run_command(path)
+
+
+def test_research_json_numeric_prices_preserve_precision_in_source_identity(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    template = """[
+  {
+    "exchange_timestamp": "2026-08-26T09:15:00+05:30",
+    "received_timestamp": "2026-08-26T09:15:00.001+05:30",
+    "price": %s,
+    "quantity": 1,
+    "source": "precision-regression",
+    "source_event_id": "event-1"
+  }
+]"""
+    first_path.write_text(template % "100.000000000000001", encoding="utf-8")
+    second_path.write_text(template % "100.000000000000002", encoding="utf-8")
+
+    first = _load_source(instrument_id=InstrumentId("NSE:AAA"), path=first_path)
+    second = _load_source(instrument_id=InstrumentId("NSE:AAA"), path=second_path)
+
+    assert first.events[0].price.value == Decimal("100.000000000000001")
+    assert second.events[0].price.value == Decimal("100.000000000000002")
+    assert first.identity.source_id != second.identity.source_id
+
+
+def test_decimal_string_preserves_values_beyond_default_context_precision() -> None:
+    value = Decimal("1.00000000000000000000000000001")
+
+    rendered = _decimal_string(value)
+
+    assert rendered == "1.00000000000000000000000000001"
+    assert Decimal(rendered) == value
