@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -10,6 +11,7 @@ from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.time import IST
+from signalforge.runtime import candles, market_input, restart_safe_replay
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.market_input import (
     CanonicalMarketInput,
@@ -64,6 +66,23 @@ def _checkpoint(item, state) -> MarketInputCheckpoint:
         candle_state=state,
         updated_at=item.event.received_timestamp,
     )
+
+
+def test_sf067_shared_runtime_has_no_strategy_specific_dispatch_or_semantics() -> None:
+    forbidden = (
+        "IntradayMomentumV1Strategy",
+        "RsiMeanReversionV1Strategy",
+        "TrendResult",
+        "MomentumResult",
+        "SetupResult",
+        "1.001",
+        "1.5R",
+        "SIGNAL_LOW_BREACH",
+    )
+    for module in (candles, market_input, restart_safe_replay):
+        source = inspect.getsource(module)
+        for token in forbidden:
+            assert token not in source
 
 
 def test_guard_accepts_contiguous_input_and_suppresses_exact_latest_duplicate() -> None:
