@@ -209,3 +209,62 @@ def test_engine_rejects_state_for_different_instrument() -> None:
     state = CandleEngineState(instrument_id=InstrumentId("NSE:OTHER"))
     with pytest.raises(ValueError, match="instrument does not match"):
         CandleEngine(instrument_id=TEST_INSTRUMENT, state=state)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    (
+        ({"source_event_count": 1}, "zero source-event count"),
+        ({"source": ""}, "source must not be empty"),
+        ({"volume": -1}, "volume must not be negative"),
+        ({"source_event_count": 0}, "requires source events"),
+        ({"high": Price(Decimal("98"))}, "high is inconsistent"),
+        ({"low": Price(Decimal("102"))}, "low is inconsistent"),
+    ),
+)
+def test_candle_engine_state_rejects_invalid_active_or_empty_values(
+    overrides: dict[str, object],
+    match: str,
+) -> None:
+    interval = five_minute_interval(datetime(2026, 8, 28, 9, 15, tzinfo=IST))
+    base: dict[str, object] = {
+        "instrument_id": TEST_INSTRUMENT,
+        "active_interval": interval,
+        "source": "test-feed",
+        "open": Price(Decimal("100")),
+        "high": Price(Decimal("101")),
+        "low": Price(Decimal("99")),
+        "close": Price(Decimal("100")),
+        "volume": 1,
+        "source_event_count": 1,
+    }
+    if overrides == {"source_event_count": 1}:
+        with pytest.raises(ValueError, match=match):
+            CandleEngineState(
+                instrument_id=TEST_INSTRUMENT,
+                source_event_count=1,
+            )
+        return
+
+    base.update(overrides)
+    with pytest.raises(ValueError, match=match):
+        CandleEngineState(**base)  # type: ignore[arg-type]
+
+
+def test_restored_empty_state_preserves_last_emitted_late_event_guard() -> None:
+    boundary = datetime(2026, 8, 28, 9, 20, tzinfo=IST)
+    engine = CandleEngine(
+        instrument_id=TEST_INSTRUMENT,
+        state=CandleEngineState(
+            instrument_id=TEST_INSTRUMENT,
+            last_emitted_end=boundary,
+        ),
+    )
+    assert engine.state.last_emitted_end == boundary
+    with pytest.raises(LateMarketEvent):
+        engine.process(
+            _event(
+                at=datetime(2026, 8, 28, 9, 19, tzinfo=IST),
+                price="100",
+            )
+        )
