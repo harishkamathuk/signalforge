@@ -154,8 +154,11 @@ def _exact_accumulation_precision(values: tuple[Decimal, ...]) -> int:
     if any(not value.is_finite() for value in values):
         raise ValueError("Research analytics require finite Decimal inputs")
 
-    highest_adjusted = max(value.adjusted() for value in values if value != 0)
-    lowest_exponent = min(value.as_tuple().exponent for value in values)
+    nonzero = tuple(value for value in values if value != 0)
+    if not nonzero:
+        return _ANALYTICS_RATIO_PRECISION
+    highest_adjusted = max(value.adjusted() for value in nonzero)
+    lowest_exponent = min(int(value.as_tuple().exponent) for value in values)
     exponent_span_digits = highest_adjusted - lowest_exponent + 1
     addition_carry_guard = len(str(len(values))) + 1
     return max(
