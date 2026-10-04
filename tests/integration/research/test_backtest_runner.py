@@ -19,7 +19,11 @@ from signalforge.research.contracts import (
     InstrumentExecutionDefinition,
     UniverseDefinition,
 )
-from signalforge.runtime.replay import InMemoryReplaySource
+from signalforge.runtime.replay import (
+    InMemoryReplaySource,
+    ReplayInput,
+    ReplaySourceIdentity,
+)
 from tests.integration.runtime.test_replay_golden_session import _golden_events
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
@@ -42,13 +46,17 @@ def _events() -> tuple[MarketEvent, ...]:
     return tuple(result)
 
 
+def _source(events: tuple[MarketEvent, ...]) -> InMemoryReplaySource:
+    return InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+
+
 def _experiment(
     events: tuple[MarketEvent, ...],
     *,
     strategy_id: str = "intraday_momentum_v1",
     source_id: str | None = None,
 ) -> ExperimentDefinition:
-    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+    source = _source(events)
     return ExperimentDefinition.create(
         strategy_selection=StrategySelection(strategy_id, "1.0.0", {}),
         universe=UniverseDefinition((INSTRUMENT,)),
@@ -88,12 +96,12 @@ def test_v1_golden_backtest_preserves_replay_identity_counts_and_economics() -> 
     first = BacktestRunner().run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
-        events=events,
+        source=_source(events),
     )
     second = BacktestRunner().run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
-        events=events,
+        source=_source(events),
     )
 
     assert first == second
@@ -137,7 +145,7 @@ def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
     result = BacktestRunner().run(
         experiment=_experiment(events),
         instrument_id=INSTRUMENT,
-        events=events,
+        source=_source(events),
     )
 
     assert result.final_lifecycle_state == "open"
@@ -152,6 +160,48 @@ def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
     assert trade.realised_r is None
 
 
+def test_backtest_accepts_replay_source_protocol_directly() -> None:
+    events = _events()
+    source = _source(events)
+    result = BacktestRunner().run(
+        experiment=_experiment(events),
+        instrument_id=INSTRUMENT,
+        source=source,
+    )
+
+    assert result.source == source.identity
+    assert result.events == source.identity.event_count
+
+
+def test_historical_backtest_does_not_fabricate_live_feed_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
+
+    events = _events()
+    observed_feed_states: list[object] = []
+    original = IntradayMomentumV1Strategy.evaluate_completed_candle
+
+    def capture_feed_state(self, context):
+        observed_feed_states.append(context.feed_state)
+        return original(self, context)
+
+    monkeypatch.setattr(
+        IntradayMomentumV1Strategy,
+        "evaluate_completed_candle",
+        capture_feed_state,
+    )
+
+    BacktestRunner().run(
+        experiment=_experiment(events),
+        instrument_id=INSTRUMENT,
+        source=_source(events),
+    )
+
+    assert observed_feed_states
+    assert set(observed_feed_states) == {None}
+
+
 def test_rsi_reference_strategy_uses_same_backtest_runner_deterministically() -> None:
     events = _events()
     experiment = _experiment(events, strategy_id="rsi_mean_reversion_v1")
@@ -159,12 +209,12 @@ def test_rsi_reference_strategy_uses_same_backtest_runner_deterministically() ->
     first = BacktestRunner().run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
-        events=events,
+        source=_source(events),
     )
     second = BacktestRunner().run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
-        events=events,
+        source=_source(events),
     )
 
     assert first == second
@@ -180,8 +230,26 @@ def test_backtest_rejects_market_data_that_contradicts_dataset_source() -> None:
         BacktestRunner().run(
             experiment=_experiment(events, source_id="not-the-source"),
             instrument_id=INSTRUMENT,
-            events=events,
+            source=_source(events),
         )
+
+
+class _ReplaySourceStub:
+    def __init__(
+        self,
+        *,
+        identity: ReplaySourceIdentity,
+        inputs: tuple[ReplayInput, ...],
+    ) -> None:
+        self._identity = identity
+        self._inputs = inputs
+
+    @property
+    def identity(self) -> ReplaySourceIdentity:
+        return self._identity
+
+    def __iter__(self):
+        return iter(self._inputs)
 
 
 def test_backtest_rejects_event_outside_experiment_range() -> None:
@@ -196,10 +264,21 @@ def test_backtest_rejects_event_outside_experiment_range() -> None:
         source="outside",
         source_event_id="outside",
     )
+    canonical = _source(events)
+    source = _ReplaySourceStub(
+        identity=canonical.identity,
+        inputs=(
+            ReplayInput(
+                event=earlier,
+                sequence=0,
+                source_id=canonical.identity.source_id,
+            ),
+        ),
+    )
 
     with pytest.raises(ValueError, match="outside experiment dataset range"):
         BacktestRunner().run(
             experiment=experiment,
             instrument_id=INSTRUMENT,
-            events=(earlier, *events),
+            source=source,
         )
