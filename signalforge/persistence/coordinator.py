@@ -42,35 +42,17 @@ class MarketInputCommit:
 
     checkpoint: MarketInputCheckpoint
     indicator_state: IndicatorEngineState | None = None
-    evaluation: StrategyDecisionFact | None = None
-    signal: Signal | None = None
-    setup: ArmedSetup | None = None
-    trigger: TriggerEvent | None = None
-    intent: EntryIntent | None = None
-    fill: Fill | None = None
-    outcome: PositionOpenOutcome | None = None
-    trade: Trade | None = None
-    position: Position | None = None
-    exit_fact: Exit | None = None
+    evaluations: tuple[StrategyDecisionFact, ...] = ()
+    signals: tuple[Signal, ...] = ()
+    setups: tuple[ArmedSetup, ...] = ()
+    triggers: tuple[TriggerEvent, ...] = ()
+    intents: tuple[EntryIntent, ...] = ()
+    fills: tuple[Fill, ...] = ()
+    outcomes: tuple[PositionOpenOutcome, ...] = ()
+    trades: tuple[Trade, ...] = ()
+    positions: tuple[Position, ...] = ()
+    exits: tuple[Exit, ...] = ()
     transitions: tuple[StateTransition, ...] = ()
-
-    def __post_init__(self) -> None:
-        if self.intent is not None and self.trigger is None:
-            raise ValueError("MarketInputCommit EntryIntent requires TriggerEvent")
-        if self.fill is not None and self.intent is None:
-            raise ValueError("MarketInputCommit Fill requires EntryIntent")
-        if self.outcome is not None and self.fill is None:
-            raise ValueError("MarketInputCommit outcome requires Fill")
-        if self.outcome is not None:
-            opened = self.outcome.outcome is PositionOpenOutcomeType.OPENED
-            if opened != (self.trade is not None and self.position is not None):
-                raise ValueError(
-                    "MarketInputCommit OPENED outcome requires Trade and Position"
-                )
-        if self.exit_fact is not None and (
-            self.trade is None or self.position is None
-        ):
-            raise ValueError("MarketInputCommit Exit requires Trade and Position")
 
 
 class PersistenceCoordinator:
@@ -91,30 +73,28 @@ class PersistenceCoordinator:
                 PostgresIndicatorCheckpointRepository(self._session).upsert(
                     run, commit.indicator_state
                 )
-            if commit.evaluation is not None:
+            for evaluation in commit.evaluations:
                 PostgresStrategyDecisionRepository(self._session).append(
-                    run.run_id, commit.evaluation
+                    run.run_id, evaluation
                 )
-            if commit.signal is not None:
-                PostgresSignalRepository(self._session).append(commit.signal)
-            if commit.trigger is not None:
-                PostgresTriggerEventRepository(self._session).append(commit.trigger)
-            if commit.intent is not None:
-                PostgresEntryIntentRepository(self._session).append(commit.intent)
-            if commit.fill is not None:
-                PostgresFillRepository(self._session).append(commit.fill)
-            if commit.outcome is not None:
-                PostgresPositionOpenOutcomeRepository(self._session).append(commit.outcome)
-            if commit.exit_fact is not None:
-                PostgresExitRepository(self._session).append(commit.exit_fact)
-            if commit.trade is not None:
-                PostgresTradeRepository(self._session).upsert(commit.trade)
-            if commit.position is not None:
-                PostgresPositionRepository(self._session).upsert(commit.position)
-            if commit.setup is not None:
-                PostgresArmedSetupRepository(self._session).upsert(
-                    run.run_id, commit.setup
-                )
+            for signal in commit.signals:
+                PostgresSignalRepository(self._session).append(signal)
+            for trigger in commit.triggers:
+                PostgresTriggerEventRepository(self._session).append(trigger)
+            for intent in commit.intents:
+                PostgresEntryIntentRepository(self._session).append(intent)
+            for fill in commit.fills:
+                PostgresFillRepository(self._session).append(fill)
+            for outcome in commit.outcomes:
+                PostgresPositionOpenOutcomeRepository(self._session).append(outcome)
+            for exit_fact in commit.exits:
+                PostgresExitRepository(self._session).append(exit_fact)
+            for trade in commit.trades:
+                PostgresTradeRepository(self._session).upsert(trade)
+            for position in commit.positions:
+                PostgresPositionRepository(self._session).upsert(position)
+            for setup in commit.setups:
+                PostgresArmedSetupRepository(self._session).upsert(run.run_id, setup)
             for transition in commit.transitions:
                 PostgresStateTransitionRepository(self._session).append(transition)
             checkpoint = PostgresMarketInputCheckpointRepository(self._session).upsert(
