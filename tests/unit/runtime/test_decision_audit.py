@@ -17,8 +17,8 @@ from signalforge.runtime.decision_audit import (
     project_rsi_mean_reversion_decision,
     project_v1_decision,
 )
-from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
 from signalforge.runtime.eligibility import EvaluationGuardResult
+from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
 from signalforge.runtime.strategy_evaluator import StrategyEvaluatorResult
 
 INSTRUMENT = InstrumentId("NSE:DECISION")
