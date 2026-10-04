@@ -219,7 +219,13 @@ def test_engine_rejects_state_for_different_instrument() -> None:
         ({"volume": -1}, "volume must not be negative"),
         ({"source_event_count": 0}, "requires source events"),
         ({"high": Price(Decimal("98"))}, "high is inconsistent"),
-        ({"low": Price(Decimal("102"))}, "low is inconsistent"),
+        (
+            {
+                "high": Price(Decimal("103")),
+                "low": Price(Decimal("102")),
+            },
+            "low is inconsistent",
+        ),
     ),
 )
 def test_candle_engine_state_rejects_invalid_active_or_empty_values(
