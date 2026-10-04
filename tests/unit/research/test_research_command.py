@@ -218,8 +218,11 @@ def test_research_json_numeric_prices_preserve_precision_in_source_identity(
     first = _load_source(instrument_id=InstrumentId("NSE:AAA"), path=first_path)
     second = _load_source(instrument_id=InstrumentId("NSE:AAA"), path=second_path)
 
-    assert first.events[0].price.value == Decimal("100.000000000000001")
-    assert second.events[0].price.value == Decimal("100.000000000000002")
+    first_event = next(iter(first)).event
+    second_event = next(iter(second)).event
+
+    assert first_event.price.value == Decimal("100.000000000000001")
+    assert second_event.price.value == Decimal("100.000000000000002")
     assert first.identity.source_id != second.identity.source_id
 
 
