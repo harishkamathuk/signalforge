@@ -22,7 +22,8 @@ require it, so future Parquet-backed or partitioned historical sources can imple
 
 The run result preserves:
 
-- `RunIdentity` and canonical replay source identity;
+- the legacy/runtime `RunIdentity` and canonical replay source identity;
+- experiment-scoped `BacktestRunId` derived from ExperimentId + instrument + exact source;
 - strategy/config provenance;
 - evaluation, signal, trade, exit and rejection counts;
 - final lifecycle state;
@@ -31,6 +32,10 @@ The run result preserves:
 ## Trade rows
 
 ::: signalforge.research.backtest.BacktestTradeResult
+
+Trade rows carry both the canonical domain `TradeId` and an experiment-scoped
+`BacktestTradeId`. This preserves compatibility with existing replay/domain identities while
+ensuring research rows from materially different experiments cannot collide.
 
 Trade rows copy the canonical runtime economics:
 
@@ -65,8 +70,12 @@ Before replay begins, the runner verifies:
 - the replay source identity matches the experiment dataset source.
 
 During streaming consumption, every canonical replay input is validated against the requested
-instrument and dataset range before it reaches business logic. The consumed input count must also
-match `ReplaySourceIdentity.event_count`.
+instrument and dataset range before it reaches business logic. For the current NSE intraday
+research contract, inputs must fall within the regular-session window 09:15–15:30 IST inclusive;
+15:30 is permitted as the boundary observation that closes the final 15:25–15:30 candle.
+Pre-market or later inputs are rejected rather than allowed to contaminate candle, indicator, or
+warm-up state. The consumed input count must also match
+`ReplaySourceIdentity.event_count`.
 
 A research `source_id` must identify the **exact bounded canonical replay stream** represented by
 that source. It must not merely identify a mutable file, Parquet container, table, or broader
