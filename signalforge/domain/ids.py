@@ -26,6 +26,21 @@ class RunId(_IdBase):
 
 
 @dataclass(frozen=True, slots=True)
+class UniverseId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigId(_IdBase):
     pass
 
