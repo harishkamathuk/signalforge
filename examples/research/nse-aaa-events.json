@@ -1,0 +1,2418 @@
+[
+  {
+    "exchange_timestamp": "2026-08-26T09:15:00+05:30",
+    "received_timestamp": "2026-08-26T09:15:00.001+05:30",
+    "price": "100.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g000"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:20:00+05:30",
+    "received_timestamp": "2026-08-26T09:20:00.001+05:30",
+    "price": "100.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g001"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:25:00+05:30",
+    "received_timestamp": "2026-08-26T09:25:00.001+05:30",
+    "price": "100.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g002"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:30:00+05:30",
+    "received_timestamp": "2026-08-26T09:30:00.001+05:30",
+    "price": "100.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g003"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:35:00+05:30",
+    "received_timestamp": "2026-08-26T09:35:00.001+05:30",
+    "price": "100.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g004"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:40:00+05:30",
+    "received_timestamp": "2026-08-26T09:40:00.001+05:30",
+    "price": "101.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g005"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:45:00+05:30",
+    "received_timestamp": "2026-08-26T09:45:00.001+05:30",
+    "price": "101.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g006"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:50:00+05:30",
+    "received_timestamp": "2026-08-26T09:50:00.001+05:30",
+    "price": "101.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g007"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T09:55:00+05:30",
+    "received_timestamp": "2026-08-26T09:55:00.001+05:30",
+    "price": "101.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g008"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:00:00+05:30",
+    "received_timestamp": "2026-08-26T10:00:00.001+05:30",
+    "price": "101.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g009"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:05:00+05:30",
+    "received_timestamp": "2026-08-26T10:05:00.001+05:30",
+    "price": "102.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g010"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:10:00+05:30",
+    "received_timestamp": "2026-08-26T10:10:00.001+05:30",
+    "price": "102.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g011"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:15:00+05:30",
+    "received_timestamp": "2026-08-26T10:15:00.001+05:30",
+    "price": "102.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g012"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:20:00+05:30",
+    "received_timestamp": "2026-08-26T10:20:00.001+05:30",
+    "price": "102.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g013"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:25:00+05:30",
+    "received_timestamp": "2026-08-26T10:25:00.001+05:30",
+    "price": "102.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g014"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:30:00+05:30",
+    "received_timestamp": "2026-08-26T10:30:00.001+05:30",
+    "price": "103.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g015"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:35:00+05:30",
+    "received_timestamp": "2026-08-26T10:35:00.001+05:30",
+    "price": "103.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g016"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:40:00+05:30",
+    "received_timestamp": "2026-08-26T10:40:00.001+05:30",
+    "price": "103.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g017"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:45:00+05:30",
+    "received_timestamp": "2026-08-26T10:45:00.001+05:30",
+    "price": "103.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g018"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:50:00+05:30",
+    "received_timestamp": "2026-08-26T10:50:00.001+05:30",
+    "price": "103.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g019"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T10:55:00+05:30",
+    "received_timestamp": "2026-08-26T10:55:00.001+05:30",
+    "price": "104.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g020"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:00:00+05:30",
+    "received_timestamp": "2026-08-26T11:00:00.001+05:30",
+    "price": "104.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g021"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:05:00+05:30",
+    "received_timestamp": "2026-08-26T11:05:00.001+05:30",
+    "price": "104.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g022"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:10:00+05:30",
+    "received_timestamp": "2026-08-26T11:10:00.001+05:30",
+    "price": "104.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g023"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:15:00+05:30",
+    "received_timestamp": "2026-08-26T11:15:00.001+05:30",
+    "price": "104.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g024"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:20:00+05:30",
+    "received_timestamp": "2026-08-26T11:20:00.001+05:30",
+    "price": "105.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g025"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:25:00+05:30",
+    "received_timestamp": "2026-08-26T11:25:00.001+05:30",
+    "price": "105.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g026"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:30:00+05:30",
+    "received_timestamp": "2026-08-26T11:30:00.001+05:30",
+    "price": "105.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g027"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:35:00+05:30",
+    "received_timestamp": "2026-08-26T11:35:00.001+05:30",
+    "price": "105.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g028"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:40:00+05:30",
+    "received_timestamp": "2026-08-26T11:40:00.001+05:30",
+    "price": "105.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g029"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:45:00+05:30",
+    "received_timestamp": "2026-08-26T11:45:00.001+05:30",
+    "price": "106.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g030"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:50:00+05:30",
+    "received_timestamp": "2026-08-26T11:50:00.001+05:30",
+    "price": "106.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g031"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T11:55:00+05:30",
+    "received_timestamp": "2026-08-26T11:55:00.001+05:30",
+    "price": "106.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g032"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:00:00+05:30",
+    "received_timestamp": "2026-08-26T12:00:00.001+05:30",
+    "price": "106.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g033"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:05:00+05:30",
+    "received_timestamp": "2026-08-26T12:05:00.001+05:30",
+    "price": "106.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g034"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:10:00+05:30",
+    "received_timestamp": "2026-08-26T12:10:00.001+05:30",
+    "price": "107.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g035"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:15:00+05:30",
+    "received_timestamp": "2026-08-26T12:15:00.001+05:30",
+    "price": "107.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g036"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:20:00+05:30",
+    "received_timestamp": "2026-08-26T12:20:00.001+05:30",
+    "price": "107.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g037"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:25:00+05:30",
+    "received_timestamp": "2026-08-26T12:25:00.001+05:30",
+    "price": "107.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g038"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:30:00+05:30",
+    "received_timestamp": "2026-08-26T12:30:00.001+05:30",
+    "price": "107.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g039"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:35:00+05:30",
+    "received_timestamp": "2026-08-26T12:35:00.001+05:30",
+    "price": "108.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g040"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:40:00+05:30",
+    "received_timestamp": "2026-08-26T12:40:00.001+05:30",
+    "price": "108.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g041"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:45:00+05:30",
+    "received_timestamp": "2026-08-26T12:45:00.001+05:30",
+    "price": "108.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g042"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:50:00+05:30",
+    "received_timestamp": "2026-08-26T12:50:00.001+05:30",
+    "price": "108.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g043"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T12:55:00+05:30",
+    "received_timestamp": "2026-08-26T12:55:00.001+05:30",
+    "price": "108.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g044"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:00:00+05:30",
+    "received_timestamp": "2026-08-26T13:00:00.001+05:30",
+    "price": "109.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g045"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:05:00+05:30",
+    "received_timestamp": "2026-08-26T13:05:00.001+05:30",
+    "price": "109.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g046"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:10:00+05:30",
+    "received_timestamp": "2026-08-26T13:10:00.001+05:30",
+    "price": "109.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g047"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:15:00+05:30",
+    "received_timestamp": "2026-08-26T13:15:00.001+05:30",
+    "price": "109.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g048"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:20:00+05:30",
+    "received_timestamp": "2026-08-26T13:20:00.001+05:30",
+    "price": "109.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g049"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:25:00+05:30",
+    "received_timestamp": "2026-08-26T13:25:00.001+05:30",
+    "price": "110.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g050"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:30:00+05:30",
+    "received_timestamp": "2026-08-26T13:30:00.001+05:30",
+    "price": "110.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g051"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:35:00+05:30",
+    "received_timestamp": "2026-08-26T13:35:00.001+05:30",
+    "price": "110.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g052"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:40:00+05:30",
+    "received_timestamp": "2026-08-26T13:40:00.001+05:30",
+    "price": "110.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g053"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:45:00+05:30",
+    "received_timestamp": "2026-08-26T13:45:00.001+05:30",
+    "price": "110.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g054"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:50:00+05:30",
+    "received_timestamp": "2026-08-26T13:50:00.001+05:30",
+    "price": "111.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g055"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T13:55:00+05:30",
+    "received_timestamp": "2026-08-26T13:55:00.001+05:30",
+    "price": "111.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g056"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:00:00+05:30",
+    "received_timestamp": "2026-08-26T14:00:00.001+05:30",
+    "price": "111.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g057"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:05:00+05:30",
+    "received_timestamp": "2026-08-26T14:05:00.001+05:30",
+    "price": "111.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g058"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:10:00+05:30",
+    "received_timestamp": "2026-08-26T14:10:00.001+05:30",
+    "price": "111.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g059"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:15:00+05:30",
+    "received_timestamp": "2026-08-26T14:15:00.001+05:30",
+    "price": "112.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g060"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:20:00+05:30",
+    "received_timestamp": "2026-08-26T14:20:00.001+05:30",
+    "price": "112.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g061"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:25:00+05:30",
+    "received_timestamp": "2026-08-26T14:25:00.001+05:30",
+    "price": "112.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g062"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:30:00+05:30",
+    "received_timestamp": "2026-08-26T14:30:00.001+05:30",
+    "price": "112.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g063"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:35:00+05:30",
+    "received_timestamp": "2026-08-26T14:35:00.001+05:30",
+    "price": "112.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g064"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:40:00+05:30",
+    "received_timestamp": "2026-08-26T14:40:00.001+05:30",
+    "price": "113.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g065"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:45:00+05:30",
+    "received_timestamp": "2026-08-26T14:45:00.001+05:30",
+    "price": "113.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g066"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:50:00+05:30",
+    "received_timestamp": "2026-08-26T14:50:00.001+05:30",
+    "price": "113.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g067"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T14:55:00+05:30",
+    "received_timestamp": "2026-08-26T14:55:00.001+05:30",
+    "price": "113.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g068"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:00:00+05:30",
+    "received_timestamp": "2026-08-26T15:00:00.001+05:30",
+    "price": "113.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g069"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:05:00+05:30",
+    "received_timestamp": "2026-08-26T15:05:00.001+05:30",
+    "price": "114.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g070"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:10:00+05:30",
+    "received_timestamp": "2026-08-26T15:10:00.001+05:30",
+    "price": "114.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g071"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:15:00+05:30",
+    "received_timestamp": "2026-08-26T15:15:00.001+05:30",
+    "price": "114.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g072"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:20:00+05:30",
+    "received_timestamp": "2026-08-26T15:20:00.001+05:30",
+    "price": "114.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g073"
+  },
+  {
+    "exchange_timestamp": "2026-08-26T15:25:00+05:30",
+    "received_timestamp": "2026-08-26T15:25:00.001+05:30",
+    "price": "114.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g074"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:15:00+05:30",
+    "received_timestamp": "2026-08-27T09:15:00.001+05:30",
+    "price": "115.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g075"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:20:00+05:30",
+    "received_timestamp": "2026-08-27T09:20:00.001+05:30",
+    "price": "115.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g076"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:25:00+05:30",
+    "received_timestamp": "2026-08-27T09:25:00.001+05:30",
+    "price": "115.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g077"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:30:00+05:30",
+    "received_timestamp": "2026-08-27T09:30:00.001+05:30",
+    "price": "115.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g078"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:35:00+05:30",
+    "received_timestamp": "2026-08-27T09:35:00.001+05:30",
+    "price": "115.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g079"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:40:00+05:30",
+    "received_timestamp": "2026-08-27T09:40:00.001+05:30",
+    "price": "116.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g080"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:45:00+05:30",
+    "received_timestamp": "2026-08-27T09:45:00.001+05:30",
+    "price": "116.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g081"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:50:00+05:30",
+    "received_timestamp": "2026-08-27T09:50:00.001+05:30",
+    "price": "116.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g082"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T09:55:00+05:30",
+    "received_timestamp": "2026-08-27T09:55:00.001+05:30",
+    "price": "116.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g083"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:00:00+05:30",
+    "received_timestamp": "2026-08-27T10:00:00.001+05:30",
+    "price": "116.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g084"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:05:00+05:30",
+    "received_timestamp": "2026-08-27T10:05:00.001+05:30",
+    "price": "117.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g085"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:10:00+05:30",
+    "received_timestamp": "2026-08-27T10:10:00.001+05:30",
+    "price": "117.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g086"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:15:00+05:30",
+    "received_timestamp": "2026-08-27T10:15:00.001+05:30",
+    "price": "117.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g087"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:20:00+05:30",
+    "received_timestamp": "2026-08-27T10:20:00.001+05:30",
+    "price": "117.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g088"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:25:00+05:30",
+    "received_timestamp": "2026-08-27T10:25:00.001+05:30",
+    "price": "117.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g089"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:30:00+05:30",
+    "received_timestamp": "2026-08-27T10:30:00.001+05:30",
+    "price": "118.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g090"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:35:00+05:30",
+    "received_timestamp": "2026-08-27T10:35:00.001+05:30",
+    "price": "118.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g091"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:40:00+05:30",
+    "received_timestamp": "2026-08-27T10:40:00.001+05:30",
+    "price": "118.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g092"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:45:00+05:30",
+    "received_timestamp": "2026-08-27T10:45:00.001+05:30",
+    "price": "118.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g093"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:50:00+05:30",
+    "received_timestamp": "2026-08-27T10:50:00.001+05:30",
+    "price": "118.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g094"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T10:55:00+05:30",
+    "received_timestamp": "2026-08-27T10:55:00.001+05:30",
+    "price": "119.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g095"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:00:00+05:30",
+    "received_timestamp": "2026-08-27T11:00:00.001+05:30",
+    "price": "119.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g096"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:05:00+05:30",
+    "received_timestamp": "2026-08-27T11:05:00.001+05:30",
+    "price": "119.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g097"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:10:00+05:30",
+    "received_timestamp": "2026-08-27T11:10:00.001+05:30",
+    "price": "119.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g098"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:15:00+05:30",
+    "received_timestamp": "2026-08-27T11:15:00.001+05:30",
+    "price": "119.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g099"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:20:00+05:30",
+    "received_timestamp": "2026-08-27T11:20:00.001+05:30",
+    "price": "120.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g100"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:25:00+05:30",
+    "received_timestamp": "2026-08-27T11:25:00.001+05:30",
+    "price": "120.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g101"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:30:00+05:30",
+    "received_timestamp": "2026-08-27T11:30:00.001+05:30",
+    "price": "120.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g102"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:35:00+05:30",
+    "received_timestamp": "2026-08-27T11:35:00.001+05:30",
+    "price": "120.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g103"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:40:00+05:30",
+    "received_timestamp": "2026-08-27T11:40:00.001+05:30",
+    "price": "120.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g104"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:45:00+05:30",
+    "received_timestamp": "2026-08-27T11:45:00.001+05:30",
+    "price": "121.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g105"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:50:00+05:30",
+    "received_timestamp": "2026-08-27T11:50:00.001+05:30",
+    "price": "121.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g106"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T11:55:00+05:30",
+    "received_timestamp": "2026-08-27T11:55:00.001+05:30",
+    "price": "121.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g107"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:00:00+05:30",
+    "received_timestamp": "2026-08-27T12:00:00.001+05:30",
+    "price": "121.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g108"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:05:00+05:30",
+    "received_timestamp": "2026-08-27T12:05:00.001+05:30",
+    "price": "121.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g109"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:10:00+05:30",
+    "received_timestamp": "2026-08-27T12:10:00.001+05:30",
+    "price": "122.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g110"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:15:00+05:30",
+    "received_timestamp": "2026-08-27T12:15:00.001+05:30",
+    "price": "122.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g111"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:20:00+05:30",
+    "received_timestamp": "2026-08-27T12:20:00.001+05:30",
+    "price": "122.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g112"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:25:00+05:30",
+    "received_timestamp": "2026-08-27T12:25:00.001+05:30",
+    "price": "122.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g113"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:30:00+05:30",
+    "received_timestamp": "2026-08-27T12:30:00.001+05:30",
+    "price": "122.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g114"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:35:00+05:30",
+    "received_timestamp": "2026-08-27T12:35:00.001+05:30",
+    "price": "123.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g115"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:40:00+05:30",
+    "received_timestamp": "2026-08-27T12:40:00.001+05:30",
+    "price": "123.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g116"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:45:00+05:30",
+    "received_timestamp": "2026-08-27T12:45:00.001+05:30",
+    "price": "123.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g117"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:50:00+05:30",
+    "received_timestamp": "2026-08-27T12:50:00.001+05:30",
+    "price": "123.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g118"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T12:55:00+05:30",
+    "received_timestamp": "2026-08-27T12:55:00.001+05:30",
+    "price": "123.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g119"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:00:00+05:30",
+    "received_timestamp": "2026-08-27T13:00:00.001+05:30",
+    "price": "124.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g120"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:05:00+05:30",
+    "received_timestamp": "2026-08-27T13:05:00.001+05:30",
+    "price": "124.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g121"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:10:00+05:30",
+    "received_timestamp": "2026-08-27T13:10:00.001+05:30",
+    "price": "124.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g122"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:15:00+05:30",
+    "received_timestamp": "2026-08-27T13:15:00.001+05:30",
+    "price": "124.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g123"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:20:00+05:30",
+    "received_timestamp": "2026-08-27T13:20:00.001+05:30",
+    "price": "124.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g124"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:25:00+05:30",
+    "received_timestamp": "2026-08-27T13:25:00.001+05:30",
+    "price": "125.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g125"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:30:00+05:30",
+    "received_timestamp": "2026-08-27T13:30:00.001+05:30",
+    "price": "125.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g126"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:35:00+05:30",
+    "received_timestamp": "2026-08-27T13:35:00.001+05:30",
+    "price": "125.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g127"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:40:00+05:30",
+    "received_timestamp": "2026-08-27T13:40:00.001+05:30",
+    "price": "125.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g128"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:45:00+05:30",
+    "received_timestamp": "2026-08-27T13:45:00.001+05:30",
+    "price": "125.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g129"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:50:00+05:30",
+    "received_timestamp": "2026-08-27T13:50:00.001+05:30",
+    "price": "126.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g130"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T13:55:00+05:30",
+    "received_timestamp": "2026-08-27T13:55:00.001+05:30",
+    "price": "126.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g131"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:00:00+05:30",
+    "received_timestamp": "2026-08-27T14:00:00.001+05:30",
+    "price": "126.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g132"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:05:00+05:30",
+    "received_timestamp": "2026-08-27T14:05:00.001+05:30",
+    "price": "126.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g133"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:10:00+05:30",
+    "received_timestamp": "2026-08-27T14:10:00.001+05:30",
+    "price": "126.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g134"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:15:00+05:30",
+    "received_timestamp": "2026-08-27T14:15:00.001+05:30",
+    "price": "127.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g135"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:20:00+05:30",
+    "received_timestamp": "2026-08-27T14:20:00.001+05:30",
+    "price": "127.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g136"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:25:00+05:30",
+    "received_timestamp": "2026-08-27T14:25:00.001+05:30",
+    "price": "127.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g137"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:30:00+05:30",
+    "received_timestamp": "2026-08-27T14:30:00.001+05:30",
+    "price": "127.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g138"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:35:00+05:30",
+    "received_timestamp": "2026-08-27T14:35:00.001+05:30",
+    "price": "127.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g139"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:40:00+05:30",
+    "received_timestamp": "2026-08-27T14:40:00.001+05:30",
+    "price": "128.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g140"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:45:00+05:30",
+    "received_timestamp": "2026-08-27T14:45:00.001+05:30",
+    "price": "128.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g141"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:50:00+05:30",
+    "received_timestamp": "2026-08-27T14:50:00.001+05:30",
+    "price": "128.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g142"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T14:55:00+05:30",
+    "received_timestamp": "2026-08-27T14:55:00.001+05:30",
+    "price": "128.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g143"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:00:00+05:30",
+    "received_timestamp": "2026-08-27T15:00:00.001+05:30",
+    "price": "128.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g144"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:05:00+05:30",
+    "received_timestamp": "2026-08-27T15:05:00.001+05:30",
+    "price": "129.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g145"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:10:00+05:30",
+    "received_timestamp": "2026-08-27T15:10:00.001+05:30",
+    "price": "129.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g146"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:15:00+05:30",
+    "received_timestamp": "2026-08-27T15:15:00.001+05:30",
+    "price": "129.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g147"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:20:00+05:30",
+    "received_timestamp": "2026-08-27T15:20:00.001+05:30",
+    "price": "129.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g148"
+  },
+  {
+    "exchange_timestamp": "2026-08-27T15:25:00+05:30",
+    "received_timestamp": "2026-08-27T15:25:00.001+05:30",
+    "price": "129.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g149"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:15:00+05:30",
+    "received_timestamp": "2026-08-28T09:15:00.001+05:30",
+    "price": "130.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g150"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:20:00+05:30",
+    "received_timestamp": "2026-08-28T09:20:00.001+05:30",
+    "price": "130.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g151"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:25:00+05:30",
+    "received_timestamp": "2026-08-28T09:25:00.001+05:30",
+    "price": "130.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g152"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:30:00+05:30",
+    "received_timestamp": "2026-08-28T09:30:00.001+05:30",
+    "price": "130.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g153"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:35:00+05:30",
+    "received_timestamp": "2026-08-28T09:35:00.001+05:30",
+    "price": "130.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g154"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:40:00+05:30",
+    "received_timestamp": "2026-08-28T09:40:00.001+05:30",
+    "price": "131.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g155"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:45:00+05:30",
+    "received_timestamp": "2026-08-28T09:45:00.001+05:30",
+    "price": "131.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g156"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:50:00+05:30",
+    "received_timestamp": "2026-08-28T09:50:00.001+05:30",
+    "price": "131.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g157"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T09:55:00+05:30",
+    "received_timestamp": "2026-08-28T09:55:00.001+05:30",
+    "price": "131.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g158"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:00:00+05:30",
+    "received_timestamp": "2026-08-28T10:00:00.001+05:30",
+    "price": "131.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g159"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:05:00+05:30",
+    "received_timestamp": "2026-08-28T10:05:00.001+05:30",
+    "price": "132.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g160"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:10:00+05:30",
+    "received_timestamp": "2026-08-28T10:10:00.001+05:30",
+    "price": "132.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g161"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:15:00+05:30",
+    "received_timestamp": "2026-08-28T10:15:00.001+05:30",
+    "price": "132.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g162"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:20:00+05:30",
+    "received_timestamp": "2026-08-28T10:20:00.001+05:30",
+    "price": "132.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g163"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:25:00+05:30",
+    "received_timestamp": "2026-08-28T10:25:00.001+05:30",
+    "price": "132.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g164"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:30:00+05:30",
+    "received_timestamp": "2026-08-28T10:30:00.001+05:30",
+    "price": "133.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g165"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:35:00+05:30",
+    "received_timestamp": "2026-08-28T10:35:00.001+05:30",
+    "price": "133.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g166"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:40:00+05:30",
+    "received_timestamp": "2026-08-28T10:40:00.001+05:30",
+    "price": "133.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g167"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:45:00+05:30",
+    "received_timestamp": "2026-08-28T10:45:00.001+05:30",
+    "price": "133.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g168"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:50:00+05:30",
+    "received_timestamp": "2026-08-28T10:50:00.001+05:30",
+    "price": "133.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g169"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T10:55:00+05:30",
+    "received_timestamp": "2026-08-28T10:55:00.001+05:30",
+    "price": "134.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g170"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:00:00+05:30",
+    "received_timestamp": "2026-08-28T11:00:00.001+05:30",
+    "price": "134.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g171"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:05:00+05:30",
+    "received_timestamp": "2026-08-28T11:05:00.001+05:30",
+    "price": "134.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g172"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:10:00+05:30",
+    "received_timestamp": "2026-08-28T11:10:00.001+05:30",
+    "price": "134.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g173"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:15:00+05:30",
+    "received_timestamp": "2026-08-28T11:15:00.001+05:30",
+    "price": "134.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g174"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:20:00+05:30",
+    "received_timestamp": "2026-08-28T11:20:00.001+05:30",
+    "price": "135.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g175"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:25:00+05:30",
+    "received_timestamp": "2026-08-28T11:25:00.001+05:30",
+    "price": "135.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g176"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:30:00+05:30",
+    "received_timestamp": "2026-08-28T11:30:00.001+05:30",
+    "price": "135.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g177"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:35:00+05:30",
+    "received_timestamp": "2026-08-28T11:35:00.001+05:30",
+    "price": "135.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g178"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:40:00+05:30",
+    "received_timestamp": "2026-08-28T11:40:00.001+05:30",
+    "price": "135.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g179"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:45:00+05:30",
+    "received_timestamp": "2026-08-28T11:45:00.001+05:30",
+    "price": "136.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g180"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:50:00+05:30",
+    "received_timestamp": "2026-08-28T11:50:00.001+05:30",
+    "price": "136.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g181"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T11:55:00+05:30",
+    "received_timestamp": "2026-08-28T11:55:00.001+05:30",
+    "price": "136.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g182"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:00:00+05:30",
+    "received_timestamp": "2026-08-28T12:00:00.001+05:30",
+    "price": "136.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g183"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:05:00+05:30",
+    "received_timestamp": "2026-08-28T12:05:00.001+05:30",
+    "price": "136.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g184"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:10:00+05:30",
+    "received_timestamp": "2026-08-28T12:10:00.001+05:30",
+    "price": "137.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g185"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:15:00+05:30",
+    "received_timestamp": "2026-08-28T12:15:00.001+05:30",
+    "price": "137.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g186"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:20:00+05:30",
+    "received_timestamp": "2026-08-28T12:20:00.001+05:30",
+    "price": "137.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g187"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:25:00+05:30",
+    "received_timestamp": "2026-08-28T12:25:00.001+05:30",
+    "price": "137.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g188"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:30:00+05:30",
+    "received_timestamp": "2026-08-28T12:30:00.001+05:30",
+    "price": "137.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g189"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:35:00+05:30",
+    "received_timestamp": "2026-08-28T12:35:00.001+05:30",
+    "price": "138.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g190"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:40:00+05:30",
+    "received_timestamp": "2026-08-28T12:40:00.001+05:30",
+    "price": "138.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g191"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:45:00+05:30",
+    "received_timestamp": "2026-08-28T12:45:00.001+05:30",
+    "price": "138.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g192"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:50:00+05:30",
+    "received_timestamp": "2026-08-28T12:50:00.001+05:30",
+    "price": "138.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g193"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T12:55:00+05:30",
+    "received_timestamp": "2026-08-28T12:55:00.001+05:30",
+    "price": "138.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g194"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:00:00+05:30",
+    "received_timestamp": "2026-08-28T13:00:00.001+05:30",
+    "price": "139.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g195"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:05:00+05:30",
+    "received_timestamp": "2026-08-28T13:05:00.001+05:30",
+    "price": "139.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g196"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:10:00+05:30",
+    "received_timestamp": "2026-08-28T13:10:00.001+05:30",
+    "price": "139.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g197"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:15:00+05:30",
+    "received_timestamp": "2026-08-28T13:15:00.001+05:30",
+    "price": "139.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g198"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:20:00+05:30",
+    "received_timestamp": "2026-08-28T13:20:00.001+05:30",
+    "price": "139.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g199"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:25:00+05:30",
+    "received_timestamp": "2026-08-28T13:25:00.001+05:30",
+    "price": "140.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g200"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:30:00+05:30",
+    "received_timestamp": "2026-08-28T13:30:00.001+05:30",
+    "price": "140.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g201"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:35:00+05:30",
+    "received_timestamp": "2026-08-28T13:35:00.001+05:30",
+    "price": "140.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g202"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:40:00+05:30",
+    "received_timestamp": "2026-08-28T13:40:00.001+05:30",
+    "price": "140.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g203"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:45:00+05:30",
+    "received_timestamp": "2026-08-28T13:45:00.001+05:30",
+    "price": "140.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g204"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:50:00+05:30",
+    "received_timestamp": "2026-08-28T13:50:00.001+05:30",
+    "price": "141.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g205"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T13:55:00+05:30",
+    "received_timestamp": "2026-08-28T13:55:00.001+05:30",
+    "price": "141.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g206"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:00:00+05:30",
+    "received_timestamp": "2026-08-28T14:00:00.001+05:30",
+    "price": "141.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g207"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:05:00+05:30",
+    "received_timestamp": "2026-08-28T14:05:00.001+05:30",
+    "price": "141.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g208"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:10:00+05:30",
+    "received_timestamp": "2026-08-28T14:10:00.001+05:30",
+    "price": "141.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g209"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:15:00+05:30",
+    "received_timestamp": "2026-08-28T14:15:00.001+05:30",
+    "price": "142.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g210"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:20:00+05:30",
+    "received_timestamp": "2026-08-28T14:20:00.001+05:30",
+    "price": "142.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g211"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:25:00+05:30",
+    "received_timestamp": "2026-08-28T14:25:00.001+05:30",
+    "price": "142.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g212"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:30:00+05:30",
+    "received_timestamp": "2026-08-28T14:30:00.001+05:30",
+    "price": "142.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g213"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:35:00+05:30",
+    "received_timestamp": "2026-08-28T14:35:00.001+05:30",
+    "price": "142.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g214"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:40:00+05:30",
+    "received_timestamp": "2026-08-28T14:40:00.001+05:30",
+    "price": "143.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g215"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:45:00+05:30",
+    "received_timestamp": "2026-08-28T14:45:00.001+05:30",
+    "price": "143.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g216"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:50:00+05:30",
+    "received_timestamp": "2026-08-28T14:50:00.001+05:30",
+    "price": "143.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g217"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T14:55:00+05:30",
+    "received_timestamp": "2026-08-28T14:55:00.001+05:30",
+    "price": "143.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g218"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:00:00+05:30",
+    "received_timestamp": "2026-08-28T15:00:00.001+05:30",
+    "price": "143.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g219"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:05:00+05:30",
+    "received_timestamp": "2026-08-28T15:05:00.001+05:30",
+    "price": "144.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g220"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:10:00+05:30",
+    "received_timestamp": "2026-08-28T15:10:00.001+05:30",
+    "price": "144.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g221"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:15:00+05:30",
+    "received_timestamp": "2026-08-28T15:15:00.001+05:30",
+    "price": "144.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g222"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:20:00+05:30",
+    "received_timestamp": "2026-08-28T15:20:00.001+05:30",
+    "price": "144.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g223"
+  },
+  {
+    "exchange_timestamp": "2026-08-28T15:25:00+05:30",
+    "received_timestamp": "2026-08-28T15:25:00.001+05:30",
+    "price": "144.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g224"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:15:00+05:30",
+    "received_timestamp": "2026-08-31T09:15:00.001+05:30",
+    "price": "145.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g225"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:20:00+05:30",
+    "received_timestamp": "2026-08-31T09:20:00.001+05:30",
+    "price": "145.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g226"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:25:00+05:30",
+    "received_timestamp": "2026-08-31T09:25:00.001+05:30",
+    "price": "145.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g227"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:30:00+05:30",
+    "received_timestamp": "2026-08-31T09:30:00.001+05:30",
+    "price": "145.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g228"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:35:00+05:30",
+    "received_timestamp": "2026-08-31T09:35:00.001+05:30",
+    "price": "145.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g229"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:40:00+05:30",
+    "received_timestamp": "2026-08-31T09:40:00.001+05:30",
+    "price": "146.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g230"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:45:00+05:30",
+    "received_timestamp": "2026-08-31T09:45:00.001+05:30",
+    "price": "146.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g231"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:50:00+05:30",
+    "received_timestamp": "2026-08-31T09:50:00.001+05:30",
+    "price": "146.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g232"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T09:55:00+05:30",
+    "received_timestamp": "2026-08-31T09:55:00.001+05:30",
+    "price": "146.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g233"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:00:00+05:30",
+    "received_timestamp": "2026-08-31T10:00:00.001+05:30",
+    "price": "146.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g234"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:05:00+05:30",
+    "received_timestamp": "2026-08-31T10:05:00.001+05:30",
+    "price": "147.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g235"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:10:00+05:30",
+    "received_timestamp": "2026-08-31T10:10:00.001+05:30",
+    "price": "147.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g236"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:15:00+05:30",
+    "received_timestamp": "2026-08-31T10:15:00.001+05:30",
+    "price": "147.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g237"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:20:00+05:30",
+    "received_timestamp": "2026-08-31T10:20:00.001+05:30",
+    "price": "147.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g238"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:25:00+05:30",
+    "received_timestamp": "2026-08-31T10:25:00.001+05:30",
+    "price": "147.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g239"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:30:00+05:30",
+    "received_timestamp": "2026-08-31T10:30:00.001+05:30",
+    "price": "148.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g240"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:35:00+05:30",
+    "received_timestamp": "2026-08-31T10:35:00.001+05:30",
+    "price": "148.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g241"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:40:00+05:30",
+    "received_timestamp": "2026-08-31T10:40:00.001+05:30",
+    "price": "148.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g242"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:45:00+05:30",
+    "received_timestamp": "2026-08-31T10:45:00.001+05:30",
+    "price": "148.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g243"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:50:00+05:30",
+    "received_timestamp": "2026-08-31T10:50:00.001+05:30",
+    "price": "148.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g244"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T10:55:00+05:30",
+    "received_timestamp": "2026-08-31T10:55:00.001+05:30",
+    "price": "149.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g245"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:00:00+05:30",
+    "received_timestamp": "2026-08-31T11:00:00.001+05:30",
+    "price": "149.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g246"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:05:00+05:30",
+    "received_timestamp": "2026-08-31T11:05:00.001+05:30",
+    "price": "149.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g247"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:10:00+05:30",
+    "received_timestamp": "2026-08-31T11:10:00.001+05:30",
+    "price": "149.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g248"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:15:00+05:30",
+    "received_timestamp": "2026-08-31T11:15:00.001+05:30",
+    "price": "149.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g249"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:20:00+05:30",
+    "received_timestamp": "2026-08-31T11:20:00.001+05:30",
+    "price": "150.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g250"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:25:00+05:30",
+    "received_timestamp": "2026-08-31T11:25:00.001+05:30",
+    "price": "150.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g251"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:30:00+05:30",
+    "received_timestamp": "2026-08-31T11:30:00.001+05:30",
+    "price": "150.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g252"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:35:00+05:30",
+    "received_timestamp": "2026-08-31T11:35:00.001+05:30",
+    "price": "150.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g253"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:40:00+05:30",
+    "received_timestamp": "2026-08-31T11:40:00.001+05:30",
+    "price": "150.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g254"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:45:00+05:30",
+    "received_timestamp": "2026-08-31T11:45:00.001+05:30",
+    "price": "151.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g255"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:50:00+05:30",
+    "received_timestamp": "2026-08-31T11:50:00.001+05:30",
+    "price": "151.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g256"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T11:55:00+05:30",
+    "received_timestamp": "2026-08-31T11:55:00.001+05:30",
+    "price": "151.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g257"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:00:00+05:30",
+    "received_timestamp": "2026-08-31T12:00:00.001+05:30",
+    "price": "151.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g258"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:05:00+05:30",
+    "received_timestamp": "2026-08-31T12:05:00.001+05:30",
+    "price": "151.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g259"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:10:00+05:30",
+    "received_timestamp": "2026-08-31T12:10:00.001+05:30",
+    "price": "152.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g260"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:15:00+05:30",
+    "received_timestamp": "2026-08-31T12:15:00.001+05:30",
+    "price": "152.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g261"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:20:00+05:30",
+    "received_timestamp": "2026-08-31T12:20:00.001+05:30",
+    "price": "152.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g262"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:25:00+05:30",
+    "received_timestamp": "2026-08-31T12:25:00.001+05:30",
+    "price": "152.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g263"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:30:00+05:30",
+    "received_timestamp": "2026-08-31T12:30:00.001+05:30",
+    "price": "152.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g264"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:35:00+05:30",
+    "received_timestamp": "2026-08-31T12:35:00.001+05:30",
+    "price": "153.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g265"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:40:00+05:30",
+    "received_timestamp": "2026-08-31T12:40:00.001+05:30",
+    "price": "153.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g266"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:45:00+05:30",
+    "received_timestamp": "2026-08-31T12:45:00.001+05:30",
+    "price": "153.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g267"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:50:00+05:30",
+    "received_timestamp": "2026-08-31T12:50:00.001+05:30",
+    "price": "153.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g268"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T12:55:00+05:30",
+    "received_timestamp": "2026-08-31T12:55:00.001+05:30",
+    "price": "153.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g269"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:00:00+05:30",
+    "received_timestamp": "2026-08-31T13:00:00.001+05:30",
+    "price": "154.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g270"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:05:00+05:30",
+    "received_timestamp": "2026-08-31T13:05:00.001+05:30",
+    "price": "153.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g271"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:10:00+05:30",
+    "received_timestamp": "2026-08-31T13:10:00.001+05:30",
+    "price": "154.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g272"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:15:00+05:30",
+    "received_timestamp": "2026-08-31T13:15:00.001+05:30",
+    "price": "153.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g273"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:20:00+05:30",
+    "received_timestamp": "2026-08-31T13:20:00.001+05:30",
+    "price": "154.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g274"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:25:00+05:30",
+    "received_timestamp": "2026-08-31T13:25:00.001+05:30",
+    "price": "154.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g275"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:30:00+05:30",
+    "received_timestamp": "2026-08-31T13:30:00.001+05:30",
+    "price": "154.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g276"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:35:00+05:30",
+    "received_timestamp": "2026-08-31T13:35:00.001+05:30",
+    "price": "154.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g277"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:40:00+05:30",
+    "received_timestamp": "2026-08-31T13:40:00.001+05:30",
+    "price": "154.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g278"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:45:00+05:30",
+    "received_timestamp": "2026-08-31T13:45:00.001+05:30",
+    "price": "154.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g279"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:50:00+05:30",
+    "received_timestamp": "2026-08-31T13:50:00.001+05:30",
+    "price": "155.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g280"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T13:55:00+05:30",
+    "received_timestamp": "2026-08-31T13:55:00.001+05:30",
+    "price": "154.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g281"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:00:00+05:30",
+    "received_timestamp": "2026-08-31T14:00:00.001+05:30",
+    "price": "155.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g282"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:05:00+05:30",
+    "received_timestamp": "2026-08-31T14:05:00.001+05:30",
+    "price": "155.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g283"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:10:00+05:30",
+    "received_timestamp": "2026-08-31T14:10:00.001+05:30",
+    "price": "155.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g284"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:15:00+05:30",
+    "received_timestamp": "2026-08-31T14:15:00.001+05:30",
+    "price": "155.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g285"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:20:00+05:30",
+    "received_timestamp": "2026-08-31T14:20:00.001+05:30",
+    "price": "155.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g286"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:25:00+05:30",
+    "received_timestamp": "2026-08-31T14:25:00.001+05:30",
+    "price": "156.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g287"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:30:00+05:30",
+    "received_timestamp": "2026-08-31T14:30:00.001+05:30",
+    "price": "155.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g288"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:35:00+05:30",
+    "received_timestamp": "2026-08-31T14:35:00.001+05:30",
+    "price": "155.8",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g289"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:40:00+05:30",
+    "received_timestamp": "2026-08-31T14:40:00.001+05:30",
+    "price": "156.4",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g290"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:45:00+05:30",
+    "received_timestamp": "2026-08-31T14:45:00.001+05:30",
+    "price": "156.0",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g291"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:50:00+05:30",
+    "received_timestamp": "2026-08-31T14:50:00.001+05:30",
+    "price": "156.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g292"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T14:55:00+05:30",
+    "received_timestamp": "2026-08-31T14:55:00.001+05:30",
+    "price": "156.2",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g293"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:00:00+05:30",
+    "received_timestamp": "2026-08-31T15:00:00.001+05:30",
+    "price": "156.3",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g294"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:00:01+05:30",
+    "received_timestamp": "2026-08-31T15:00:01.001+05:30",
+    "price": "156.5",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g-trigger"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:05:00+05:30",
+    "received_timestamp": "2026-08-31T15:05:00.001+05:30",
+    "price": "156.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g295"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:10:00+05:30",
+    "received_timestamp": "2026-08-31T15:10:00.001+05:30",
+    "price": "156.6",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g296"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:15:00+05:30",
+    "received_timestamp": "2026-08-31T15:15:00.001+05:30",
+    "price": "156.7",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g297"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:20:00+05:30",
+    "received_timestamp": "2026-08-31T15:20:00.001+05:30",
+    "price": "156.7",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g298"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:25:00+05:30",
+    "received_timestamp": "2026-08-31T15:25:00.001+05:30",
+    "price": "156.7",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g299"
+  },
+  {
+    "exchange_timestamp": "2026-08-31T15:30:00+05:30",
+    "received_timestamp": "2026-08-31T15:30:00.001+05:30",
+    "price": "156.7",
+    "quantity": 1,
+    "source": "research-golden-fixture",
+    "source_event_id": "g-final-boundary"
+  }
+]
