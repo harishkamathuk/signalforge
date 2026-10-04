@@ -115,17 +115,25 @@ def _require_realised_r(trade: BacktestTradeResult) -> Decimal:
 
 
 def _maximum_drawdown_r(rs: tuple[Decimal, ...]) -> Decimal:
-    cumulative = Decimal("0")
-    peak = Decimal("0")
-    maximum = Decimal("0")
-    for realised_r in rs:
-        cumulative += realised_r
-        if cumulative > peak:
-            peak = cumulative
-        drawdown = peak - cumulative
-        if drawdown > maximum:
-            maximum = drawdown
-    return maximum
+    if not rs:
+        return Decimal("0")
+    max_digits = max(len(value.as_tuple().digits) for value in rs)
+    with localcontext() as context:
+        context.prec = max(
+            _ANALYTICS_RATIO_PRECISION * 2,
+            max_digits + len(str(len(rs))) + 4,
+        )
+        cumulative = Decimal("0")
+        peak = Decimal("0")
+        maximum = Decimal("0")
+        for realised_r in rs:
+            cumulative += realised_r
+            if cumulative > peak:
+                peak = cumulative
+            drawdown = peak - cumulative
+            if drawdown > maximum:
+                maximum = drawdown
+        return maximum
 
 
 
