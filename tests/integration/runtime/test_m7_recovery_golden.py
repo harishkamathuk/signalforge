@@ -309,17 +309,17 @@ def test_armed_restart_expires_and_terminal_history_does_not_rearm(
 
 
 @pytest.mark.parametrize(
-    ("price", "at", "reason"),
+    ("price", "forced", "reason"),
     (
-        ("103.10", None, ExitReason.TARGET),
-        ("99.90", None, ExitReason.STOP),
-        ("101.50", datetime(2026, 8, 31, 15, 15, tzinfo=IST), ExitReason.FORCED_SESSION_EXIT),
+        ("103.10", False, ExitReason.TARGET),
+        ("99.90", False, ExitReason.STOP),
+        ("101.50", True, ExitReason.FORCED_SESSION_EXIT),
     ),
 )
 def test_open_restart_exits_persist_and_remain_terminal(
     postgres_engine: Engine,
     price: str,
-    at: datetime | None,
+    forced: bool,
     reason: ExitReason,
 ) -> None:
     value = facts(f"sf053-exit-{reason.value}-{uuid4().hex[:8]}")
@@ -327,7 +327,11 @@ def test_open_restart_exits_persist_and_remain_terminal(
     _, coordinator = _recover_coordinator(postgres_engine, value)
     assert coordinator.state is LifecycleState.OPEN
 
-    event_at = at or (value.fill.filled_at + timedelta(minutes=1))
+    event_at = (
+        value.fill.filled_at.replace(hour=15, minute=15, second=0, microsecond=0)
+        if forced
+        else value.fill.filled_at + timedelta(minutes=1)
+    )
     snapshot = coordinator.process_market_event(
         MarketEvent(
             instrument_id=INSTRUMENT,
