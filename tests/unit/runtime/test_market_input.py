@@ -88,6 +88,30 @@ def test_guard_accepts_contiguous_input_and_suppresses_exact_latest_duplicate() 
     )
 
 
+def test_guard_rejects_resequenced_redelivery_of_last_event() -> None:
+    event0 = _event(0, source_event_id="evt-0")
+    redelivered = MarketEvent(
+        instrument_id=event0.instrument_id,
+        exchange_timestamp=event0.exchange_timestamp,
+        received_timestamp=event0.received_timestamp,
+        price=event0.price,
+        quantity=event0.quantity,
+        source=event0.source,
+        source_event_id=event0.source_event_id,
+    )
+    inputs = _inputs(event0, redelivered)
+    engine = CandleEngine(instrument_id=INSTRUMENT)
+    engine.process(event0)
+    checkpoint = _checkpoint(inputs[0], engine.state)
+    guard = MarketInputGuard(
+        source_id=inputs[0].source_id,
+        checkpoint=checkpoint,
+    )
+
+    with pytest.raises(MarketInputOrderError, match="re-sequenced redelivery"):
+        guard.classify(CanonicalMarketInput.from_replay_input(inputs[1]))
+
+
 def test_guard_rejects_regression_gap_and_conflicting_same_sequence() -> None:
     events = tuple(
         _event(index, source_event_id=f"evt-{index}")
