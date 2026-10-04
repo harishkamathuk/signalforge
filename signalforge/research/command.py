@@ -150,7 +150,7 @@ def research_run_command(
 
 def _read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return json.load(handle, parse_float=Decimal)
 
 
 def _resolve_input_path(experiment_path: Path, input_file: Path) -> Path:
@@ -325,11 +325,14 @@ def _decimal_or_none(value: Decimal | None) -> str | None:
 
 
 def _decimal_string(value: Decimal) -> str:
-    """Serialize a finite Decimal by numeric value rather than incidental scale."""
+    """Serialize a finite Decimal exactly by numeric value, independent of context."""
 
     if not value.is_finite():
         raise ValueError("Research output Decimal values must be finite")
-    normalized = value.normalize()
-    if normalized == 0:
+    if value == 0:
         return "0"
-    return format(normalized, "f")
+
+    rendered = format(value, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    return rendered
