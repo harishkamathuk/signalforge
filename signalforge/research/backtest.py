@@ -12,7 +12,15 @@ from signalforge.config.identity import ConfigIdentity
 from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, StrategyRegistry
 from signalforge.domain.execution import Fill
 from signalforge.domain.exits import Exit, ExitReason
-from signalforge.domain.ids import ExitId, FillId, InstrumentId, RunId, SignalId, TradeId, deterministic_id
+from signalforge.domain.ids import (
+    ExitId,
+    FillId,
+    InstrumentId,
+    RunId,
+    SignalId,
+    TradeId,
+    deterministic_id,
+)
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
