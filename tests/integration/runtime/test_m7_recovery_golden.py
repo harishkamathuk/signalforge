@@ -134,6 +134,47 @@ def _recover_coordinator(postgres_engine: Engine, value):
     return recovered, hydrated.coordinator
 
 
+def _signal_candle(value) -> CompletedCandle:
+    return CompletedCandle(
+        instrument_id=INSTRUMENT,
+        interval=value.evaluation.interval,
+        quality=CandleQuality.VALID,
+        open=Price(Decimal("100.50")),
+        high=Price(Decimal("102.00")),
+        low=value.signal.signal_low,
+        close=value.signal.signal_close,
+        volume=1000,
+        source="sf053-golden",
+        source_event_count=4,
+    )
+
+
+def _trigger_event(value) -> MarketEvent:
+    return MarketEvent(
+        instrument_id=INSTRUMENT,
+        exchange_timestamp=value.trigger.observed_at,
+        received_timestamp=value.trigger.observed_at + timedelta(milliseconds=1),
+        price=value.trigger.observed_price,
+        quantity=1,
+        source="sf053-golden",
+        source_event_id="sf053-trigger",
+    )
+
+
+def _uninterrupted_open(value) -> LifecycleCoordinator:
+    coordinator = LifecycleCoordinator(
+        run=value.run,
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=_strategy(),
+    )
+    armed = coordinator.process_evaluation(_signal_candle(value), value.evaluation)
+    assert armed.state is LifecycleState.ARMED
+    opened = coordinator.process_market_event(_trigger_event(value))
+    assert opened.state is LifecycleState.OPEN
+    return coordinator
+
+
 def test_indicator_warmup_restart_converges_to_full_recursive_state(
     postgres_engine: Engine,
 ) -> None:
@@ -168,6 +209,7 @@ def test_indicator_warmup_restart_converges_to_full_recursive_state(
             instrument_id=INSTRUMENT,
             indicator_requirements=V1_INDICATOR_REQUIREMENTS,
         )
+    assert recovered.indicator_state is not None
     assert recovered.indicator_state == interrupted.state
 
     reconciled = IndicatorRecoveryReconciler(recovered.indicator_state).reconcile(
@@ -187,17 +229,7 @@ def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
     assert coordinator.state is LifecycleState.ARMED
     assert recovered.lifecycle.setup is not None
 
-    snapshot = coordinator.process_market_event(
-        MarketEvent(
-            instrument_id=INSTRUMENT,
-            exchange_timestamp=value.trigger.observed_at,
-            received_timestamp=value.trigger.observed_at + timedelta(milliseconds=1),
-            price=value.trigger.observed_price,
-            quantity=1,
-            source="sf053-golden",
-            source_event_id="sf053-trigger",
-        )
-    )
+    snapshot = coordinator.process_market_event(_trigger_event(value))
     assert snapshot.state is LifecycleState.OPEN
     assert snapshot.arming is not None
     assert snapshot.execution is not None
@@ -223,6 +255,35 @@ def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
         for item in transitions
         if item.entity_type is TransitionEntityType.POSITION and item.to_state == "open"
     )
+    reference = _uninterrupted_open(value)
+    reference_snapshot = reference.snapshot()
+    assert reference_snapshot.execution is not None
+    assert reference_snapshot.open_result is not None
+    assert reference_snapshot.open_result.trade is not None
+    assert reference_snapshot.open_result.position is not None
+
+    assert snapshot.execution.fill.fill_id == reference_snapshot.execution.fill.fill_id
+    assert (
+        snapshot.execution.entry_intent.entry_intent_id
+        == reference_snapshot.execution.entry_intent.entry_intent_id
+    )
+    assert (
+        snapshot.open_result.trade.trade_id
+        == reference_snapshot.open_result.trade.trade_id
+    )
+    assert (
+        snapshot.open_result.position.position_id
+        == reference_snapshot.open_result.position.position_id
+    )
+    assert (
+        snapshot.open_result.trade.risk_per_share
+        == reference_snapshot.open_result.trade.risk_per_share
+    )
+    assert (
+        snapshot.open_result.trade.tradable_target_price
+        == reference_snapshot.open_result.trade.tradable_target_price
+    )
+
     trigger = coordinator.signal_lifecycle.trigger_event
     assert trigger is not None
     outcome = PositionOpenOutcome.create(
@@ -276,6 +337,28 @@ def test_armed_restart_expires_and_terminal_history_does_not_rearm(
     snapshot = coordinator.process_time(value.setup.valid_until)
     assert snapshot.state is LifecycleState.EXPIRED
     assert snapshot.arming is not None
+
+    reference = LifecycleCoordinator(
+        run=value.run,
+        tick_schedule=_schedule(),
+        quantity=Quantity(10),
+        strategy=_strategy(),
+    )
+    assert (
+        reference.process_evaluation(_signal_candle(value), value.evaluation).state
+        is LifecycleState.ARMED
+    )
+    reference_expired = reference.process_time(value.setup.valid_until)
+    assert reference_expired.state is LifecycleState.EXPIRED
+    assert reference_expired.arming is not None
+    assert (
+        snapshot.arming.armed_setup.terminal_at
+        == reference_expired.arming.armed_setup.terminal_at
+    )
+    assert (
+        snapshot.arming.armed_setup.expiry_reason
+        == reference_expired.arming.armed_setup.expiry_reason
+    )
 
     expiry_transition = next(
         item
@@ -345,6 +428,23 @@ def test_open_restart_exits_persist_and_remain_terminal(
     assert snapshot.state is LifecycleState.CLOSED
     assert snapshot.exit is not None
     assert snapshot.exit.reason is reason
+    reference = _uninterrupted_open(value)
+    reference_snapshot = reference.process_market_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=event_at,
+            received_timestamp=event_at + timedelta(milliseconds=1),
+            price=Price(Decimal(price)),
+            quantity=1,
+            source="sf053-golden",
+            source_event_id=f"sf053-exit-{reason.value}",
+        )
+    )
+    assert reference_snapshot.exit is not None
+    assert snapshot.exit.exit_id == reference_snapshot.exit.exit_id
+    assert snapshot.exit.fill_price == reference_snapshot.exit.fill_price
+    assert snapshot.exit.realised_pnl == reference_snapshot.exit.realised_pnl
+    assert snapshot.exit.realised_r == reference_snapshot.exit.realised_r
     assert snapshot.open_result is not None
     assert snapshot.open_result.trade is not None
     assert snapshot.open_result.position is not None
@@ -390,7 +490,8 @@ def test_open_restart_exits_persist_and_remain_terminal(
     assert exits[0].fill_price == Price(Decimal(price))
     assert trades[0].state is TradeState.CLOSED
     assert positions[0].state is PositionState.CLOSED
-    assert final.lifecycle.exit_fact == exits[0]
+    assert final.lifecycle.exit_fact is not None
+    assert final.lifecycle.exit_fact.exit_id == exits[0].exit_id
 
     _, fresh = _recover_coordinator(postgres_engine, value)
     assert fresh.state is LifecycleState.IDLE
