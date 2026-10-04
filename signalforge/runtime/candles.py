@@ -57,8 +57,14 @@ class CandleEngineState:
         assert self.volume is not None
         if not self.source.strip():
             raise ValueError("Active CandleEngineState source must not be empty")
+        if isinstance(self.volume, bool) or not isinstance(self.volume, int):
+            raise TypeError("Active CandleEngineState volume must be an integer")
         if self.volume < 0:
             raise ValueError("Active CandleEngineState volume must not be negative")
+        if isinstance(self.source_event_count, bool) or not isinstance(
+            self.source_event_count, int
+        ):
+            raise TypeError("Active CandleEngineState source-event count must be an integer")
         if self.source_event_count <= 0:
             raise ValueError("Active CandleEngineState requires source events")
         if self.high.value < max(
