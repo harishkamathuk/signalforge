@@ -87,7 +87,7 @@ class RestartSafeReplayRuntime:
 
         if self._terminal:
             raise RestartSafeReplayError(
-                "restart-safe replay runtime is terminal after persistence failure"
+                "restart-safe replay runtime is terminal after processing failure"
             )
         canonical = CanonicalMarketInput.from_replay_input(replay_input)
         disposition = self._guard.classify(canonical)
@@ -96,6 +96,20 @@ class RestartSafeReplayRuntime:
             assert existing is not None
             return RestartSafeReplayStep(True, None, existing)
 
+        try:
+            return self._process_accepted_input(replay_input, canonical)
+        except Exception:
+            # An accepted input may have mutated lifecycle/candle/indicator state
+            # before a later processing or persistence failure. That in-memory
+            # instance must never continue ahead of PostgreSQL.
+            self._terminal = True
+            raise
+
+    def _process_accepted_input(
+        self,
+        replay_input: ReplayInput,
+        canonical: CanonicalMarketInput,
+    ) -> RestartSafeReplayStep:
         before_transition_ids = {
             str(item.transition_id) for item in self.runtime.lifecycle.audit_transitions
         }
@@ -153,15 +167,11 @@ class RestartSafeReplayRuntime:
             evaluation=evaluation,
             completed=completed is not None,
         )
-        try:
-            with self._session_factory() as session:
-                persisted = PersistenceCoordinator(session).persist_market_input(
-                    run=self.runtime.run,
-                    commit=commit,
-                )
-        except Exception:
-            self._terminal = True
-            raise
+        with self._session_factory() as session:
+            persisted = PersistenceCoordinator(session).persist_market_input(
+                run=self.runtime.run,
+                commit=commit,
+            )
 
         self._guard.accept(persisted)
         return RestartSafeReplayStep(False, replay_step, persisted)
