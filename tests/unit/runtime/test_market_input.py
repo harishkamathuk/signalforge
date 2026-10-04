@@ -133,3 +133,111 @@ def test_guard_accepts_source_defined_initial_cursor_without_checkpoint() -> Non
         guard.classify(CanonicalMarketInput.from_replay_input(inputs[1]))
         is MarketInputDisposition.ACCEPT
     )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error_type", "match"),
+    (
+        (
+            {
+                "source_id": "",
+                "sequence": 0,
+                "source_event_id": "evt",
+                "payload_fingerprint": "fp",
+            },
+            ValueError,
+            "source_id",
+        ),
+        (
+            {
+                "source_id": "source",
+                "sequence": True,
+                "source_event_id": "evt",
+                "payload_fingerprint": "fp",
+            },
+            TypeError,
+            "sequence",
+        ),
+        (
+            {
+                "source_id": "source",
+                "sequence": -1,
+                "source_event_id": "evt",
+                "payload_fingerprint": "fp",
+            },
+            ValueError,
+            "negative",
+        ),
+        (
+            {
+                "source_id": "source",
+                "sequence": 0,
+                "source_event_id": "",
+                "payload_fingerprint": "fp",
+            },
+            ValueError,
+            "source_event_id",
+        ),
+        (
+            {
+                "source_id": "source",
+                "sequence": 0,
+                "source_event_id": "evt",
+                "payload_fingerprint": "",
+            },
+            ValueError,
+            "fingerprint",
+        ),
+    ),
+)
+def test_canonical_input_rejects_invalid_identity(
+    kwargs: dict[str, object],
+    error_type: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(error_type, match=match):
+        CanonicalMarketInput(**kwargs)  # type: ignore[arg-type]
+
+
+def test_checkpoint_and_guard_reject_instrument_and_source_mismatches() -> None:
+    item = _inputs(_event(0, source_event_id="evt-0"))[0]
+    engine = CandleEngine(instrument_id=INSTRUMENT)
+    engine.process(item.event)
+    canonical = CanonicalMarketInput.from_replay_input(item)
+
+    with pytest.raises(ValueError, match="candle state instrument"):
+        MarketInputCheckpoint(
+            run=_run(),
+            instrument_id=INSTRUMENT,
+            last_input=canonical,
+            candle_state=CandleEngine(
+                instrument_id=InstrumentId("NSE:OTHER")
+            ).state,
+            updated_at=item.event.received_timestamp,
+        )
+
+    checkpoint = _checkpoint(item, engine.state)
+    with pytest.raises(MarketInputOrderError, match="persisted market-input source"):
+        MarketInputGuard(source_id="other-source", checkpoint=checkpoint)
+    with pytest.raises(ValueError, match="source_id"):
+        MarketInputGuard(source_id="")
+
+    guard = MarketInputGuard(source_id=item.source_id, checkpoint=checkpoint)
+    foreign = CanonicalMarketInput(
+        source_id="foreign-source",
+        sequence=1,
+        source_event_id="evt-1",
+        payload_fingerprint="fp",
+    )
+    with pytest.raises(MarketInputOrderError, match="source identity changed"):
+        guard.classify(foreign)
+
+    foreign_checkpoint = MarketInputCheckpoint(
+        run=_run(),
+        instrument_id=INSTRUMENT,
+        last_input=foreign,
+        candle_state=engine.state,
+        updated_at=item.event.received_timestamp,
+    )
+    with pytest.raises(MarketInputOrderError, match="accepted checkpoint source"):
+        guard.accept(foreign_checkpoint)
