@@ -26,7 +26,6 @@ from signalforge.domain.trades import TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.persistence.repositories import (
-    PostgresArmedSetupRepository,
     PostgresExitRepository,
     PostgresFillRepository,
     PostgresIndicatorCheckpointRepository,
