@@ -56,6 +56,8 @@ def _experiment(
     *,
     strategy_id: str = "intraday_momentum_v1",
     source_id: str | None = None,
+    quantity: int = 10,
+    tick_size: str = "0.10",
 ) -> ExperimentDefinition:
     source = _source(events)
     return ExperimentDefinition.create(
@@ -75,12 +77,12 @@ def _experiment(
         execution=(
             InstrumentExecutionDefinition(
                 instrument_id=INSTRUMENT,
-                quantity=Quantity(10),
+                quantity=Quantity(quantity),
                 tick_schedule=TickSizeSchedule(
                     instrument_id=INSTRUMENT,
                     rules=(
                         TickSizeRule(
-                            tick_size=Price(Decimal("0.10")),
+                            tick_size=Price(Decimal(tick_size)),
                             effective_from=date(2026, 1, 1),
                         ),
                     ),
@@ -133,6 +135,33 @@ def test_v1_golden_backtest_preserves_replay_identity_counts_and_economics() -> 
     assert trade.exit_price == Price(Decimal("156.7"))
     assert trade.realised_pnl == Decimal("2.0")
     assert trade.realised_r == Decimal("0.6666666666666666666666666667")
+
+
+def test_research_identity_scopes_execution_variants_without_changing_legacy_run_id() -> None:
+    events = _events()
+    coarse = BacktestRunner().run(
+        experiment=_experiment(events, tick_size="0.10"),
+        instrument_id=INSTRUMENT,
+        source=_source(events),
+    )
+    fine = BacktestRunner().run(
+        experiment=_experiment(events, tick_size="0.05"),
+        instrument_id=INSTRUMENT,
+        source=_source(events),
+    )
+
+    assert coarse.run.run_id == fine.run.run_id
+    assert coarse.trade_results[0].trade_id == fine.trade_results[0].trade_id
+
+    assert coarse.experiment_id != fine.experiment_id
+    assert coarse.backtest_run_id != fine.backtest_run_id
+    assert (
+        coarse.trade_results[0].backtest_trade_id
+        != fine.trade_results[0].backtest_trade_id
+    )
+    assert coarse.trade_results[0].tradable_target_price != (
+        fine.trade_results[0].tradable_target_price
+    )
 
 
 def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
@@ -222,6 +251,28 @@ def test_rsi_reference_strategy_uses_same_backtest_runner_deterministically() ->
     assert first.strategy.strategy_id == "rsi_mean_reversion_v1"
     assert first.strategy.strategy_version == "1.0.0"
     assert first.source.source_id == second.source.source_id
+
+
+def test_backtest_rejects_off_session_history_before_business_logic() -> None:
+    regular = _events()
+    first = regular[0]
+    off_session = MarketEvent(
+        instrument_id=INSTRUMENT,
+        exchange_timestamp=first.exchange_timestamp.replace(hour=9, minute=0),
+        received_timestamp=first.received_timestamp.replace(hour=9, minute=0),
+        price=first.price,
+        quantity=1,
+        source="off-session",
+        source_event_id="off-session",
+    )
+    events = (off_session, *regular)
+
+    with pytest.raises(ValueError, match="outside the canonical NSE regular-session"):
+        BacktestRunner().run(
+            experiment=_experiment(events),
+            instrument_id=INSTRUMENT,
+            source=_source(events),
+        )
 
 
 def test_backtest_rejects_market_data_that_contradicts_dataset_source() -> None:
