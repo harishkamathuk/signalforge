@@ -36,7 +36,7 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler, RecoveryCandle
-from signalforge.runtime.indicators import IndicatorEngine, V1_INDICATOR_REQUIREMENTS
+from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
 from signalforge.runtime.recovery import RecoveryBootstrap
@@ -48,10 +48,7 @@ from tests.integration.persistence.test_recovery_postgres import (
     _persist_armed_graph,
     _persist_open_graph,
 )
-from tests.integration.persistence.test_repository_adapters_postgres import (
-    _transition,
-    facts,
-)
+from tests.integration.persistence.test_repository_adapters_postgres import facts
 
 INSTRUMENT = InstrumentId("NSE:SF045B")
 
@@ -324,7 +321,10 @@ def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
     assert final.lifecycle.position.state is PositionState.OPEN
     assert final.lifecycle.trade.entry_price == snapshot.execution.fill.fill_price
     assert final.lifecycle.trade.risk_per_share == snapshot.open_result.trade.risk_per_share
-    assert final.lifecycle.trade.tradable_target_price == snapshot.open_result.trade.tradable_target_price
+    assert (
+        final.lifecycle.trade.tradable_target_price
+        == snapshot.open_result.trade.tradable_target_price
+    )
 
 
 def test_armed_restart_expires_and_terminal_history_does_not_rearm(
