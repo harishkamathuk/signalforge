@@ -34,6 +34,35 @@ State relevant work deliberately not included.
 
 If an item is not applicable, explain why below rather than silently ignoring it.
 
+## Boundary & determinism review
+
+Applicable: **No / Yes**
+
+Complete this section when the change introduces or materially changes a serialization,
+configuration, persistence, market-data, broker/API, identity/hash, timestamp/timezone, numeric,
+or filesystem/data-source boundary.
+
+For applicable boundaries, consider where relevant:
+
+- [ ] precision loss
+- [ ] canonicalization
+- [ ] round-trip fidelity
+- [ ] deterministic ordering
+- [ ] timezone normalization
+- [ ] duplicate / ambiguous values
+- [ ] large / small magnitude boundaries
+- [ ] invalid-but-parseable inputs
+- [ ] identity collisions
+- [ ] ambient/global-context sensitivity
+
+Ask explicitly: **What information can be lost, changed, collapsed, reordered or interpreted
+differently as data crosses this boundary?**
+
+Evidence / focused invariant tests:
+
+If no new or materially changed boundary exists, state that explicitly rather than manufacturing
+irrelevant checks.
+
 ## Adversarial review findings
 
 Record every material finding discovered during implementation or review.
