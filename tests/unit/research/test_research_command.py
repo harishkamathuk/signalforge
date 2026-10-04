@@ -63,16 +63,16 @@ def test_golden_research_command_returns_full_deterministic_result() -> None:
     assert [trade["instrument_id"] for trade in trades] == ["NSE:AAA", "NSE:BBB"]
     assert all(trade["entry_price"] == "156.5" for trade in trades)
     assert all(trade["stop_price"] == "156.2" for trade in trades)
-    assert all(trade["tradable_target_price"] == "157.0" for trade in trades)
+    assert all(trade["tradable_target_price"] == "157" for trade in trades)
     assert all(trade["exit_price"] == "156.7" for trade in trades)
-    assert all(trade["realised_pnl"] == "2.0" for trade in trades)
+    assert all(trade["realised_pnl"] == "2" for trade in trades)
 
     analytics = first["analytics"]
     assert isinstance(analytics, dict)
     assert analytics["economics_basis"] == "gross"
     assert analytics["trade_count"] == 2
     assert analytics["wins"] == 2
-    assert analytics["gross_pnl"] == "4.0"
+    assert analytics["gross_pnl"] == "4"
     assert analytics["profit_factor"] is None
 
 
