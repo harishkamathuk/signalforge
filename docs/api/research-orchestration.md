@@ -12,8 +12,10 @@ Before the first instrument runs, the orchestrator validates that the supplied s
 exactly matches the experiment universe and that each source identity matches the corresponding
 dataset provenance.
 
-Each instrument then runs independently through `BacktestRunner`. A failure aborts the experiment
-and identifies the instrument that failed; SF-070 does not return a partial experiment result.
+Each instrument then runs independently through `BacktestRunner`. Expected backtest/input
+validation failures (`ValueError`) abort the experiment and are wrapped with the instrument that
+failed; SF-070 does not return a partial experiment result. Unexpected internal exceptions are not
+reclassified as research-input failures and propagate unchanged for diagnosis.
 
 ## Experiment result
 
@@ -44,9 +46,12 @@ This ordering is for deterministic dataset representation only.
 All SF-070 economics are explicitly **gross**. Brokerage, taxes, exchange charges, slippage beyond
 the existing paper-fill semantics, and other transaction costs are not deducted.
 
-Finite Decimal sums are accumulated with sufficient local precision to avoid intermediate
-rounding. Ratio metrics (win rate, expectancy R and profit factor) use a canonical
-28-significant-digit Decimal context, independent of the caller's ambient Decimal context.
+Finite Decimal sums are accumulated with local precision derived from the full coefficient and
+exponent span of the inputs, plus carry guard digits. This preserves small values even when trade
+magnitudes differ by many orders (for example `1E+70 + 1`). Maximum-drawdown accumulation uses
+the same exact-accumulation precision rule. Ratio metrics (win rate, expectancy R and profit
+factor) use a canonical 28-significant-digit Decimal context, independent of the caller's ambient
+Decimal context.
 
 ### Trade counts
 
