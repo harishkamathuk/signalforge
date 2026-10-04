@@ -9,8 +9,8 @@ from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, Stra
 from signalforge.domain.ids import ExperimentId, InstrumentId
 from signalforge.research.analytics import ResearchAnalytics, calculate_analytics
 from signalforge.research.backtest import (
-    BacktestRunResult,
     BacktestRunner,
+    BacktestRunResult,
     BacktestTradeResult,
 )
 from signalforge.research.contracts import ExperimentDefinition
@@ -105,8 +105,8 @@ class ResearchOrchestrator:
         expected = set(experiment.universe.instruments)
         actual = set(sources)
         if actual != expected:
-            missing = sorted((str(item) for item in expected - actual))
-            extra = sorted((str(item) for item in actual - expected))
+            missing = sorted(str(item) for item in expected - actual)
+            extra = sorted(str(item) for item in actual - expected)
             raise ResearchExperimentError(
                 "Research sources must exactly match experiment universe "
                 f"(missing={missing}, extra={extra})"
