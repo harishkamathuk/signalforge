@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "fills",
     "indicator_checkpoints",
     "lifecycle_state",
+    "market_input_checkpoints",
     "positions",
     "position_open_outcomes",
     "runs",
