@@ -122,12 +122,14 @@ def test_restart_safe_identity_requires_source_event_id() -> None:
         CanonicalMarketInput.from_replay_input(item)
 
 
-def test_guard_requires_sequence_zero_without_checkpoint() -> None:
+def test_guard_accepts_source_defined_initial_cursor_without_checkpoint() -> None:
     inputs = _inputs(
         _event(0, source_event_id="evt-0"),
         _event(1, source_event_id="evt-1"),
     )
     guard = MarketInputGuard(source_id=inputs[0].source_id)
 
-    with pytest.raises(MarketInputOrderError, match="sequence zero"):
+    assert (
         guard.classify(CanonicalMarketInput.from_replay_input(inputs[1]))
+        is MarketInputDisposition.ACCEPT
+    )
