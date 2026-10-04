@@ -44,6 +44,7 @@ from signalforge.persistence.models import (
     ExitRecord,
     FillRecord,
     IndicatorCheckpointRecord,
+    MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
@@ -55,6 +56,7 @@ from signalforge.persistence.models import (
     TriggerEventRecord,
 )
 from signalforge.runtime.adx import AdxState
+from signalforge.runtime.candles import CandleEngineState
 from signalforge.runtime.ema import EmaState
 from signalforge.runtime.indicators import (
     V1_INDICATOR_REQUIREMENTS,
@@ -62,7 +64,125 @@ from signalforge.runtime.indicators import (
     IndicatorEngineState,
 )
 from signalforge.runtime.macd import MacdState
+from signalforge.runtime.market_input import (
+    CanonicalMarketInput,
+    MarketInputCheckpoint,
+)
 from signalforge.runtime.rsi import RsiState
+
+
+
+
+
+def market_input_checkpoint_record_from_domain(
+    checkpoint: MarketInputCheckpoint,
+) -> MarketInputCheckpointRecord:
+    """Map restart-safe input progress and forming-candle state to persistence."""
+
+    state = checkpoint.candle_state
+    interval = state.active_interval
+    payload: dict[str, object] = {
+        "last_emitted_end": (
+            None if state.last_emitted_end is None else state.last_emitted_end.isoformat()
+        ),
+        "active_interval_start": None if interval is None else interval.start.isoformat(),
+        "active_interval_end": None if interval is None else interval.end.isoformat(),
+        "source": state.source,
+        "open": None if state.open is None else str(state.open.value),
+        "high": None if state.high is None else str(state.high.value),
+        "low": None if state.low is None else str(state.low.value),
+        "close": None if state.close is None else str(state.close.value),
+        "volume": state.volume,
+        "source_event_count": state.source_event_count,
+    }
+    return MarketInputCheckpointRecord(
+        run_id=str(checkpoint.run.run_id),
+        instrument_id=str(checkpoint.instrument_id),
+        source_id=checkpoint.last_input.source_id,
+        sequence=checkpoint.last_input.sequence,
+        source_event_id=checkpoint.last_input.source_event_id,
+        payload_fingerprint=checkpoint.last_input.payload_fingerprint,
+        candle_state_payload=payload,
+        updated_at=checkpoint.updated_at,
+    )
+
+
+def market_input_checkpoint_from_record(
+    record: MarketInputCheckpointRecord,
+    run: RunIdentity,
+) -> MarketInputCheckpoint:
+    """Restore exact market-input progress and validated forming-candle state."""
+
+    payload = record.candle_state_payload
+    raw_start = payload.get("active_interval_start")
+    raw_end = payload.get("active_interval_end")
+    if (raw_start is None) != (raw_end is None):
+        raise ValueError("Persisted CandleEngineState interval is incomplete")
+    interval = None
+    if raw_start is not None:
+        if not isinstance(raw_start, str) or not isinstance(raw_end, str):
+            raise ValueError("Persisted CandleEngineState interval is invalid")
+        from datetime import datetime
+
+        interval = CandleInterval(
+            datetime.fromisoformat(raw_start),
+            datetime.fromisoformat(raw_end),
+        )
+
+    raw_last_end = payload.get("last_emitted_end")
+    if raw_last_end is not None and not isinstance(raw_last_end, str):
+        raise ValueError("Persisted CandleEngineState last boundary is invalid")
+    if raw_last_end is None:
+        last_end = None
+    else:
+        from datetime import datetime
+
+        last_end = datetime.fromisoformat(raw_last_end)
+
+    def price_value(name: str) -> Price | None:
+        raw = payload.get(name)
+        if raw is None:
+            return None
+        if not isinstance(raw, str):
+            raise ValueError(f"Persisted CandleEngineState {name} is invalid")
+        return Price(Decimal(raw))
+
+    raw_volume = payload.get("volume")
+    if raw_volume is not None and (
+        isinstance(raw_volume, bool) or not isinstance(raw_volume, int)
+    ):
+        raise ValueError("Persisted CandleEngineState volume is invalid")
+    raw_count = payload.get("source_event_count")
+    if isinstance(raw_count, bool) or not isinstance(raw_count, int):
+        raise ValueError("Persisted CandleEngineState event count is invalid")
+    raw_source = payload.get("source")
+    if raw_source is not None and not isinstance(raw_source, str):
+        raise ValueError("Persisted CandleEngineState source is invalid")
+
+    state = CandleEngineState(
+        instrument_id=InstrumentId(record.instrument_id),
+        active_interval=interval,
+        source=raw_source,
+        open=price_value("open"),
+        high=price_value("high"),
+        low=price_value("low"),
+        close=price_value("close"),
+        volume=raw_volume,
+        source_event_count=raw_count,
+        last_emitted_end=last_end,
+    )
+    return MarketInputCheckpoint(
+        run=run,
+        instrument_id=InstrumentId(record.instrument_id),
+        last_input=CanonicalMarketInput(
+            source_id=record.source_id,
+            sequence=record.sequence,
+            source_event_id=record.source_event_id,
+            payload_fingerprint=record.payload_fingerprint,
+        ),
+        candle_state=state,
+        updated_at=record.updated_at,
+    )
 
 
 def strategy_config_record_from_domain(run: RunIdentity) -> StrategyConfigRecord:
