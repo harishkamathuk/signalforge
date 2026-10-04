@@ -142,6 +142,14 @@ class MarketInputGuard:
             raise MarketInputOrderError("market-input sequence regressed")
         if item.sequence != last.sequence + 1:
             raise MarketInputOrderError("market-input sequence gap cannot be proven safe")
+        if item.source_event_id == last.source_event_id:
+            if item.payload_fingerprint != last.payload_fingerprint:
+                raise MarketInputOrderError(
+                    "re-sequenced market-input event contradicts persisted payload"
+                )
+            raise MarketInputOrderError(
+                "re-sequenced redelivery of last accepted market event is not safe"
+            )
         return MarketInputDisposition.ACCEPT
 
     def accept(self, checkpoint: MarketInputCheckpoint) -> None:
