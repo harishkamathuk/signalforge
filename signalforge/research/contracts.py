@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Self
 
 from signalforge.config.identity import ConfigIdentity, config_hash
@@ -16,6 +16,7 @@ from signalforge.domain.ids import DatasetId, ExperimentId, InstrumentId, Univer
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.money import Quantity
 from signalforge.domain.provenance import StrategyIdentity
+from signalforge.domain.time import to_ist, to_utc
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +72,12 @@ class DatasetDefinition:
             raise ValueError("Research dataset must contain one source per instrument")
         _require_aware(self.start_at, "start_at")
         _require_aware(self.end_at, "end_at")
-        if self.end_at <= self.start_at:
+        start_at = to_utc(self.start_at)
+        end_at = to_utc(self.end_at)
+        if end_at <= start_at:
             raise ValueError("Research dataset end_at must be after start_at")
+        object.__setattr__(self, "start_at", start_at)
+        object.__setattr__(self, "end_at", end_at)
         object.__setattr__(
             self,
             "sources",
@@ -175,6 +180,15 @@ class ExperimentDefinition:
         if execution_set != universe_set:
             raise ValueError("Research execution instruments must exactly match universe")
 
+        start_date = to_ist(dataset.start_at).date()
+        end_date = to_ist(dataset.end_at).date()
+        for item in ordered_execution:
+            _require_tick_schedule_coverage(
+                item.tick_schedule,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
         config_identity = strategy.config_identity
         digest = config_hash(
             {
@@ -202,3 +216,42 @@ class ExperimentDefinition:
 def _require_aware(value: datetime, field: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"Research dataset {field} must be timezone-aware")
+
+
+def _require_tick_schedule_coverage(
+    schedule: TickSizeSchedule,
+    *,
+    start_date: date,
+    end_date: date,
+) -> None:
+    """Fail before replay when effective tick rules do not cover the research range."""
+
+    rules = schedule.rules
+    first = rules[0]
+    if first.effective_from > start_date:
+        raise ValueError(
+            f"Tick-size schedule for {schedule.instrument_id} does not cover "
+            f"research start date {start_date.isoformat()}"
+        )
+
+    covered_until = first.effective_to
+    if covered_until is None:
+        return
+
+    for rule in rules[1:]:
+        if rule.effective_from > covered_until + timedelta(days=1):
+            gap_start = covered_until + timedelta(days=1)
+            raise ValueError(
+                f"Tick-size schedule for {schedule.instrument_id} has uncovered date "
+                f"{gap_start.isoformat()}"
+            )
+        if rule.effective_to is None:
+            return
+        if rule.effective_to > covered_until:
+            covered_until = rule.effective_to
+
+    if covered_until < end_date:
+        raise ValueError(
+            f"Tick-size schedule for {schedule.instrument_id} does not cover "
+            f"research end date {end_date.isoformat()}"
+        )
