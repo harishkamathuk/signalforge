@@ -19,6 +19,7 @@ from signalforge.domain.ids import InstrumentId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import PositionState
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import TradeState
@@ -223,13 +224,20 @@ def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
         for item in transitions
         if item.entity_type is TransitionEntityType.POSITION and item.to_state == "open"
     )
-    outcome = snapshot.open_result.outcome
-    assert outcome is not None
+    trigger = coordinator.signal_lifecycle.trigger_event
+    assert trigger is not None
+    outcome = PositionOpenOutcome.create(
+        fill_id=snapshot.execution.fill.fill_id,
+        signal_id=snapshot.execution.fill.signal_id,
+        outcome=PositionOpenOutcomeType.OPENED,
+        decided_at=snapshot.execution.fill.filled_at,
+        run=value.run,
+    )
 
     with Session(postgres_engine) as session:
         persistence = PersistenceCoordinator(session)
         persistence.persist_trigger_intent(
-            trigger=coordinator.signal_lifecycle.trigger_event,
+            trigger=trigger,
             intent=snapshot.execution.entry_intent,
             setup=snapshot.arming.armed_setup,
             setup_transition=trigger_transition,
