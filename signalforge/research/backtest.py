@@ -219,7 +219,8 @@ class BacktestRunner:
             strategy=strategy,
             evaluation_context_factory=context_factory,
         )
-        steps = ReplaySessionClock(runtime=runtime).run_all()
+        clock = ReplaySessionClock(runtime=runtime)
+        steps = (clock.process_input(replay_input) for replay_input in runtime.source)
         return self._project_result(
             runtime=runtime,
             steps=steps,
@@ -245,7 +246,7 @@ class BacktestRunner:
     def _project_result(
         *,
         runtime: ReplayRuntime,
-        steps: tuple[ReplayClockStep, ...],
+        steps: Iterable[ReplayClockStep],
         config: ConfigIdentity,
     ) -> BacktestRunResult:
         evaluations: list[StrategyDecision] = []
