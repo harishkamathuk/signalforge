@@ -44,6 +44,10 @@ This ordering is for deterministic dataset representation only.
 All SF-070 economics are explicitly **gross**. Brokerage, taxes, exchange charges, slippage beyond
 the existing paper-fill semantics, and other transaction costs are not deducted.
 
+Finite Decimal sums are accumulated with sufficient local precision to avoid intermediate
+rounding. Ratio metrics (win rate, expectancy R and profit factor) use a canonical
+28-significant-digit Decimal context, independent of the caller's ambient Decimal context.
+
 ### Trade counts
 
 `trade_count` counts every projected trade row, including a trade that remains OPEN at the end of
