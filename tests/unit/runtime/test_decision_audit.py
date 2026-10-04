@@ -18,7 +18,7 @@ from signalforge.runtime.decision_audit import (
     project_v1_decision,
 )
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
-from signalforge.runtime.eligibility import EvaluationGuardReason, EvaluationGuardResult
+from signalforge.runtime.eligibility import EvaluationGuardResult
 from signalforge.runtime.strategy_evaluator import StrategyEvaluatorResult
 
 INSTRUMENT = InstrumentId("NSE:DECISION")
@@ -88,8 +88,9 @@ def test_v1_projection_accepts_shared_runtime_result_without_changing_fact() -> 
     runtime_result = StrategyEvaluatorResult(
         evaluation=evaluation,
         guard=EvaluationGuardResult(
+            eligible=True,
             actionable=True,
-            reasons=(EvaluationGuardReason.ACTIONABLE,),
+            reasons=(),
         ),
     )
 
