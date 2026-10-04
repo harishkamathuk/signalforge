@@ -340,3 +340,126 @@ def test_trigger_open_and_exit_survive_restart_without_duplicate_market_effects(
         )
         assert checkpoint is not None
         assert checkpoint.last_input.sequence == 1
+
+
+def _forming_events() -> tuple[MarketEvent, ...]:
+    base = datetime(2026, 10, 4, 11, 0, tzinfo=IST)
+    return tuple(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=base + timedelta(minutes=minute),
+            received_timestamp=base + timedelta(minutes=minute, milliseconds=1),
+            price=Price(Decimal(price)),
+            quantity=quantity,
+            source="sf067-forming",
+            source_event_id=f"forming-{minute}",
+        )
+        for minute, price, quantity in (
+            (0, "100", 2),
+            (1, "103", 3),
+            (3, "99", 5),
+            (5, "102", 7),
+        )
+    )
+
+
+def test_mid_candle_restart_converges_to_exact_completed_candle_and_indicator_state(
+    postgres_engine: Engine,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy, f"forming-{uuid4().hex[:8]}")
+    events = _forming_events()
+    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+
+    reference = _runtime(source=source, run=run, strategy=strategy)
+    reference_steps = tuple(reference.process_input(item) for item in source)
+    expected_candle = reference_steps[-1].completed_candle
+    assert expected_candle is not None
+    expected_indicator_state = reference.indicator_engine.state
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        session.commit()
+
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(source=source, run=run, strategy=strategy),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+    inputs = tuple(source)
+    for item in inputs[:3]:
+        result = durable.process_input(item)
+        assert not result.duplicate
+        assert result.replay_step is not None
+        assert result.replay_step.completed_candle is None
+
+    recovered = _recover_runtime(
+        postgres_engine,
+        source=source,
+        run=run,
+        strategy=strategy,
+    )
+    duplicate = recovered.process_input(inputs[2])
+    assert duplicate.duplicate
+
+    boundary = recovered.process_input(inputs[3])
+    assert not boundary.duplicate
+    assert boundary.replay_step is not None
+    assert boundary.replay_step.completed_candle == expected_candle
+    assert recovered.runtime.indicator_engine.state == expected_indicator_state
+
+    with Session(postgres_engine) as observer:
+        checkpoint = PostgresMarketInputCheckpointRepository(observer).get(
+            run.run_id, INSTRUMENT
+        )
+        assert checkpoint is not None
+        assert checkpoint.last_input.sequence == 3
+        assert checkpoint.candle_state == recovered.runtime.candle_engine.state
+
+
+def test_persistence_failure_terminalizes_mutated_runtime_and_rolls_back_checkpoint(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from signalforge.persistence.repositories import PostgresMarketInputCheckpointRepository
+
+    strategy = _strategy()
+    run = _run(strategy, f"failure-{uuid4().hex[:8]}")
+    source = InMemoryReplaySource(
+        instrument_id=INSTRUMENT,
+        events=_forming_events()[:2],
+    )
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        session.commit()
+
+    original = PostgresMarketInputCheckpointRepository.upsert
+
+    def fail_after_write(self, run_arg, checkpoint):
+        original(self, run_arg, checkpoint)
+        raise RuntimeError("injected market-input persistence failure")
+
+    monkeypatch.setattr(PostgresMarketInputCheckpointRepository, "upsert", fail_after_write)
+
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(source=source, run=run, strategy=strategy),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+    inputs = tuple(source)
+    with pytest.raises(RuntimeError, match="injected"):
+        durable.process_input(inputs[0])
+    assert durable.terminal
+
+    with Session(postgres_engine) as observer:
+        assert (
+            PostgresMarketInputCheckpointRepository(observer).get(
+                run.run_id, INSTRUMENT
+            )
+            is None
+        )
+
+    from signalforge.runtime.restart_safe_replay import RestartSafeReplayError
+
+    with pytest.raises(RestartSafeReplayError, match="terminal"):
+        durable.process_input(inputs[1])
