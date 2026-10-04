@@ -12,17 +12,27 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
-from signalforge.domain.armed import ArmedSetupState
+from signalforge.domain.armed import ArmedSetup, ArmedSetupState
 from signalforge.domain.audit import TransitionEntityType
-from signalforge.domain.exits import ExitReason
-from signalforge.domain.ids import InstrumentId
+from signalforge.domain.execution import EntryIntent, ExecutionMode, Fill, TriggerEvent
+from signalforge.domain.exits import Exit, ExitReason
+from signalforge.domain.ids import FillId, InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
-from signalforge.domain.positions import PositionState
+from signalforge.domain.positions import Position, PositionState
+from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.signals import Signal
+from signalforge.domain.strategy import (
+    DecisionReason,
+    MomentumResult,
+    SetupResult,
+    StrategyEvaluation,
+    TrendResult,
+)
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.domain.trades import TradeState
+from signalforge.domain.trades import Trade, TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.persistence.repositories import (
@@ -35,6 +45,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler, RecoveryCandle
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
@@ -48,7 +59,7 @@ from tests.integration.persistence.test_recovery_postgres import (
     _persist_armed_graph,
     _persist_open_graph,
 )
-from tests.integration.persistence.test_repository_adapters_postgres import facts
+from tests.integration.persistence.test_repository_adapters_postgres import Facts, _transition
 
 INSTRUMENT = InstrumentId("NSE:SF045B")
 
@@ -73,6 +84,130 @@ def _schedule() -> TickSizeSchedule:
     return TickSizeSchedule(
         instrument_id=INSTRUMENT,
         rules=(TickSizeRule(Price(Decimal("0.05")), date(2026, 1, 1)),),
+    )
+
+
+def _facts(suffix: str) -> Facts:
+    strategy = _strategy()
+    run = RunIdentity(
+        run_id=RunId(f"sf053-run-{suffix}"),
+        strategy=strategy.identity,
+        config_id=strategy.config_identity.config_id,
+        config_hash=strategy.config_identity.config_hash,
+        engine_calculation_version="engine-v1",
+    )
+    at = datetime(2026, 9, 1, 10, 0, tzinfo=IST)
+    interval = CandleInterval.five_minutes(at)
+    evaluation = StrategyEvaluation(
+        instrument_id=INSTRUMENT,
+        interval=interval,
+        trend=TrendResult(True),
+        momentum=MomentumResult(True, True, True, None),
+        setup=SetupResult(True),
+        qualified=True,
+        actionable=True,
+        reasons=(DecisionReason.QUALIFIED, DecisionReason.ACTIONABLE),
+    )
+    signal = Signal.create(
+        instrument_id=INSTRUMENT,
+        interval=interval,
+        signal_close=Price(Decimal("101.00")),
+        signal_low=Price(Decimal("100.00")),
+        run=run,
+        created_at=interval.end,
+    )
+    setup = ArmedSetup(
+        signal_id=signal.signal_id,
+        raw_trigger=Price(Decimal("101.101")),
+        tradable_trigger=Price(Decimal("101.15")),
+        signal_low=signal.signal_low,
+        armed_at=interval.end,
+        valid_until=interval.end + timedelta(minutes=5),
+    )
+    trigger = TriggerEvent.create(
+        signal_id=signal.signal_id,
+        instrument_id=INSTRUMENT,
+        reference_price=setup.tradable_trigger,
+        observed_price=Price(Decimal("101.20")),
+        observed_at=interval.end + timedelta(minutes=1),
+        run=run,
+    )
+    intent = EntryIntent.create(
+        trigger_event_id=trigger.trigger_event_id,
+        signal_id=signal.signal_id,
+        instrument_id=INSTRUMENT,
+        reference_price=trigger.reference_price,
+        quantity=Quantity(10),
+        execution_mode=ExecutionMode.PAPER,
+        created_at=trigger.observed_at,
+        run=run,
+    )
+    fill = Fill.create(
+        entry_intent_id=intent.entry_intent_id,
+        trigger_event_id=trigger.trigger_event_id,
+        signal_id=signal.signal_id,
+        instrument_id=INSTRUMENT,
+        reference_price=trigger.reference_price,
+        fill_price=trigger.observed_price,
+        quantity=intent.quantity,
+        execution_mode=intent.execution_mode,
+        filled_at=trigger.observed_at,
+        run=run,
+    )
+    trade = Trade.open_from_fill(
+        entry_fill=fill,
+        stop_price=signal.signal_low,
+        raw_target_price=Price(Decimal("103.00")),
+        tradable_target_price=Price(Decimal("103.00")),
+    )
+    position = Position.open_from_trade(trade=trade)
+    exit_fact = Exit.create(
+        trade=trade,
+        position=position,
+        exit_fill_id=FillId(f"sf053-exit-fill-{suffix}"),
+        reason=ExitReason.TARGET,
+        reference_price=trade.tradable_target_price,
+        fill_price=Price(Decimal("103.10")),
+        quantity=trade.quantity,
+        execution_mode=ExecutionMode.PAPER,
+        exited_at=fill.filled_at + timedelta(minutes=5),
+    )
+    transition = _transition(
+        Facts(
+            run=run,
+            evaluation=evaluation,
+            decision_fact=project_v1_decision(evaluation),
+            signal=signal,
+            setup=setup,
+            trigger=trigger,
+            intent=intent,
+            fill=fill,
+            trade=trade,
+            position=position,
+            exit_fact=exit_fact,
+            transition=None,  # type: ignore[arg-type]
+        ),
+        entity=TransitionEntityType.TRADE,
+        entity_id=str(trade.trade_id),
+        before="open",
+        after="closed",
+        cause_type="exit",
+        cause_id=str(exit_fact.exit_id),
+        occurred_at=exit_fact.exited_at,
+    )
+    return Facts(
+        run=run,
+        evaluation=evaluation,
+        decision_fact=project_v1_decision(evaluation),
+        signal=signal,
+        setup=setup,
+        trigger=trigger,
+        intent=intent,
+        fill=fill,
+        trade=trade,
+        position=position,
+        exit_fact=exit_fact,
+        transition=transition,
     )
 
 
@@ -175,7 +310,7 @@ def _uninterrupted_open(value) -> LifecycleCoordinator:
 def test_indicator_warmup_restart_converges_to_full_recursive_state(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf053-warmup-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-warmup-{uuid4().hex[:8]}")
     candles = _indicator_candles(40)
 
     reference = IndicatorEngine(
@@ -219,7 +354,7 @@ def test_indicator_warmup_restart_converges_to_full_recursive_state(
 def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf053-armed-open-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-armed-open-{uuid4().hex[:8]}")
     _persist_armed_graph(postgres_engine, value)
 
     recovered, coordinator = _recover_coordinator(postgres_engine, value)
@@ -330,7 +465,7 @@ def test_armed_restart_triggers_opens_and_persists_deterministic_graph(
 def test_armed_restart_expires_and_terminal_history_does_not_rearm(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf053-expiry-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-expiry-{uuid4().hex[:8]}")
     _persist_armed_graph(postgres_engine, value)
 
     _, coordinator = _recover_coordinator(postgres_engine, value)
@@ -404,7 +539,7 @@ def test_open_restart_exits_persist_and_remain_terminal(
     forced: bool,
     reason: ExitReason,
 ) -> None:
-    value = facts(f"sf053-exit-{reason.value}-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-exit-{reason.value}-{uuid4().hex[:8]}")
     _persist_open_graph(postgres_engine, value)
     _, coordinator = _recover_coordinator(postgres_engine, value)
     assert coordinator.state is LifecycleState.OPEN
@@ -500,7 +635,7 @@ def test_open_restart_exits_persist_and_remain_terminal(
 def test_pending_trigger_intent_without_fill_remains_fail_closed(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf053-pending-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-pending-{uuid4().hex[:8]}")
     _persist_trigger_group(postgres_engine, value)
 
     with Session(postgres_engine) as session:
@@ -519,7 +654,7 @@ def test_pending_trigger_intent_without_fill_remains_fail_closed(
 def test_recovery_reads_are_non_mutating_for_active_graph(
     postgres_engine: Engine,
 ) -> None:
-    value = facts(f"sf053-readonly-{uuid4().hex[:8]}")
+    value = _facts(f"sf053-readonly-{uuid4().hex[:8]}")
     _persist_open_graph(postgres_engine, value)
 
     with Session(postgres_engine) as session:
