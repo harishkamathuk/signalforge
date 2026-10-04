@@ -296,9 +296,17 @@ def test_trigger_open_and_exit_survive_restart_without_duplicate_market_effects(
         run=run,
         strategy=strategy,
     )
+    candle_before_duplicate = recovered_open.runtime.candle_engine.state
+    indicator_before_duplicate = recovered_open.runtime.indicator_engine.state
+    lifecycle_before_duplicate = recovered_open.runtime.lifecycle.snapshot()
+    checkpoint_before_duplicate = recovered_open.checkpoint
+
     duplicate_trigger = recovered_open.process_input(inputs[0])
     assert duplicate_trigger.duplicate
-    assert recovered_open.runtime.lifecycle.state is LifecycleState.OPEN
+    assert recovered_open.runtime.lifecycle.snapshot() == lifecycle_before_duplicate
+    assert recovered_open.runtime.candle_engine.state == candle_before_duplicate
+    assert recovered_open.runtime.indicator_engine.state == indicator_before_duplicate
+    assert recovered_open.checkpoint == checkpoint_before_duplicate
 
     closed = recovered_open.process_input(inputs[1])
     assert not closed.duplicate
