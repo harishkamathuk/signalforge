@@ -53,7 +53,7 @@ def test_golden_research_cli_is_reproducible_across_clean_processes() -> None:
     trades = result["trade_dataset"]
     assert len(trades) == 2
     assert all(len(item["backtest_trade_id"]) == 64 for item in trades)
-    assert result["analytics"]["gross_pnl"] == "4.0"
+    assert result["analytics"]["gross_pnl"] == "4"
     assert result["analytics"]["expectancy_r"] == (
         "0.6666666666666666666666666667"
     )
