@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -248,8 +249,28 @@ class _ReplaySourceStub:
     def identity(self) -> ReplaySourceIdentity:
         return self._identity
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ReplayInput]:
         return iter(self._inputs)
+
+
+def test_backtest_rejects_source_identity_event_count_mismatch() -> None:
+    events = _events()
+    canonical = _source(events)
+    source = _ReplaySourceStub(
+        identity=ReplaySourceIdentity(
+            source_id=canonical.identity.source_id,
+            instrument_id=INSTRUMENT,
+            event_count=canonical.identity.event_count + 1,
+        ),
+        inputs=tuple(canonical),
+    )
+
+    with pytest.raises(ValueError, match="event_count contradicts"):
+        BacktestRunner().run(
+            experiment=_experiment(events),
+            instrument_id=INSTRUMENT,
+            source=source,
+        )
 
 
 def test_backtest_rejects_event_outside_experiment_range() -> None:
