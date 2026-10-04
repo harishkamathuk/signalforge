@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetup
@@ -21,6 +23,7 @@ from signalforge.persistence.repositories import (
     PostgresExitRepository,
     PostgresFillRepository,
     PostgresIndicatorCheckpointRepository,
+    PostgresMarketInputCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresSignalRepository,
@@ -30,10 +33,94 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import IndicatorEngineState
+from signalforge.runtime.market_input import MarketInputCheckpoint
+
+
+@dataclass(frozen=True, slots=True)
+class MarketInputCommit:
+    """Already-decided durable consequences of one canonical market input."""
+
+    checkpoint: MarketInputCheckpoint
+    indicator_state: IndicatorEngineState | None = None
+    evaluation: StrategyDecisionFact | None = None
+    signal: Signal | None = None
+    setup: ArmedSetup | None = None
+    trigger: TriggerEvent | None = None
+    intent: EntryIntent | None = None
+    fill: Fill | None = None
+    outcome: PositionOpenOutcome | None = None
+    trade: Trade | None = None
+    position: Position | None = None
+    exit_fact: Exit | None = None
+    transitions: tuple[StateTransition, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.intent is not None and self.trigger is None:
+            raise ValueError("MarketInputCommit EntryIntent requires TriggerEvent")
+        if self.fill is not None and self.intent is None:
+            raise ValueError("MarketInputCommit Fill requires EntryIntent")
+        if self.outcome is not None and self.fill is None:
+            raise ValueError("MarketInputCommit outcome requires Fill")
+        if self.outcome is not None:
+            opened = self.outcome.outcome is PositionOpenOutcomeType.OPENED
+            if opened != (self.trade is not None and self.position is not None):
+                raise ValueError(
+                    "MarketInputCommit OPENED outcome requires Trade and Position"
+                )
+        if self.exit_fact is not None and (
+            self.trade is None or self.position is None
+        ):
+            raise ValueError("MarketInputCommit Exit requires Trade and Position")
 
 
 class PersistenceCoordinator:
     """Commit one accepted lifecycle boundary with one caller-provided Session."""
+
+    def persist_market_input(
+        self,
+        *,
+        run: RunIdentity,
+        commit: MarketInputCommit,
+    ) -> MarketInputCheckpoint:
+        """Atomically persist all synchronous durable consequences of one input."""
+
+        if commit.checkpoint.run != run:
+            raise ValueError("MarketInputCommit checkpoint run must match requested run")
+        with self._session.begin():
+            if commit.indicator_state is not None:
+                PostgresIndicatorCheckpointRepository(self._session).upsert(
+                    run, commit.indicator_state
+                )
+            if commit.evaluation is not None:
+                PostgresStrategyDecisionRepository(self._session).append(
+                    run.run_id, commit.evaluation
+                )
+            if commit.signal is not None:
+                PostgresSignalRepository(self._session).append(commit.signal)
+            if commit.trigger is not None:
+                PostgresTriggerEventRepository(self._session).append(commit.trigger)
+            if commit.intent is not None:
+                PostgresEntryIntentRepository(self._session).append(commit.intent)
+            if commit.fill is not None:
+                PostgresFillRepository(self._session).append(commit.fill)
+            if commit.outcome is not None:
+                PostgresPositionOpenOutcomeRepository(self._session).append(commit.outcome)
+            if commit.exit_fact is not None:
+                PostgresExitRepository(self._session).append(commit.exit_fact)
+            if commit.trade is not None:
+                PostgresTradeRepository(self._session).upsert(commit.trade)
+            if commit.position is not None:
+                PostgresPositionRepository(self._session).upsert(commit.position)
+            if commit.setup is not None:
+                PostgresArmedSetupRepository(self._session).upsert(
+                    run.run_id, commit.setup
+                )
+            for transition in commit.transitions:
+                PostgresStateTransitionRepository(self._session).append(transition)
+            checkpoint = PostgresMarketInputCheckpointRepository(self._session).upsert(
+                run, commit.checkpoint
+            )
+        return checkpoint
 
     def persist_completed_evaluation(
         self, *, run: RunIdentity, state: IndicatorEngineState, evaluation: StrategyDecisionFact
