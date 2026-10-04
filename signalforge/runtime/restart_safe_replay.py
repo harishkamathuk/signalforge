@@ -17,6 +17,7 @@ from signalforge.domain.positions import Position
 from signalforge.domain.signals import Signal
 from signalforge.domain.trades import Trade
 from signalforge.persistence.coordinator import MarketInputCommit, PersistenceCoordinator
+from signalforge.runtime.lifecycle import LifecycleSnapshot
 from signalforge.runtime.market_input import (
     CanonicalMarketInput,
     MarketInputCheckpoint,
@@ -170,9 +171,9 @@ class RestartSafeReplayRuntime:
         *,
         checkpoint: MarketInputCheckpoint,
         transitions: tuple[StateTransition, ...],
-        market_snapshot,
-        completed_snapshot,
-        final_snapshot,
+        market_snapshot: LifecycleSnapshot,
+        completed_snapshot: LifecycleSnapshot,
+        final_snapshot: LifecycleSnapshot,
         trigger_after_market: TriggerEvent | None,
         evaluation: StrategyDecision | None,
         completed: bool,
