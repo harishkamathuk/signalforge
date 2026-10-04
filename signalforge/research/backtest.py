@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 
 from signalforge.config.identity import ConfigIdentity
@@ -13,7 +13,10 @@ from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, Stra
 from signalforge.domain.execution import Fill
 from signalforge.domain.exits import Exit, ExitReason
 from signalforge.domain.ids import (
+    BacktestRunId,
+    BacktestTradeId,
     ExitId,
+    ExperimentId,
     FillId,
     InstrumentId,
     RunId,
@@ -23,7 +26,7 @@ from signalforge.domain.ids import (
 )
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
-from signalforge.domain.time import to_utc
+from signalforge.domain.time import to_ist, to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
 from signalforge.runtime.indicators import IndicatorContinuity
@@ -38,6 +41,9 @@ from signalforge.runtime.strategy import StrategyDecision, StrategyRuntimeFacts
 class BacktestTradeResult:
     """One deterministic logical trade projected from canonical runtime facts."""
 
+    experiment_id: ExperimentId
+    backtest_run_id: BacktestRunId
+    backtest_trade_id: BacktestTradeId
     trade_id: TradeId
     entry_fill_id: FillId
     signal_id: SignalId
@@ -58,13 +64,27 @@ class BacktestTradeResult:
     realised_r: Decimal | None
 
     @classmethod
-    def from_runtime(cls, trade: Trade, exit_fact: Exit | None) -> BacktestTradeResult:
+    def from_runtime(
+        cls,
+        *,
+        experiment_id: ExperimentId,
+        backtest_run_id: BacktestRunId,
+        trade: Trade,
+        exit_fact: Exit | None,
+    ) -> BacktestTradeResult:
         """Copy immutable research economics from one observed runtime trade state."""
 
         if exit_fact is None:
             if trade.state is not TradeState.OPEN:
                 raise ValueError("Closed backtest trade requires Exit evidence")
             return cls(
+                experiment_id=experiment_id,
+                backtest_run_id=backtest_run_id,
+                backtest_trade_id=deterministic_id(
+                    BacktestTradeId,
+                    str(backtest_run_id),
+                    str(trade.trade_id),
+                ),
                 trade_id=trade.trade_id,
                 entry_fill_id=trade.entry_fill_id,
                 signal_id=trade.signal_id,
@@ -88,6 +108,13 @@ class BacktestTradeResult:
         if trade.state is not TradeState.CLOSED or trade.exit_id != exit_fact.exit_id:
             raise ValueError("Backtest Exit evidence contradicts Trade terminal state")
         return cls(
+            experiment_id=experiment_id,
+            backtest_run_id=backtest_run_id,
+            backtest_trade_id=deterministic_id(
+                BacktestTradeId,
+                str(backtest_run_id),
+                str(trade.trade_id),
+            ),
             trade_id=trade.trade_id,
             entry_fill_id=trade.entry_fill_id,
             signal_id=trade.signal_id,
@@ -113,6 +140,8 @@ class BacktestTradeResult:
 class BacktestEntryRejection:
     """One explicit filled entry that canonical position mechanics rejected."""
 
+    experiment_id: ExperimentId
+    backtest_run_id: BacktestRunId
     fill_id: FillId
     instrument_id: InstrumentId
     fill_price: Price
@@ -124,6 +153,8 @@ class BacktestEntryRejection:
 class BacktestRunResult:
     """Deterministic result of one independent instrument backtest."""
 
+    experiment_id: ExperimentId
+    backtest_run_id: BacktestRunId
     run: RunIdentity
     source: ReplaySourceIdentity
     strategy: StrategyIdentity
@@ -189,6 +220,12 @@ class BacktestRunner:
             source.identity.source_id,
             experiment.engine_calculation_version,
         )
+        backtest_run_id = deterministic_id(
+            BacktestRunId,
+            str(experiment.experiment_id),
+            str(instrument_id),
+            source.identity.source_id,
+        )
         run = RunIdentity(
             run_id=run_id,
             strategy=strategy.identity,
@@ -229,6 +266,8 @@ class BacktestRunner:
             runtime=runtime,
             steps=steps,
             config=strategy.config_identity,
+            experiment_id=experiment.experiment_id,
+            backtest_run_id=backtest_run_id,
         )
 
     @staticmethod
@@ -247,6 +286,12 @@ class BacktestRunner:
             event_at = to_utc(event.exchange_timestamp)
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
+            event_time_ist = to_ist(event.exchange_timestamp).time().replace(tzinfo=None)
+            if not (_NSE_SESSION_OPEN <= event_time_ist <= _NSE_SESSION_BOUNDARY):
+                raise ValueError(
+                    "Backtest market event falls outside the canonical NSE regular-session "
+                    "input window"
+                )
             yield replay_input
 
     @staticmethod
@@ -255,6 +300,8 @@ class BacktestRunner:
         runtime: ReplayRuntime,
         steps: Iterable[ReplayClockStep],
         config: ConfigIdentity,
+        experiment_id: ExperimentId,
+        backtest_run_id: BacktestRunId,
     ) -> BacktestRunResult:
         evaluations: list[StrategyDecision] = []
         trades: dict[TradeId, BacktestTradeResult] = {}
@@ -277,7 +324,12 @@ class BacktestRunner:
                 fill = execution.fill
                 rejections.setdefault(
                     fill.fill_id,
-                    _rejection(fill, open_result.rejection),
+                    _rejection(
+                        experiment_id=experiment_id,
+                        backtest_run_id=backtest_run_id,
+                        fill=fill,
+                        reason=open_result.rejection,
+                    ),
                 )
                 continue
 
@@ -285,8 +337,10 @@ class BacktestRunner:
             if trade is None:
                 raise RuntimeError("Opened lifecycle result is missing Trade")
             trades[trade.trade_id] = BacktestTradeResult.from_runtime(
-                trade,
-                lifecycle.exit,
+                experiment_id=experiment_id,
+                backtest_run_id=backtest_run_id,
+                trade=trade,
+                exit_fact=lifecycle.exit,
             )
 
         if processed_inputs != runtime.source.identity.event_count:
@@ -312,6 +366,8 @@ class BacktestRunner:
             for transition in transitions
         )
         return BacktestRunResult(
+            experiment_id=experiment_id,
+            backtest_run_id=backtest_run_id,
             run=runtime.run,
             source=runtime.source.identity,
             strategy=runtime.strategy.identity,
@@ -333,11 +389,23 @@ class BacktestRunner:
         )
 
 
-def _rejection(fill: Fill, reason: PositionOpenRejection) -> BacktestEntryRejection:
+def _rejection(
+    *,
+    experiment_id: ExperimentId,
+    backtest_run_id: BacktestRunId,
+    fill: Fill,
+    reason: PositionOpenRejection,
+) -> BacktestEntryRejection:
     return BacktestEntryRejection(
+        experiment_id=experiment_id,
+        backtest_run_id=backtest_run_id,
         fill_id=fill.fill_id,
         instrument_id=fill.instrument_id,
         fill_price=fill.fill_price,
         filled_at=fill.filled_at,
         reason=reason,
     )
+
+
+_NSE_SESSION_OPEN = time(9, 15)
+_NSE_SESSION_BOUNDARY = time(15, 30)
