@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
@@ -71,9 +72,6 @@ from signalforge.runtime.market_input import (
 from signalforge.runtime.rsi import RsiState
 
 
-
-
-
 def market_input_checkpoint_record_from_domain(
     checkpoint: MarketInputCheckpoint,
 ) -> MarketInputCheckpointRecord:
@@ -122,8 +120,6 @@ def market_input_checkpoint_from_record(
     if raw_start is not None:
         if not isinstance(raw_start, str) or not isinstance(raw_end, str):
             raise ValueError("Persisted CandleEngineState interval is invalid")
-        from datetime import datetime
-
         interval = CandleInterval(
             datetime.fromisoformat(raw_start),
             datetime.fromisoformat(raw_end),
@@ -135,8 +131,6 @@ def market_input_checkpoint_from_record(
     if raw_last_end is None:
         last_end = None
     else:
-        from datetime import datetime
-
         last_end = datetime.fromisoformat(raw_last_end)
 
     def price_value(name: str) -> Price | None:
