@@ -41,6 +41,16 @@ class ExperimentId(_IdBase):
 
 
 @dataclass(frozen=True, slots=True)
+class BacktestRunId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestTradeId(_IdBase):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigId(_IdBase):
     pass
 
