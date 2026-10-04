@@ -126,10 +126,6 @@ class MarketInputGuard:
             raise MarketInputOrderError("market-input source identity changed unexpectedly")
         checkpoint = self._checkpoint
         if checkpoint is None:
-            if item.sequence != 0:
-                raise MarketInputOrderError(
-                    "restart-safe market input must begin at sequence zero"
-                )
             return MarketInputDisposition.ACCEPT
 
         last = checkpoint.last_input
