@@ -117,12 +117,8 @@ def _require_realised_r(trade: BacktestTradeResult) -> Decimal:
 def _maximum_drawdown_r(rs: tuple[Decimal, ...]) -> Decimal:
     if not rs:
         return Decimal("0")
-    max_digits = max(len(value.as_tuple().digits) for value in rs)
     with localcontext() as context:
-        context.prec = max(
-            _ANALYTICS_RATIO_PRECISION * 2,
-            max_digits + len(str(len(rs))) + 4,
-        )
+        context.prec = _exact_accumulation_precision(rs)
         cumulative = Decimal("0")
         peak = Decimal("0")
         maximum = Decimal("0")
@@ -145,13 +141,27 @@ def _exact_sum(values: tuple[Decimal, ...]) -> Decimal:
 
     if not values:
         return Decimal("0")
-    max_digits = max(len(value.as_tuple().digits) for value in values)
     with localcontext() as context:
-        context.prec = max(
-            _ANALYTICS_RATIO_PRECISION * 2,
-            max_digits + len(str(len(values))) + 4,
-        )
+        context.prec = _exact_accumulation_precision(values)
         return sum(values, Decimal("0"))
+
+
+def _exact_accumulation_precision(values: tuple[Decimal, ...]) -> int:
+    """Return precision sufficient for exact finite Decimal accumulation."""
+
+    if not values:
+        return _ANALYTICS_RATIO_PRECISION
+    if any(not value.is_finite() for value in values):
+        raise ValueError("Research analytics require finite Decimal inputs")
+
+    highest_adjusted = max(value.adjusted() for value in values if value != 0)
+    lowest_exponent = min(value.as_tuple().exponent for value in values)
+    exponent_span_digits = highest_adjusted - lowest_exponent + 1
+    addition_carry_guard = len(str(len(values))) + 1
+    return max(
+        _ANALYTICS_RATIO_PRECISION * 2,
+        exponent_span_digits + addition_carry_guard,
+    )
 
 
 def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
