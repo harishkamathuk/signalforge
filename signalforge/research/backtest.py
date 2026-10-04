@@ -21,16 +21,14 @@ from signalforge.domain.ids import (
     TradeId,
     deterministic_id,
 )
-from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.time import to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
-from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.position_manager import PositionOpenRejection
-from signalforge.runtime.replay import InMemoryReplaySource, ReplaySourceIdentity
+from signalforge.runtime.replay import ReplayInput, ReplaySource, ReplaySourceIdentity
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
 from signalforge.runtime.strategy import StrategyDecision, StrategyRuntimeFacts
@@ -155,9 +153,9 @@ class BacktestRunner:
         *,
         experiment: ExperimentDefinition,
         instrument_id: InstrumentId,
-        events: Iterable[MarketEvent],
+        source: ReplaySource,
     ) -> BacktestRunResult:
-        """Run one instrument after validating experiment/source provenance."""
+        """Run one canonical replay source after validating experiment provenance."""
 
         if instrument_id not in experiment.universe.instruments:
             raise ValueError("Backtest instrument is not in the experiment universe")
@@ -180,11 +178,10 @@ class BacktestRunner:
         ):
             raise ValueError("Resolved strategy contradicts experiment provenance")
 
-        event_tuple = tuple(events)
-        self._validate_events(experiment, instrument_id, event_tuple)
-        source = InMemoryReplaySource(instrument_id=instrument_id, events=event_tuple)
+        if source.identity.instrument_id != instrument_id:
+            raise ValueError("Replay source instrument does not match backtest instrument")
         if source.identity.source_id != source_definition.source_id:
-            raise ValueError("Historical market events contradict experiment dataset source_id")
+            raise ValueError("Replay source identity contradicts experiment dataset source_id")
 
         run_id = deterministic_id(
             RunId,
@@ -208,7 +205,7 @@ class BacktestRunner:
             return StrategyRuntimeFacts(
                 completed_regular_session_candles=completed_count,
                 continuity=IndicatorContinuity.HEALTHY,
-                feed_state=MarketDataFeedState.HEALTHY,
+                feed_state=None,
             )
 
         runtime = ReplayRuntime(
@@ -220,7 +217,14 @@ class BacktestRunner:
             evaluation_context_factory=context_factory,
         )
         clock = ReplaySessionClock(runtime=runtime)
-        steps = (clock.process_input(replay_input) for replay_input in runtime.source)
+        steps = (
+            clock.process_input(replay_input)
+            for replay_input in self._validated_inputs(
+                experiment=experiment,
+                instrument_id=instrument_id,
+                source=runtime.source,
+            )
+        )
         return self._project_result(
             runtime=runtime,
             steps=steps,
@@ -228,19 +232,22 @@ class BacktestRunner:
         )
 
     @staticmethod
-    def _validate_events(
+    def _validated_inputs(
+        *,
         experiment: ExperimentDefinition,
         instrument_id: InstrumentId,
-        events: tuple[MarketEvent, ...],
-    ) -> None:
+        source: ReplaySource,
+    ) -> Iterable[ReplayInput]:
         start_at = experiment.dataset.start_at
         end_at = experiment.dataset.end_at
-        for event in events:
+        for replay_input in source:
+            event = replay_input.event
             if event.instrument_id != instrument_id:
                 raise ValueError("Backtest market event instrument does not match request")
             event_at = to_utc(event.exchange_timestamp)
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
+            yield replay_input
 
     @staticmethod
     def _project_result(
@@ -252,8 +259,10 @@ class BacktestRunner:
         evaluations: list[StrategyDecision] = []
         trades: dict[TradeId, BacktestTradeResult] = {}
         rejections: dict[FillId, BacktestEntryRejection] = {}
+        processed_inputs = 0
 
         for step in steps:
+            processed_inputs += 1
             runtime_step = step.runtime_step
             if runtime_step.evaluation is not None:
                 evaluations.append(runtime_step.evaluation)
@@ -278,6 +287,11 @@ class BacktestRunner:
             trades[trade.trade_id] = BacktestTradeResult.from_runtime(
                 trade,
                 lifecycle.exit,
+            )
+
+        if processed_inputs != runtime.source.identity.event_count:
+            raise ValueError(
+                "Replay source event_count contradicts the consumed canonical input stream"
             )
 
         reason_counts: Counter[str] = Counter()
