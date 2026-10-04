@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 from signalforge.domain.exits import ExitReason
 from signalforge.domain.ids import (
@@ -135,6 +135,23 @@ def test_mixed_metrics_include_breakeven_in_realised_trade_denominator() -> None
         ("forced_session_exit", 1),
         ("stop", 1),
         ("target", 1),
+    )
+
+
+def test_analytics_are_independent_of_ambient_decimal_precision() -> None:
+    trades = (
+        _trade(1, pnl="2", realised_r="0.6666666666666666666666666667"),
+        _trade(2, pnl="2", realised_r="0.6666666666666666666666666667"),
+    )
+
+    baseline = calculate_analytics(trades)
+    with localcontext() as context:
+        context.prec = 6
+        constrained = calculate_analytics(trades)
+
+    assert constrained == baseline
+    assert constrained.expectancy_r == Decimal(
+        "0.6666666666666666666666666667"
     )
 
 
