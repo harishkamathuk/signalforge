@@ -10,6 +10,7 @@ nav:
   - Engineering Guides:
       - Persistence Development: persistence-development.md
       - Replay CLI: replay-cli.md
+      - Research CLI: research-cli.md
   - Strategies:
       - RSI Mean-Reversion V1 Reference: strategies/rsi-mean-reversion-v1.md
   - Validation:
