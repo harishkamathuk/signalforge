@@ -28,12 +28,14 @@ from signalforge.domain.strategy import (
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.repositories import (
+    PostgresArmedSetupRepository,
     PostgresExitRepository,
     PostgresFillRepository,
     PostgresIndicatorCheckpointRepository,
     PostgresMarketInputCheckpointRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
+    PostgresSignalRepository,
     PostgresStrategyDecisionRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
@@ -350,6 +352,134 @@ def test_trigger_open_and_exit_survive_restart_without_duplicate_market_effects(
         )
         assert checkpoint is not None
         assert checkpoint.last_input.sequence == 1
+
+
+def test_boundary_signal_creation_then_next_input_opens_through_successive_commits(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prove SF-067 persists evaluation-created ARMED state before later entry."""
+
+    strategy = _strategy()
+    run = _run(strategy, f"signal-entry-{uuid4().hex[:8]}")
+    base = datetime(2026, 10, 4, 10, 0, tzinfo=IST)
+    events = (
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=base,
+            received_timestamp=base + timedelta(milliseconds=1),
+            price=Price(Decimal("100")),
+            quantity=2,
+            source="sf067-signal-entry",
+            source_event_id="signal-entry-0",
+        ),
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=base + timedelta(minutes=5),
+            received_timestamp=base + timedelta(minutes=5, milliseconds=1),
+            price=Price(Decimal("101")),
+            quantity=3,
+            source="sf067-signal-entry",
+            source_event_id="signal-entry-1",
+        ),
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=base + timedelta(minutes=6),
+            received_timestamp=base + timedelta(minutes=6, milliseconds=1),
+            price=Price(Decimal("102")),
+            quantity=4,
+            source="sf067-signal-entry",
+            source_event_id="signal-entry-2",
+        ),
+    )
+    source = InMemoryReplaySource(instrument_id=INSTRUMENT, events=events)
+    inputs = tuple(source)
+
+    def force_actionable(self, context):
+        candle = context.candle
+        return StrategyEvaluation(
+            instrument_id=candle.instrument_id,
+            interval=candle.interval,
+            trend=TrendResult(True),
+            momentum=MomentumResult(True, True, True, None),
+            setup=SetupResult(True),
+            qualified=True,
+            actionable=True,
+            reasons=(DecisionReason.QUALIFIED, DecisionReason.ACTIONABLE),
+        )
+
+    monkeypatch.setattr(
+        IntradayMomentumV1Strategy,
+        "evaluate_completed_candle",
+        force_actionable,
+    )
+
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(run)
+        session.commit()
+
+    durable = RestartSafeReplayRuntime(
+        runtime=_runtime(source=source, run=run, strategy=strategy),
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+    )
+
+    first = durable.process_input(inputs[0])
+    assert first.replay_step is not None
+    assert first.replay_step.completed_candle is None
+
+    boundary = durable.process_input(inputs[1])
+    assert boundary.replay_step is not None
+    assert boundary.replay_step.completed_candle is not None
+    assert boundary.replay_step.lifecycle.state is LifecycleState.ARMED
+
+    with Session(postgres_engine) as observer:
+        signals = PostgresSignalRepository(observer).find_for_run_instrument(
+            run.run_id,
+            INSTRUMENT,
+        )
+        setups = PostgresArmedSetupRepository(observer).find_for_run_instrument(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert len(signals) == len(setups) == 1
+        assert setups[0].state.value == "armed"
+        checkpoint = PostgresMarketInputCheckpointRepository(observer).get(
+            run.run_id,
+            INSTRUMENT,
+        )
+        assert checkpoint is not None
+        assert checkpoint.last_input.sequence == 1
+
+    recovered = _recover_runtime(
+        postgres_engine,
+        source=source,
+        run=run,
+        strategy=strategy,
+    )
+    opened = recovered.process_input(inputs[2])
+    assert opened.replay_step is not None
+    assert opened.replay_step.lifecycle.state is LifecycleState.OPEN
+
+    with Session(postgres_engine) as observer:
+        assert len(
+            PostgresSignalRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
+        assert len(
+            PostgresFillRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
+        assert len(
+            PostgresTradeRepository(observer).find_for_run_instrument(
+                run.run_id,
+                INSTRUMENT,
+            )
+        ) == 1
 
 
 def _forming_events() -> tuple[MarketEvent, ...]:
