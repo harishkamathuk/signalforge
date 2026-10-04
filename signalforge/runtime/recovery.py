@@ -23,6 +23,7 @@ from signalforge.persistence.repositories import (
     PostgresExitRepository,
     PostgresFillRepository,
     PostgresIndicatorCheckpointRepository,
+    PostgresMarketInputCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
@@ -32,6 +33,7 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngineState
+from signalforge.runtime.market_input import MarketInputCheckpoint
 
 
 class RecoveryDisposition(StrEnum):
@@ -59,6 +61,7 @@ class RecoveryResult:
     run: RunIdentity
     indicator_state: IndicatorEngineState | None
     lifecycle: RecoveredLifecycle
+    market_input_checkpoint: MarketInputCheckpoint | None = None
 
 
 class RecoveryBootstrap:
@@ -146,6 +149,13 @@ class RecoveryBootstrap:
             if run
             else None
         )
+        market_input_checkpoint = (
+            PostgresMarketInputCheckpointRepository(session).get(
+                requested_run.run_id, instrument_id
+            )
+            if run
+            else None
+        )
         transitions = (
             PostgresStateTransitionRepository(session).find_for_run(requested_run.run_id)
             if run
@@ -157,6 +167,7 @@ class RecoveryBootstrap:
                 requested_run,
                 None,
                 RecoveredLifecycle(None, None, None, None, None, None, None, None, None, ()),
+                None,
             )
         if run != requested_run:
             raise ContradictoryFactError("persisted run provenance differs from requested runtime")
@@ -175,6 +186,14 @@ class RecoveryBootstrap:
             )
         if checkpoint is not None and checkpoint.continuity is IndicatorContinuity.BROKEN:
             raise ContradictoryFactError("persisted indicator checkpoint continuity is broken")
+        if market_input_checkpoint is not None and (
+            market_input_checkpoint.run != requested_run
+            or market_input_checkpoint.instrument_id != instrument_id
+            or market_input_checkpoint.candle_state.instrument_id != instrument_id
+        ):
+            raise ContradictoryFactError(
+                "persisted market-input checkpoint contradicts requested runtime"
+            )
         if len(outcomes) != len(fills):
             raise ContradictoryFactError("persisted fill lacks a completed position-open outcome")
         rejected_fill_ids = {
@@ -479,6 +498,7 @@ class RecoveryBootstrap:
                 exit_fact,
                 active_transitions,
             ),
+            market_input_checkpoint,
         )
 
 

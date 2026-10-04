@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "fills",
     "indicator_checkpoints",
     "lifecycle_state",
+    "market_input_checkpoints",
     "positions",
     "position_open_outcomes",
     "runs",
@@ -136,6 +137,23 @@ def test_initial_migration_is_reversible_and_reproducible(postgres_engine: Engin
     command.upgrade(config, "head")
     assert EXPECTED_TABLES <= set(sa.inspect(postgres_engine).get_table_names())
 
+
+
+def test_sf067_upgrades_cleanly_from_previous_head(postgres_engine: Engine) -> None:
+    """Prove the SF-067 table appears on the real 0006 -> 0007 migration path."""
+
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20261003_0006")
+    assert "market_input_checkpoints" not in set(
+        sa.inspect(postgres_engine).get_table_names()
+    )
+
+    command.upgrade(config, "head")
+
+    assert "market_input_checkpoints" in set(
+        sa.inspect(postgres_engine).get_table_names()
+    )
 
 
 def _sf063_run(run_id: str, *, engine_version: str = "engine-v1") -> RunIdentity:

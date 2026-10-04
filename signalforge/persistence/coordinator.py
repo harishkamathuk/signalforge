@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy.orm import Session
 
 from signalforge.domain.armed import ArmedSetup
@@ -21,6 +23,7 @@ from signalforge.persistence.repositories import (
     PostgresExitRepository,
     PostgresFillRepository,
     PostgresIndicatorCheckpointRepository,
+    PostgresMarketInputCheckpointRepository,
     PostgresPositionOpenOutcomeRepository,
     PostgresPositionRepository,
     PostgresSignalRepository,
@@ -30,10 +33,74 @@ from signalforge.persistence.repositories import (
     PostgresTriggerEventRepository,
 )
 from signalforge.runtime.indicators import IndicatorEngineState
+from signalforge.runtime.market_input import MarketInputCheckpoint
+
+
+@dataclass(frozen=True, slots=True)
+class MarketInputCommit:
+    """Already-decided durable consequences of one canonical market input."""
+
+    checkpoint: MarketInputCheckpoint
+    indicator_state: IndicatorEngineState | None = None
+    evaluations: tuple[StrategyDecisionFact, ...] = ()
+    signals: tuple[Signal, ...] = ()
+    setups: tuple[ArmedSetup, ...] = ()
+    triggers: tuple[TriggerEvent, ...] = ()
+    intents: tuple[EntryIntent, ...] = ()
+    fills: tuple[Fill, ...] = ()
+    outcomes: tuple[PositionOpenOutcome, ...] = ()
+    trades: tuple[Trade, ...] = ()
+    positions: tuple[Position, ...] = ()
+    exits: tuple[Exit, ...] = ()
+    transitions: tuple[StateTransition, ...] = ()
 
 
 class PersistenceCoordinator:
     """Commit one accepted lifecycle boundary with one caller-provided Session."""
+
+    def persist_market_input(
+        self,
+        *,
+        run: RunIdentity,
+        commit: MarketInputCommit,
+    ) -> MarketInputCheckpoint:
+        """Atomically persist all synchronous durable consequences of one input."""
+
+        if commit.checkpoint.run != run:
+            raise ValueError("MarketInputCommit checkpoint run must match requested run")
+        with self._session.begin():
+            if commit.indicator_state is not None:
+                PostgresIndicatorCheckpointRepository(self._session).upsert(
+                    run, commit.indicator_state
+                )
+            for evaluation in commit.evaluations:
+                PostgresStrategyDecisionRepository(self._session).append(
+                    run.run_id, evaluation
+                )
+            for signal in commit.signals:
+                PostgresSignalRepository(self._session).append(signal)
+            for trigger in commit.triggers:
+                PostgresTriggerEventRepository(self._session).append(trigger)
+            for intent in commit.intents:
+                PostgresEntryIntentRepository(self._session).append(intent)
+            for fill in commit.fills:
+                PostgresFillRepository(self._session).append(fill)
+            for outcome in commit.outcomes:
+                PostgresPositionOpenOutcomeRepository(self._session).append(outcome)
+            for exit_fact in commit.exits:
+                PostgresExitRepository(self._session).append(exit_fact)
+            for trade in commit.trades:
+                PostgresTradeRepository(self._session).upsert(trade)
+            for position in commit.positions:
+                PostgresPositionRepository(self._session).upsert(position)
+            for setup in commit.setups:
+                PostgresArmedSetupRepository(self._session).upsert(run.run_id, setup)
+            for transition in commit.transitions:
+                PostgresStateTransitionRepository(self._session).append(transition)
+            checkpoint = PostgresMarketInputCheckpointRepository(self._session).upsert(
+                run, commit.checkpoint
+            )
+        return checkpoint
 
     def persist_completed_evaluation(
         self, *, run: RunIdentity, state: IndicatorEngineState, evaluation: StrategyDecisionFact

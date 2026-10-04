@@ -68,6 +68,7 @@ def _repos(monkeypatch: pytest.MonkeyPatch, run: RunIdentity | None) -> None:
     ):
         monkeypatch.setattr(recovery, name, EmptyRepo)
     monkeypatch.setattr(recovery, "PostgresIndicatorCheckpointRepository", CheckpointRepo)
+    monkeypatch.setattr(recovery, "PostgresMarketInputCheckpointRepository", CheckpointRepo)
 
 
 def test_recovery_returns_new_without_persisted_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,6 +175,7 @@ def _stateful_repos(
     ):
         monkeypatch.setattr(recovery, name, repository(values))
     monkeypatch.setattr(recovery, "PostgresIndicatorCheckpointRepository", CheckpointRepo)
+    monkeypatch.setattr(recovery, "PostgresMarketInputCheckpointRepository", CheckpointRepo)
 
 
 def _inspect(

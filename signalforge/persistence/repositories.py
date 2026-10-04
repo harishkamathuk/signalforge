@@ -56,6 +56,8 @@ from signalforge.persistence.mappers import (
     fill_record_from_domain,
     indicator_checkpoint_record_from_state,
     indicator_checkpoint_state_from_record,
+    market_input_checkpoint_from_record,
+    market_input_checkpoint_record_from_domain,
     position_from_record,
     position_open_outcome_from_record,
     position_open_outcome_record_from_domain,
@@ -80,6 +82,7 @@ from signalforge.persistence.models import (
     ExitRecord,
     FillRecord,
     IndicatorCheckpointRecord,
+    MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
     PositionRecord,
     RunRecord,
@@ -91,6 +94,7 @@ from signalforge.persistence.models import (
     TriggerEventRecord,
 )
 from signalforge.runtime.indicators import IndicatorEngineState
+from signalforge.runtime.market_input import MarketInputCheckpoint
 
 
 def _insert_ignoring_unique_conflicts(
@@ -1024,3 +1028,96 @@ class PostgresIndicatorCheckpointRepository(_PostgresRepository):
     def get(self, run_id: RunId, instrument_id: InstrumentId) -> IndicatorEngineState | None:
         record = self._session.get(IndicatorCheckpointRecord, (str(run_id), str(instrument_id)))
         return None if record is None else indicator_checkpoint_state_from_record(record)
+
+
+
+class PostgresMarketInputCheckpointRepository(_PostgresRepository):
+    """Authoritative current raw-input progress plus forming-candle state."""
+
+    def upsert(
+        self,
+        run: RunIdentity,
+        checkpoint: MarketInputCheckpoint,
+    ) -> MarketInputCheckpoint:
+        self._require_run(run)
+        if checkpoint.run != run:
+            raise ContradictoryFactError(
+                "market-input checkpoint run contradicts requested provenance"
+            )
+        candidate = market_input_checkpoint_record_from_domain(checkpoint)
+        key = (str(run.run_id), str(checkpoint.instrument_id))
+        existing = self._session.get(MarketInputCheckpointRecord, key)
+        if existing is None:
+            self._session.add(candidate)
+            self._session.flush()
+            return checkpoint
+
+        persisted = market_input_checkpoint_from_record(existing, run)
+        if persisted == checkpoint:
+            return persisted
+        if persisted.last_input.source_id != checkpoint.last_input.source_id:
+            raise ContradictoryFactError("market-input source identity changed")
+        old_sequence = persisted.last_input.sequence
+        new_sequence = checkpoint.last_input.sequence
+        if new_sequence == old_sequence:
+            raise ContradictoryFactError(
+                "same market-input sequence contradicts persisted checkpoint"
+            )
+        if new_sequence < old_sequence:
+            raise ContradictoryFactError("market-input checkpoint sequence regressed")
+        if new_sequence != old_sequence + 1:
+            raise ContradictoryFactError("market-input checkpoint sequence gap")
+
+        values = {
+            column.name: getattr(candidate, column.name)
+            for column in MarketInputCheckpointRecord.__table__.columns
+            if column.name not in {"run_id", "instrument_id"}
+        }
+        result = cast(
+            sa.CursorResult[object],
+            self._session.execute(
+                sa.update(MarketInputCheckpointRecord)
+                .where(
+                    MarketInputCheckpointRecord.run_id == existing.run_id,
+                    MarketInputCheckpointRecord.instrument_id == existing.instrument_id,
+                    MarketInputCheckpointRecord.sequence == existing.sequence,
+                    MarketInputCheckpointRecord.payload_fingerprint
+                    == existing.payload_fingerprint,
+                )
+                .values(**values)
+            ),
+        )
+        self._session.expire_all()
+        stored = self._session.get(MarketInputCheckpointRecord, key)
+        if result.rowcount == 1:
+            if stored is None:
+                raise PersistenceError(
+                    "market-input checkpoint update produced no persisted record"
+                )
+            return market_input_checkpoint_from_record(stored, run)
+        if stored is not None:
+            hydrated = market_input_checkpoint_from_record(stored, run)
+            if hydrated == checkpoint:
+                return hydrated
+        raise ContradictoryFactError(
+            "market-input checkpoint advanced concurrently or conflicts"
+        )
+
+    def get(
+        self,
+        run_id: RunId,
+        instrument_id: InstrumentId,
+    ) -> MarketInputCheckpoint | None:
+        record = self._session.get(
+            MarketInputCheckpointRecord,
+            (str(run_id), str(instrument_id)),
+        )
+        if record is None:
+            return None
+        run = self._require_run_by_id(run_id)
+        try:
+            return market_input_checkpoint_from_record(record, run)
+        except (TypeError, ValueError) as exc:
+            raise ContradictoryFactError(
+                "persisted market-input checkpoint is invalid"
+            ) from exc

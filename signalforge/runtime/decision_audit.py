@@ -5,14 +5,19 @@ from signalforge.domain.identity import canonical_decimal
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.strategy import StrategyEvaluation
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionDecision
+from signalforge.runtime.strategy_evaluator import StrategyEvaluatorResult
 
 V1_DECISION_KIND = "intraday_momentum_v1.evaluation.v1"
 RSI_MEAN_REVERSION_DECISION_KIND = "rsi_mean_reversion_v1.evaluation.v1"
 
 
-def project_v1_decision(evaluation: StrategyEvaluation) -> StrategyDecisionFact:
-    """Project accepted Strategy V1 diagnostics without changing their semantics."""
+def project_v1_decision(
+    evaluation: StrategyEvaluation | StrategyEvaluatorResult,
+) -> StrategyDecisionFact:
+    """Project accepted Strategy V1 diagnostics from domain or shared-runtime form."""
 
+    if isinstance(evaluation, StrategyEvaluatorResult):
+        evaluation = evaluation.evaluation
     return StrategyDecisionFact.create(
         instrument_id=evaluation.instrument_id,
         interval=evaluation.interval,

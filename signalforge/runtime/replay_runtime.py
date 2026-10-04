@@ -49,6 +49,9 @@ class ReplayRuntime:
         quantity: Quantity,
         strategy: Strategy,
         evaluation_context_factory: EvaluationContextFactory,
+        candle_engine: CandleEngine | None = None,
+        indicator_engine: IndicatorEngine | None = None,
+        lifecycle: LifecycleCoordinator | None = None,
     ) -> None:
         instrument_id = source.identity.instrument_id
         if tick_schedule.instrument_id != instrument_id:
@@ -56,7 +59,9 @@ class ReplayRuntime:
 
         self.source = source
         self.run = run
-        self.candle_engine = CandleEngine(instrument_id=instrument_id)
+        self.candle_engine = candle_engine or CandleEngine(instrument_id=instrument_id)
+        if self.candle_engine.instrument_id != instrument_id:
+            raise ValueError("Recovered CandleEngine instrument must match replay source")
         if run.strategy != strategy.identity:
             raise ValueError("Run strategy identity must match configured strategy")
         if (
@@ -65,18 +70,27 @@ class ReplayRuntime:
         ):
             raise ValueError("Run config identity must match configured strategy")
 
-        self.indicator_engine = IndicatorEngine(
+        self.indicator_engine = indicator_engine or IndicatorEngine(
             instrument_id,
             run.engine_calculation_version,
             requirements=strategy.indicator_requirements,
         )
+        indicator_state = self.indicator_engine.state
+        if (
+            indicator_state.instrument_id != instrument_id
+            or indicator_state.calculation_version != run.engine_calculation_version
+            or indicator_state.requirements != strategy.indicator_requirements
+        ):
+            raise ValueError("Recovered IndicatorEngine contradicts replay runtime")
         self.strategy = strategy
-        self.lifecycle = LifecycleCoordinator(
+        self.lifecycle = lifecycle or LifecycleCoordinator(
             run=run,
             tick_schedule=tick_schedule,
             quantity=quantity,
             strategy=strategy,
         )
+        if self.lifecycle.run != run or self.lifecycle.strategy.identity != strategy.identity:
+            raise ValueError("Recovered lifecycle contradicts replay runtime")
         self._evaluation_context_factory = evaluation_context_factory
 
     @property
