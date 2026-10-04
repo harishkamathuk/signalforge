@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Literal
 
 from signalforge.research.backtest import BacktestTradeResult
@@ -52,20 +52,20 @@ def calculate_analytics(trades: tuple[BacktestTradeResult, ...]) -> ResearchAnal
     win_rate = (
         None
         if realised_count == 0
-        else Decimal(wins) / Decimal(realised_count)
+        else _ratio(Decimal(wins), Decimal(realised_count))
     )
     expectancy_r = (
         None
         if realised_count == 0
-        else sum(rs, Decimal("0")) / Decimal(realised_count)
+        else _ratio(_exact_sum(rs), Decimal(realised_count))
     )
 
-    gross_profit = sum((value for value in pnls if value > 0), Decimal("0"))
-    gross_loss = -sum((value for value in pnls if value < 0), Decimal("0"))
+    gross_profit = _exact_sum(tuple(value for value in pnls if value > 0))
+    gross_loss = -_exact_sum(tuple(value for value in pnls if value < 0))
     profit_factor = (
         None
         if gross_loss == 0
-        else gross_profit / gross_loss
+        else _ratio(gross_profit, gross_loss)
     )
 
     exit_reasons: Counter[str] = Counter()
@@ -86,7 +86,7 @@ def calculate_analytics(trades: tuple[BacktestTradeResult, ...]) -> ResearchAnal
         profit_factor=profit_factor,
         gross_profit=gross_profit,
         gross_loss=gross_loss,
-        gross_pnl=sum(pnls, Decimal("0")),
+        gross_pnl=_exact_sum(pnls),
         max_drawdown_r=_maximum_drawdown_r(rs),
         exit_reason_counts=tuple(sorted(exit_reasons.items())),
     )
@@ -126,3 +126,29 @@ def _maximum_drawdown_r(rs: tuple[Decimal, ...]) -> Decimal:
         if drawdown > maximum:
             maximum = drawdown
     return maximum
+
+
+
+_ANALYTICS_RATIO_PRECISION = 28
+
+
+def _exact_sum(values: tuple[Decimal, ...]) -> Decimal:
+    """Sum finite Decimal inputs without ambient-context intermediate rounding."""
+
+    if not values:
+        return Decimal("0")
+    max_digits = max(len(value.as_tuple().digits) for value in values)
+    with localcontext() as context:
+        context.prec = max(
+            _ANALYTICS_RATIO_PRECISION * 2,
+            max_digits + len(str(len(values))) + 4,
+        )
+        return sum(values, Decimal("0"))
+
+
+def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
+    """Return one canonical 28-significant-digit research ratio."""
+
+    with localcontext() as context:
+        context.prec = _ANALYTICS_RATIO_PRECISION
+        return numerator / denominator
