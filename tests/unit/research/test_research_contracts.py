@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -131,6 +132,27 @@ def test_dataset_identity_is_content_and_range_derived() -> None:
     assert changed_range.dataset_id != same.dataset_id
 
 
+def test_dataset_normalizes_equivalent_timezones_to_same_identity() -> None:
+    ist = _dataset()
+    utc = _dataset(
+        start_at=START.astimezone(UTC),
+        end_at=END.astimezone(UTC),
+    )
+
+    assert ist.start_at == utc.start_at
+    assert ist.end_at == utc.end_at
+    assert ist.dataset_id == utc.dataset_id
+
+
+def test_dataset_rejects_reversed_absolute_instants_across_dst_fold() -> None:
+    new_york = ZoneInfo("America/New_York")
+    start = datetime(2026, 11, 1, 1, 15, tzinfo=new_york, fold=1)
+    end = datetime(2026, 11, 1, 1, 45, tzinfo=new_york, fold=0)
+
+    with pytest.raises(ValueError, match="after start_at"):
+        _dataset(start_at=start, end_at=end)
+
+
 def test_dataset_rejects_invalid_range_and_duplicate_instrument() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         _dataset(start_at=datetime(2026, 1, 1, 9, 15))
@@ -205,6 +227,66 @@ def test_experiment_requires_exact_universe_dataset_execution_coverage() -> None
 
     with pytest.raises(ValueError, match="execution instruments"):
         _experiment(execution=(_execution(A),))
+
+
+def test_experiment_rejects_tick_schedule_that_does_not_cover_dataset_range() -> None:
+    late = InstrumentExecutionDefinition(
+        instrument_id=A,
+        quantity=Quantity(10),
+        tick_schedule=TickSizeSchedule(
+            instrument_id=A,
+            rules=(
+                TickSizeRule(
+                    tick_size=Price(Decimal("0.05")),
+                    effective_from=date(2026, 1, 15),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="does not cover research start date"):
+        _experiment(execution=(late, _execution(B)))
+
+
+def test_experiment_rejects_gap_inside_tick_schedule_range() -> None:
+    gapped = InstrumentExecutionDefinition(
+        instrument_id=A,
+        quantity=Quantity(10),
+        tick_schedule=TickSizeSchedule(
+            instrument_id=A,
+            rules=(
+                TickSizeRule(
+                    tick_size=Price(Decimal("0.05")),
+                    effective_from=date(2026, 1, 1),
+                    effective_to=date(2026, 1, 10),
+                ),
+                TickSizeRule(
+                    tick_size=Price(Decimal("0.10")),
+                    effective_from=date(2026, 1, 12),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="uncovered date 2026-01-11"):
+        _experiment(execution=(gapped, _execution(B)))
+
+
+def test_experiment_rejects_tick_schedule_ending_before_dataset_range() -> None:
+    early = InstrumentExecutionDefinition(
+        instrument_id=A,
+        quantity=Quantity(10),
+        tick_schedule=TickSizeSchedule(
+            instrument_id=A,
+            rules=(
+                TickSizeRule(
+                    tick_size=Price(Decimal("0.05")),
+                    effective_from=date(2026, 1, 1),
+                    effective_to=date(2026, 1, 20),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="does not cover research end date"):
+        _experiment(execution=(early, _execution(B)))
 
 
 def test_experiment_rejects_duplicate_execution_and_blank_calculation_version() -> None:
