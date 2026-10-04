@@ -30,9 +30,11 @@ from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.repositories import (
     PostgresExitRepository,
     PostgresFillRepository,
+    PostgresIndicatorCheckpointRepository,
     PostgresMarketInputCheckpointRepository,
     PostgresPositionRepository,
     PostgresRunProvenanceRepository,
+    PostgresStrategyDecisionRepository,
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
@@ -764,17 +766,14 @@ def test_boundary_input_commit_rolls_back_indicator_decision_and_checkpoint(
             )
             is None
         )
+        completed_interval = CandleInterval.five_minutes(
+            _forming_events()[0].exchange_timestamp
+        )
         assert (
             PostgresStrategyDecisionRepository(observer).get(
                 run.run_id,
                 INSTRUMENT,
-                _forming_events()[0].exchange_timestamp.replace(
-                    second=0,
-                    microsecond=0,
-                )
-                and CandleInterval.five_minutes(
-                    _forming_events()[0].exchange_timestamp
-                ),
+                completed_interval,
             )
             is None
         )
