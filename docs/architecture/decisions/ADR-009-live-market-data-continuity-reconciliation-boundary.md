@@ -1,7 +1,7 @@
 # ADR-009 — Live Market-Data Continuity & Reconciliation Boundary
 
-**Status:** Accepted  
-**Decision source:** SF-057 / GitHub #115  
+**Status:** Accepted
+**Decision source:** SF-057 / GitHub #115
 **Applies from:** SF-057 onward
 
 ## Context
