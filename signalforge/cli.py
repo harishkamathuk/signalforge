@@ -25,6 +25,11 @@ from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.live_paper import live_paper_command
 from signalforge.research.command import research_run_command
+from signalforge.runtime.live_paper import (
+    ShutdownController,
+    install_shutdown_signal_handlers,
+    live_paper_command,
+)
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.replay import InMemoryReplaySource
@@ -72,6 +77,12 @@ def _parser() -> argparse.ArgumentParser:
     live_paper = subparsers.add_parser(
         "live-paper",
         help="run one configured NSE security in PAPER mode",
+    )
+    live_paper.add_argument("--config", required=True, type=Path)
+
+    live_paper = subparsers.add_parser(
+        "live-paper",
+        help="run one configured NSE security in explicit PAPER mode",
     )
     live_paper.add_argument("--config", required=True, type=Path)
 
@@ -243,6 +254,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "live-paper":
             return live_paper_command(args.config)
+        if args.command == "live-paper":
+            shutdown = ShutdownController()
+            install_shutdown_signal_handlers(shutdown)
+            return live_paper_command(args.config, shutdown=shutdown)
         if args.command == "research" and args.research_command == "run":
             result = research_run_command(args.experiment)
             print(json.dumps(result, sort_keys=True, separators=(",", ":")))
