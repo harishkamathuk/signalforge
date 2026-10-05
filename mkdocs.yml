@@ -37,6 +37,7 @@ nav:
       - Research Orchestration & Analytics: api/research-orchestration.md
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - OpenAlgo Adapter: api/openalgo-adapter.md
+      - Live Runtime: api/live-runtime.md
       - Indicators: api/indicators.md
 
 plugins:

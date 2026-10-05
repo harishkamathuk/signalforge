@@ -37,6 +37,24 @@ from signalforge.runtime.market_input import MarketInputCheckpoint
 
 
 @dataclass(frozen=True, slots=True)
+class LiveMarketInputCommit:
+    """Durable consequences of one accepted live event without replay identity."""
+
+    indicator_state: IndicatorEngineState | None = None
+    evaluations: tuple[StrategyDecisionFact, ...] = ()
+    signals: tuple[Signal, ...] = ()
+    setups: tuple[ArmedSetup, ...] = ()
+    triggers: tuple[TriggerEvent, ...] = ()
+    intents: tuple[EntryIntent, ...] = ()
+    fills: tuple[Fill, ...] = ()
+    outcomes: tuple[PositionOpenOutcome, ...] = ()
+    trades: tuple[Trade, ...] = ()
+    positions: tuple[Position, ...] = ()
+    exits: tuple[Exit, ...] = ()
+    transitions: tuple[StateTransition, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class MarketInputCommit:
     """Already-decided durable consequences of one canonical market input."""
 
@@ -57,6 +75,76 @@ class MarketInputCommit:
 
 class PersistenceCoordinator:
     """Commit one accepted lifecycle boundary with one caller-provided Session."""
+
+    def persist_live_market_input(
+        self,
+        *,
+        run: RunIdentity,
+        commit: LiveMarketInputCommit,
+    ) -> None:
+        """Atomically persist synchronous consequences of one live market event.
+
+        Live OpenAlgo input has no replayable provider sequence/event identity, so
+        this boundary intentionally persists no MarketInputCheckpoint.
+        """
+
+        self._validate_live_commit(run=run, commit=commit)
+        with self._session.begin():
+            if commit.indicator_state is not None:
+                PostgresIndicatorCheckpointRepository(self._session).upsert(
+                    run, commit.indicator_state
+                )
+            for evaluation in commit.evaluations:
+                PostgresStrategyDecisionRepository(self._session).append(
+                    run.run_id, evaluation
+                )
+            for signal in commit.signals:
+                PostgresSignalRepository(self._session).append(signal)
+            for trigger in commit.triggers:
+                PostgresTriggerEventRepository(self._session).append(trigger)
+            for intent in commit.intents:
+                PostgresEntryIntentRepository(self._session).append(intent)
+            for fill in commit.fills:
+                PostgresFillRepository(self._session).append(fill)
+            for outcome in commit.outcomes:
+                PostgresPositionOpenOutcomeRepository(self._session).append(outcome)
+            for exit_fact in commit.exits:
+                PostgresExitRepository(self._session).append(exit_fact)
+            for trade in commit.trades:
+                PostgresTradeRepository(self._session).upsert(trade)
+            for position in commit.positions:
+                PostgresPositionRepository(self._session).upsert(position)
+            for setup in commit.setups:
+                PostgresArmedSetupRepository(self._session).upsert(run.run_id, setup)
+            for transition in commit.transitions:
+                PostgresStateTransitionRepository(self._session).append(transition)
+
+    @staticmethod
+    def _validate_live_commit(
+        *,
+        run: RunIdentity,
+        commit: LiveMarketInputCommit,
+    ) -> None:
+        if (
+            commit.indicator_state is not None
+            and commit.indicator_state.calculation_version
+            != run.engine_calculation_version
+        ):
+            raise ValueError("Live indicator checkpoint calculation version must match run")
+        if any(item.strategy != run.strategy for item in commit.evaluations):
+            raise ValueError("Live strategy decision identity must match run")
+        if (
+            any(item.run != run for item in commit.signals)
+            or any(item.run != run for item in commit.triggers)
+            or any(item.run != run for item in commit.intents)
+            or any(item.run != run for item in commit.fills)
+            or any(item.run != run for item in commit.outcomes)
+            or any(item.run != run for item in commit.trades)
+            or any(item.run != run for item in commit.positions)
+            or any(item.run != run for item in commit.exits)
+            or any(item.run != run for item in commit.transitions)
+        ):
+            raise ValueError("Live durable fact run identity must match requested run")
 
     def persist_market_input(
         self,
