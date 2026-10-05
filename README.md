@@ -82,6 +82,7 @@ Architecture discovery is complete for the MVP. The following ADRs are accepted:
 - [ADR-006 — Indicator Engine Contract](docs/architecture/decisions/ADR-006-indicator-engine-contract.md)
 - [ADR-007 — Paper Execution & Fill Model](docs/architecture/decisions/ADR-007-paper-execution-fill-model.md)
 - [ADR-008 — Strategy Runtime Boundary](docs/architecture/decisions/ADR-008-strategy-runtime-boundary.md)
+- [ADR-009 — Live Market-Data Continuity & Reconciliation Boundary](docs/architecture/decisions/ADR-009-live-market-data-continuity-reconciliation-boundary.md)
 
 ### ADR source of truth
 
