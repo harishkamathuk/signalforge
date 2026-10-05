@@ -254,6 +254,11 @@ class LiveRuntime:
         """Poll the feed once and process only chronology that remains trustworthy."""
 
         self._require_processable()
+        if self.feed.state in self._GAP_STATES:
+            self.mark_gap()
+            raise LiveRuntimeReconciliationRequired(
+                "Live feed continuity was already lost before the next receive"
+            )
         try:
             event = self.feed.receive_once()
         except Exception:
@@ -293,6 +298,11 @@ class LiveRuntime:
         """Process one already-normalized live event and atomically persist its effects."""
 
         self._require_processable()
+        if feed_state in self._GAP_STATES:
+            self.mark_gap()
+            raise LiveRuntimeReconciliationRequired(
+                "Non-continuous feed state cannot advance live runtime chronology"
+            )
         if event.instrument_id != self.instrument_id:
             self._continuity = LiveRuntimeContinuity.TERMINAL
             raise LiveRuntimeError("Live MarketEvent instrument does not match runtime")
