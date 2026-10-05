@@ -35,6 +35,7 @@ nav:
       - Per-Instrument Backtest Runner: api/backtest-runner.md
       - Research Orchestration & Analytics: api/research-orchestration.md
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
+      - OpenAlgo Adapter: api/openalgo-adapter.md
       - Indicators: api/indicators.md
 
 plugins:
