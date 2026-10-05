@@ -241,9 +241,11 @@ class LiveRuntime:
                 with session_factory() as session:
                     with session.begin():
                         PostgresRunProvenanceRepository(session).add(run)
-                # Recovery, hydration and run provenance are durable before
-                # external live input can arrive.
-                feed.start()
+                        # Keep NEW-run provenance and external activation
+                        # failure-atomic: a failed handshake must not leave an
+                        # otherwise-empty run that recovery would classify as
+                        # RESUMABLE on retry.
+                        feed.start()
             except Exception:
                 runtime._continuity = LiveRuntimeContinuity.TERMINAL
                 feed.close()
