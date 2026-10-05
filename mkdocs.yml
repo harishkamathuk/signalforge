@@ -26,6 +26,7 @@ nav:
       - ADR-006 — Indicator Engine Contract: architecture/decisions/ADR-006-indicator-engine-contract.md
       - ADR-007 — Paper Execution & Fill Model: architecture/decisions/ADR-007-paper-execution-fill-model.md
       - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
+      - ADR-009 — Live Market-Data Continuity & Reconciliation Boundary: architecture/decisions/ADR-009-live-market-data-continuity-reconciliation-boundary.md
   - API:
       - Strategy Runtime: api/strategy-runtime.md
       - Strategy Registry: api/strategy-registry.md
