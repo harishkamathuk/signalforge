@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from signalforge.adapters.openalgo.config import OpenAlgoConfig
 
-
 SECRET = "super-secret-openalgo-key"
 
 
