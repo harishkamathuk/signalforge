@@ -40,13 +40,20 @@ class FakeTransport:
         return self.response
 
 
-def response(status: int, body: bytes, content_type: str | None = "application/json") -> OpenAlgoHttpResponse:
+def response(
+    status: int,
+    body: bytes,
+    content_type: str | None = "application/json",
+) -> OpenAlgoHttpResponse:
     return OpenAlgoHttpResponse(status_code=status, body=body, content_type=content_type)
 
 
 def test_ready_preflight_returns_only_signalforge_owned_result() -> None:
     transport = FakeTransport(
-        response=response(200, b'{"status":"success","data":{"message":"pong","broker":"zerodha"}}')
+        response=response(
+            200,
+            b'{"status":"success","data":{"message":"pong","broker":"zerodha"}}',
+        )
     )
 
     result = preflight(CONFIG, transport=transport)
@@ -88,7 +95,10 @@ def test_other_ping_403_is_broker_session_unavailable() -> None:
     result = preflight(
         CONFIG,
         transport=FakeTransport(
-            response=response(403, b'{"status":"error","message":"Broker session not available"}')
+            response=response(
+                403,
+                b'{"status":"error","message":"Broker session not available"}',
+            )
         ),
     )
 
@@ -103,10 +113,16 @@ def test_other_ping_403_is_broker_session_unavailable() -> None:
         response(200, b'[]'),
         response(200, b'{"status":"success","data":{}}'),
         response(500, b'{"status":"error","message":"internal"}'),
-        response(200, b'{"status":"success","data":{"message":"pong","broker":"zerodha"}}', "text/html"),
+        response(
+            200,
+            b'{"status":"success","data":{"message":"pong","broker":"zerodha"}}',
+            "text/html",
+        ),
     ],
 )
-def test_unexpected_provider_responses_fail_closed(provider_response: OpenAlgoHttpResponse) -> None:
+def test_unexpected_provider_responses_fail_closed(
+    provider_response: OpenAlgoHttpResponse,
+) -> None:
     result = preflight(CONFIG, transport=FakeTransport(response=provider_response))
 
     assert result.status is OpenAlgoPreflightStatus.PROTOCOL_ERROR
