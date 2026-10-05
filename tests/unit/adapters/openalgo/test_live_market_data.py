@@ -379,6 +379,63 @@ def test_valid_quote_restores_stale_to_healthy() -> None:
     assert adapter.state is MarketDataFeedState.HEALTHY
 
 
+def test_malformed_quote_after_healthy_fails_feed_and_closes_connection() -> None:
+    adapter, connection, _, _ = started(quote(volume=100))
+    assert adapter.receive_once() is None
+    assert adapter.state is MarketDataFeedState.HEALTHY
+    connection.messages.append("not-json")
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError):
+        adapter.receive_once()
+
+    assert adapter.state is MarketDataFeedState.FAILED
+    assert connection.closed
+
+
+def test_failed_feed_rejects_further_receives_until_explicit_restart() -> None:
+    adapter, connection, _, _ = started(quote(volume=100))
+    assert adapter.receive_once() is None
+    connection.messages.append(quote(volume=99, timestamp=1_756_376_445_124))
+
+    with pytest.raises(OpenAlgoMarketDataContinuityError):
+        adapter.receive_once()
+
+    assert adapter.state is MarketDataFeedState.FAILED
+    assert connection.closed
+    connection.messages.append(quote(volume=101, timestamp=1_756_376_445_125))
+
+    with pytest.raises(OpenAlgoMarketDataError, match="explicit restart"):
+        adapter.receive_once()
+
+    assert adapter.state is MarketDataFeedState.FAILED
+
+
+def test_repeated_start_while_connected_is_rejected_without_replacing_socket() -> None:
+    first = FakeConnection([auth_success(), subscribe_success()])
+    second = FakeConnection([auth_success(), subscribe_success()])
+    connector = FakeConnector([first, second])
+    adapter, _, _ = adapter_for(first, connector=connector)
+    adapter.start()
+
+    with pytest.raises(OpenAlgoMarketDataError, match="already connected"):
+        adapter.start()
+
+    assert not first.closed
+    assert connector.connections == [second]
+    assert adapter.state is MarketDataFeedState.STARTING
+
+
+def test_transport_loss_closes_socket_before_disconnected() -> None:
+    adapter, connection, _, _ = started()
+    connection.messages.append(OpenAlgoWebSocketUnavailable("lost"))
+
+    with pytest.raises(OpenAlgoMarketDataDisconnected):
+        adapter.receive_once()
+
+    assert connection.closed
+    assert adapter.state is MarketDataFeedState.DISCONNECTED
+
+
 def test_transport_loss_enters_disconnected() -> None:
     adapter, connection, _, _ = started()
     connection.messages.append(OpenAlgoWebSocketUnavailable("lost"))
