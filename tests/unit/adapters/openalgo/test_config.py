@@ -14,6 +14,7 @@ def test_valid_config_is_frozen_strict_and_secret_safe() -> None:
     assert config.host == "http://127.0.0.1:5000"
     assert config.api_key.get_secret_value() == SECRET
     assert SECRET not in repr(config)
+    assert SECRET not in config.model_dump_json()
 
     with pytest.raises(ValidationError):
         OpenAlgoConfig.model_validate(
@@ -46,8 +47,10 @@ def test_environment_construction_supports_timeouts() -> None:
     ],
 )
 def test_invalid_hosts_are_rejected(host: str) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         OpenAlgoConfig(host=host, api_key=SECRET)
+
+    assert SECRET not in str(exc_info.value)
 
 
 @pytest.mark.parametrize("api_key", ["", "   "])
