@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import http.client
-import socket
-import ssl
 from dataclasses import dataclass
 from json import dumps
 from typing import Protocol
@@ -66,6 +64,9 @@ class StdlibOpenAlgoTransport:
         )
         encoded = dumps(payload, separators=(",", ":")).encode("utf-8")
         try:
+            connection.connect()
+            if connection.sock is not None:
+                connection.sock.settimeout(request_timeout_seconds)
             connection.request(
                 "POST",
                 path,
@@ -73,17 +74,15 @@ class StdlibOpenAlgoTransport:
                 headers={"Content-Type": "application/json", "Accept": "application/json"},
             )
             response = connection.getresponse()
-            if connection.sock is not None:
-                connection.sock.settimeout(request_timeout_seconds)
             body = response.read()
             return OpenAlgoHttpResponse(
                 status_code=response.status,
                 body=body,
                 content_type=response.getheader("Content-Type"),
             )
-        except (TimeoutError, socket.timeout):
+        except TimeoutError:
             raise OpenAlgoTransportUnavailable("OpenAlgo request timed out") from None
-        except (OSError, ssl.SSLError, http.client.HTTPException):
+        except (OSError, http.client.HTTPException):
             raise OpenAlgoTransportUnavailable("OpenAlgo request failed") from None
         finally:
             connection.close()
