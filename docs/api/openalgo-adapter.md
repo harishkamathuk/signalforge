@@ -10,3 +10,7 @@ results while keeping provider transport details private.
 ## Preflight
 
 ::: signalforge.adapters.openalgo.health
+
+## Instrument reference resolution
+
+::: signalforge.adapters.openalgo.reference
