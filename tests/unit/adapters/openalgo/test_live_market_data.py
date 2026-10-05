@@ -219,6 +219,18 @@ def test_authentication_failure_is_failed_without_secret_leak(first_response: st
     assert "super-secret-key" not in str(exc_info.value)
 
 
+def test_subscription_success_without_exact_confirmation_is_failed() -> None:
+    connection = FakeConnection(
+        [auth_success(), '{"type":"subscribe","status":"success"}']
+    )
+    adapter, _, _ = adapter_for(connection)
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError):
+        adapter.start()
+
+    assert adapter.state is MarketDataFeedState.FAILED
+
+
 def test_subscription_rejection_is_failed() -> None:
     connection = FakeConnection(
         [auth_success(), '{"type":"subscribe","status":"partial","message":"rejected"}']
@@ -229,6 +241,15 @@ def test_subscription_rejection_is_failed() -> None:
         adapter.start()
 
     assert adapter.state is MarketDataFeedState.FAILED
+
+
+def test_starting_feed_becomes_stale_if_no_first_quote_arrives() -> None:
+    adapter, connection, clocks, _ = started()
+    clocks.monotonic += 11
+    connection.messages.append(OpenAlgoWebSocketReceiveTimeout("quiet"))
+
+    assert adapter.receive_once() is None
+    assert adapter.state is MarketDataFeedState.STALE
 
 
 def test_first_quote_establishes_baseline_and_becomes_healthy() -> None:
@@ -288,10 +309,9 @@ def test_volume_regression_fails_closed_without_rebasing() -> None:
     with pytest.raises(OpenAlgoMarketDataContinuityError):
         adapter.receive_once()
 
-    connection.messages.append(quote(volume=105, timestamp=1_756_376_445_125))
-    event = adapter.receive_once()
-    assert event is not None
-    assert event.quantity == 5
+    assert adapter.state is MarketDataFeedState.FAILED
+
+    assert adapter.state is MarketDataFeedState.FAILED
 
 
 def test_timestamp_regression_fails_closed() -> None:
@@ -314,6 +334,13 @@ def test_timestamp_regression_fails_closed() -> None:
         "not-json",
     ],
 )
+def test_second_based_timestamp_is_rejected_instead_of_guessed_as_milliseconds() -> None:
+    adapter, _, _, _ = started(quote(timestamp=1_756_376_445))
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError, match="epoch-millisecond"):
+        adapter.receive_once()
+
+
 def test_wrong_instrument_mode_or_malformed_data_is_rejected(payload: str) -> None:
     adapter, _, _, _ = started(payload)
 
@@ -417,6 +444,7 @@ def test_close_unsubscribes_and_disconnects() -> None:
     adapter.close()
 
     assert connection.closed
+    assert adapter.state is MarketDataFeedState.DISCONNECTED
     assert json.loads(connection.sent[-1]) == {
         "action": "unsubscribe",
         "symbols": [{"symbol": "RELIANCE", "exchange": "NSE"}],
