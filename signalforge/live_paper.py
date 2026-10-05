@@ -50,7 +50,6 @@ from signalforge.runtime.decision_audit import (
     project_v1_decision,
 )
 from signalforge.runtime.eligibility import MarketDataFeedState
-from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.live_runtime import (
     LiveRuntime,
     LiveRuntimeContinuity,
@@ -299,7 +298,8 @@ class LivePaperRunner:
             instrument_id=instrument_id,
             trading_date=trading_date.isoformat(),
         )
-        session_factory = lambda: Session(engine)
+        def session_factory() -> Session:
+            return Session(engine)
         try:
             with session_factory() as session:
                 recovered = RecoveryBootstrap().inspect(
