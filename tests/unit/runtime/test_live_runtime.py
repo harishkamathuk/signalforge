@@ -219,13 +219,15 @@ def test_boundary_event_completes_once_and_uses_actual_feed_state(
     value, _, selected_strategy, commits = runtime(monkeypatch)
     value.process_event(event(0), feed_state=MarketDataFeedState.HEALTHY)
 
-    step = value.process_event(event(5, price="101"), feed_state=MarketDataFeedState.STALE)
+    step = value.process_event(
+        event(5, price="101"), feed_state=MarketDataFeedState.STARTING
+    )
 
     assert step.completed_candle is not None
     assert step.indicator_snapshot is not None
     assert step.evaluation is not None
     assert len(selected_strategy.contexts) == 1
-    assert selected_strategy.contexts[0].feed_state is MarketDataFeedState.STALE
+    assert selected_strategy.contexts[0].feed_state is MarketDataFeedState.STARTING
     assert not step.evaluation.actionable
     assert commits[-1].indicator_state is not None
 
@@ -255,16 +257,19 @@ def test_stale_gap_requires_reconciliation_and_healthy_reconnect_does_not_restor
     feed._state = MarketDataFeedState.STALE
     feed.items.append(None)
 
-    step = value.poll_once()
-
-    assert step.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
-    feed._state = MarketDataFeedState.HEALTHY
     feed.items.append(event(0))
 
     with pytest.raises(LiveRuntimeReconciliationRequired):
         value.poll_once()
 
-    assert len(feed.items) == 1
+    assert value.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+    assert len(feed.items) == 2
+
+    feed._state = MarketDataFeedState.HEALTHY
+    with pytest.raises(LiveRuntimeReconciliationRequired):
+        value.poll_once()
+
+    assert len(feed.items) == 2
 
 
 def test_synthetic_live_source_event_identity_is_rejected_and_terminal(
@@ -521,3 +526,19 @@ def test_open_state_survives_gap_without_post_gap_exit(
 
     assert value.lifecycle.snapshot() == before
     assert value.lifecycle.state is LifecycleState.OPEN
+
+
+def test_direct_event_in_stale_state_cannot_advance_armed_or_candle_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    before_candle = value.candle_engine.state
+    before_lifecycle = value.lifecycle.snapshot()
+
+    with pytest.raises(LiveRuntimeReconciliationRequired):
+        value.process_event(event(0), feed_state=MarketDataFeedState.STALE)
+
+    assert value.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+    assert value.candle_engine.state == before_candle
+    assert value.lifecycle.snapshot() == before_lifecycle
+    assert commits == []
