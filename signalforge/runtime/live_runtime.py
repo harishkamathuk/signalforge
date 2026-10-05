@@ -303,6 +303,14 @@ class LiveRuntime:
             raise LiveRuntimeReconciliationRequired(
                 "Non-continuous feed state cannot advance live runtime chronology"
             )
+        if (
+            feed_state is not MarketDataFeedState.HEALTHY
+            and self.lifecycle.state.value in {"armed", "open"}
+        ):
+            self._continuity = LiveRuntimeContinuity.TERMINAL
+            raise LiveRuntimeError(
+                "Price-sensitive lifecycle cannot advance on a non-HEALTHY live feed"
+            )
         if event.instrument_id != self.instrument_id:
             self._continuity = LiveRuntimeContinuity.TERMINAL
             raise LiveRuntimeError("Live MarketEvent instrument does not match runtime")
