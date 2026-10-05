@@ -81,6 +81,10 @@ class OpenAlgoMarketDataAdapter:
     def start(self) -> None:
         """Connect, authenticate and subscribe; remain STARTING until valid quote data arrives."""
 
+        if self._connection is not None:
+            raise OpenAlgoMarketDataError(
+                "OpenAlgo market-data adapter is already connected; close before restarting"
+            )
         self._state = MarketDataFeedState.STARTING
         self._reset_stream_baseline()
         try:
@@ -98,6 +102,10 @@ class OpenAlgoMarketDataAdapter:
     def receive_once(self) -> MarketEvent | None:
         """Receive one provider message and emit only for a positive volume delta."""
 
+        if self._state is MarketDataFeedState.FAILED:
+            raise OpenAlgoMarketDataError(
+                "OpenAlgo market-data adapter is FAILED; explicit restart is required"
+            )
         connection = self._require_connection()
         try:
             raw = connection.receive_text(self._md_config.receive_timeout_seconds)
@@ -105,17 +113,19 @@ class OpenAlgoMarketDataAdapter:
             self.check_stale()
             return None
         except OpenAlgoWebSocketUnavailable as exc:
-            self._state = MarketDataFeedState.DISCONNECTED
-            self._connection = None
+            self._close_transport()
             self._reset_stream_baseline()
+            self._state = MarketDataFeedState.DISCONNECTED
             raise OpenAlgoMarketDataDisconnected(
                 "OpenAlgo market-data connection was lost"
             ) from exc
 
-        payload = _decode_object(raw)
         try:
+            payload = _decode_object(raw)
             return self._apply_market_data(payload)
-        except OpenAlgoMarketDataContinuityError:
+        except (OpenAlgoMarketDataProtocolError, OpenAlgoMarketDataContinuityError):
+            self._close_transport()
+            self._reset_stream_baseline()
             self._state = MarketDataFeedState.FAILED
             raise
 
