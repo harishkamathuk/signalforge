@@ -372,12 +372,9 @@ class LivePaperRunner:
                 if self._shutdown_requested:
                     return LivePaperExitCode.OK
                 reached_at = self.now()
-                if (
-                    nse_session_phase(reached_at) is not NseSessionPhase.ACTIVE
-                    or reached_at != activation_at
-                ):
+                if nse_session_phase(reached_at) is not NseSessionPhase.ACTIVE:
                     raise RuntimeError(
-                        "live-paper missed the canonical NSE activation boundary"
+                        "live-paper session became unsafe before activation"
                     )
 
             self._activate(prepared)
