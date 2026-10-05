@@ -218,6 +218,17 @@ def test_search_not_found_is_authoritative_before_symbol_lookup() -> None:
         )
 
 
+def test_exact_search_candidate_missing_instrument_type_fails_closed() -> None:
+    malformed_exact = '{"symbol":"RELIANCE","exchange":"NSE","tick_size":0.05}'
+    with pytest.raises(OpenAlgoReferenceError):
+        resolve(search=search_response(malformed_exact))
+
+
+def test_exact_search_candidate_wrong_instrument_type_fails_closed() -> None:
+    with pytest.raises(OpenAlgoReferenceContradiction):
+        resolve(search=search_response(row(instrument_type="FUT")))
+
+
 def test_duplicate_exact_search_matches_are_ambiguous_even_if_identical() -> None:
     with pytest.raises(OpenAlgoReferenceAmbiguous):
         resolve(search=search_response(row(), row()))
