@@ -194,7 +194,7 @@ durable state and blocking further price-sensitive progression makes the uncerta
 
 ## Consequences
 
-SF-057 and later live-runtime work must:
+SF-057 is the first implementation of this decision. SF-057 and later live-runtime work must:
 
 - model runtime chronology continuity separately from adapter feed health;
 - preserve ARMED/OPEN state through unproven gaps without inventing outcomes;
