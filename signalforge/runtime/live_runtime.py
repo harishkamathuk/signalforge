@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
@@ -433,6 +434,40 @@ class LiveRuntime:
             self._continuity = LiveRuntimeContinuity.TERMINAL
             raise
         return snapshot
+
+    def process_time(self, at: datetime) -> LifecycleSnapshot:
+        """Advance authoritative ARMED time policy and persist any transition."""
+
+        self._require_processable()
+        before_ids = {str(item.transition_id) for item in self.lifecycle.audit_transitions}
+        before = self.lifecycle.snapshot()
+        try:
+            after = self.lifecycle.process_time(at)
+            transitions = tuple(
+                item
+                for item in self.lifecycle.audit_transitions
+                if str(item.transition_id) not in before_ids
+            )
+            if not transitions:
+                return after
+            setups: tuple[ArmedSetup, ...] = ()
+            if after.arming is not None and after.arming is not before.arming:
+                setups = (after.arming.armed_setup,)
+            elif after.arming is not None and before.arming is not None:
+                if after.arming.armed_setup.state != before.arming.armed_setup.state:
+                    setups = (after.arming.armed_setup,)
+            with self._session_factory() as session:
+                PersistenceCoordinator(session).persist_live_market_input(
+                    run=self.run,
+                    commit=LiveMarketInputCommit(
+                        setups=setups,
+                        transitions=transitions,
+                    ),
+                )
+            return after
+        except Exception:
+            self._continuity = LiveRuntimeContinuity.TERMINAL
+            raise
 
     def _require_processable(self) -> None:
         if self._continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED:
