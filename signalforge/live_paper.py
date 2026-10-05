@@ -351,21 +351,25 @@ class LivePaperRunner:
             phase = nse_session_phase(self.now())
             if phase is NseSessionPhase.POST_SESSION:
                 raise RuntimeError("live-paper cannot activate after the NSE regular session")
-            if phase is NseSessionPhase.PRE_SESSION:
-                _emit(
-                    self.logger,
-                    "pre_session_wait",
-                    activate_at=nse_regular_session_open_at(self.now()).isoformat(),
+            if phase is NseSessionPhase.ACTIVE:
+                raise RuntimeError(
+                    "live-paper must be prepared before the canonical NSE activation boundary"
                 )
-                while (
-                    not self._shutdown_requested
-                    and nse_session_phase(self.now()) is NseSessionPhase.PRE_SESSION
-                ):
-                    self.sleep(1.0)
-                if self._shutdown_requested:
-                    return LivePaperExitCode.OK
-                if nse_session_phase(self.now()) is not NseSessionPhase.ACTIVE:
-                    raise RuntimeError("live-paper session became unsafe before activation")
+
+            _emit(
+                self.logger,
+                "pre_session_wait",
+                activate_at=nse_regular_session_open_at(self.now()).isoformat(),
+            )
+            while (
+                not self._shutdown_requested
+                and nse_session_phase(self.now()) is NseSessionPhase.PRE_SESSION
+            ):
+                self.sleep(1.0)
+            if self._shutdown_requested:
+                return LivePaperExitCode.OK
+            if nse_session_phase(self.now()) is not NseSessionPhase.ACTIVE:
+                raise RuntimeError("live-paper session became unsafe before activation")
 
             self._activate(prepared)
             if (
