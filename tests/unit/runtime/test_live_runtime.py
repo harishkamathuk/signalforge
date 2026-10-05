@@ -669,3 +669,27 @@ def test_live_commit_rejects_mismatched_indicator_calculation_version() -> None:
             run=run,
             commit=LiveMarketInputCommit(indicator_state=wrong_state),
         )
+
+
+
+def test_receive_that_discovers_stale_interval_requires_reconciliation_same_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StaleDuringReceiveFeed(FakeFeed):
+        def receive_once(self) -> MarketEvent | None:
+            self._state = MarketDataFeedState.STALE
+            return None
+
+    feed = StaleDuringReceiveFeed()
+    value, _, _, commits = runtime(monkeypatch, feed=feed)
+    before_candle = value.candle_engine.state
+    before_lifecycle = value.lifecycle.snapshot()
+
+    step = value.poll_once()
+
+    assert step.market_event is None
+    assert step.feed_state is MarketDataFeedState.STALE
+    assert step.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+    assert value.candle_engine.state == before_candle
+    assert value.lifecycle.snapshot() == before_lifecycle
+    assert commits == []
