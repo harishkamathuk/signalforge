@@ -11,15 +11,23 @@ from sqlalchemy.orm import Session
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
-from signalforge.domain.market import CompletedCandle, MarketEvent
+from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.strategy import (
+    DecisionReason,
+    MomentumResult,
+    SetupResult,
+    StrategyEvaluation,
+    TrendResult,
+)
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.provenance import RunIdentity
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
-from signalforge.runtime.lifecycle import LifecycleCoordinator
+from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.live_runtime import (
     LiveRuntime,
     LiveRuntimeContinuity,
@@ -415,3 +423,101 @@ def test_cross_instrument_event_fails_terminal(
         value.process_event(wrong, feed_state=MarketDataFeedState.HEALTHY)
 
     assert value.terminal
+
+
+def actionable_candle_and_decision() -> tuple[CompletedCandle, StrategyEvaluation]:
+    interval = CandleInterval.five_minutes(
+        datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    )
+    candle = CompletedCandle(
+        instrument_id=INSTRUMENT,
+        interval=interval,
+        quality=CandleQuality.VALID,
+        open=Price(Decimal("100")),
+        high=Price(Decimal("102")),
+        low=Price(Decimal("100")),
+        close=Price(Decimal("101")),
+        volume=100,
+        source="openalgo:quote",
+        source_event_count=10,
+    )
+    decision = StrategyEvaluation(
+        instrument_id=INSTRUMENT,
+        interval=interval,
+        trend=TrendResult(True),
+        momentum=MomentumResult(True, True, True, None),
+        setup=SetupResult(True),
+        qualified=True,
+        actionable=True,
+        reasons=(DecisionReason.QUALIFIED, DecisionReason.ACTIONABLE),
+    )
+    return candle, decision
+
+
+def test_armed_state_survives_gap_without_post_gap_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, _ = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    armed = value.lifecycle.process_evaluation(candle, decision)
+    assert armed.state is LifecycleState.ARMED
+    before = value.lifecycle.snapshot()
+
+    value.mark_gap()
+
+    with pytest.raises(LiveRuntimeReconciliationRequired):
+        value.process_event(
+            MarketEvent(
+                instrument_id=INSTRUMENT,
+                exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+                received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+                price=Price(Decimal("200")),
+                quantity=1,
+                source="openalgo:quote",
+                source_event_id=None,
+            ),
+            feed_state=MarketDataFeedState.HEALTHY,
+        )
+
+    assert value.lifecycle.snapshot() == before
+    assert value.lifecycle.state is LifecycleState.ARMED
+
+
+def test_open_state_survives_gap_without_post_gap_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, _ = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    value.lifecycle.process_market_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            price=Price(Decimal("102")),
+            quantity=1,
+            source="openalgo:quote",
+            source_event_id=None,
+        )
+    )
+    assert value.lifecycle.state is LifecycleState.OPEN
+    before = value.lifecycle.snapshot()
+
+    value.mark_gap()
+
+    with pytest.raises(LiveRuntimeReconciliationRequired):
+        value.process_event(
+            MarketEvent(
+                instrument_id=INSTRUMENT,
+                exchange_timestamp=datetime(2026, 10, 5, 10, 7, tzinfo=IST),
+                received_timestamp=datetime(2026, 10, 5, 10, 7, tzinfo=IST),
+                price=Price(Decimal("1")),
+                quantity=1,
+                source="openalgo:quote",
+                source_event_id=None,
+            ),
+            feed_state=MarketDataFeedState.HEALTHY,
+        )
+
+    assert value.lifecycle.snapshot() == before
+    assert value.lifecycle.state is LifecycleState.OPEN
