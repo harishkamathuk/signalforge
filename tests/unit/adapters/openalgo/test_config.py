@@ -22,6 +22,22 @@ def test_valid_config_is_frozen_strict_and_secret_safe() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "http://127.23.45.67:5000",
+        "http://[::1]:5000",
+        "https://openalgo.example",
+    ],
+)
+def test_loopback_http_and_remote_https_are_allowed(host: str) -> None:
+    config = OpenAlgoConfig(host=host, api_key=SECRET)
+
+    assert config.host == host
+
+
 def test_environment_construction_supports_timeouts() -> None:
     config = OpenAlgoConfig.from_environment(
         {
@@ -44,6 +60,10 @@ def test_environment_construction_supports_timeouts() -> None:
         "ftp://example.test",
         "http://user:pass@example.test",
         "http://example.test/api",
+        "http://localhost:abc",
+        "http://localhost:99999",
+        "http://openalgo.example",
+        "http://192.168.1.10:5000",
     ],
 )
 def test_invalid_hosts_are_rejected(host: str) -> None:
