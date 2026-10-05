@@ -166,6 +166,17 @@ def test_trading_date_is_bound_to_one_day_only() -> None:
     assert resolved.provenance.trading_date == next_date
 
 
+def test_reference_observation_must_match_trading_date_in_ist() -> None:
+    with pytest.raises(ValueError, match="observation date"):
+        resolve_nse_equity_reference(
+            config=CONFIG,
+            instrument_id=InstrumentId("NSE:RELIANCE"),
+            trading_date=date(2026, 10, 6),
+            observed_at=OBSERVED_AT,
+            transport=FakeTransport(),
+        )
+
+
 def test_fuzzy_search_rows_do_not_become_authoritative() -> None:
     resolved = resolve(
         search=search_response(
@@ -219,7 +230,7 @@ def test_symbol_and_search_tick_size_contradiction_fails_closed() -> None:
         )
 
 
-@pytest.mark.parametrize("tick_size", ["0", "-0.05", "1e9999"])
+@pytest.mark.parametrize("tick_size", ["0", "-0.05", "NaN"])
 def test_non_positive_or_non_finite_tick_size_is_rejected(tick_size: str) -> None:
     with pytest.raises(OpenAlgoReferenceError):
         resolve(
