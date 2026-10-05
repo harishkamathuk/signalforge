@@ -237,6 +237,11 @@ class LivePaperRunner:
 
         config = _read_config(self.config_path)
         strategy = self.registry.resolve(normalize_strategy_selection(config.strategy))
+        if (
+            strategy.identity.strategy_id != "intraday_momentum_v1"
+            or strategy.identity.strategy_version != "1.0.0"
+        ):
+            raise ValueError("M8 live-paper supports only intraday_momentum_v1 / 1.0.0")
         instrument_id = InstrumentId(config.instrument_id)
         openalgo = OpenAlgoConfig.from_environment(self.env)
         market_data = OpenAlgoMarketDataConfig.from_environment(self.env)
@@ -366,13 +371,13 @@ class LivePaperRunner:
             self._operator_loop()
             return LivePaperExitCode.OK
         except LiveRuntimeReconciliationRequired as exc:
-            _emit(self.logger, "reconciliation_required", detail=str(exc))
+            _emit(self.logger, "reconciliation_required", detail=self._safe_detail(exc))
             return LivePaperExitCode.RECONCILIATION_REQUIRED
         except LiveRuntimeError as exc:
-            _emit(self.logger, "runtime_failure", detail=str(exc))
+            _emit(self.logger, "runtime_failure", detail=self._safe_detail(exc))
             return LivePaperExitCode.RUNTIME_FAILED
         except Exception as exc:
-            _emit(self.logger, "startup_or_runtime_failure", detail=str(exc))
+            _emit(self.logger, "startup_or_runtime_failure", detail=self._safe_detail(exc))
             return (
                 LivePaperExitCode.RUNTIME_FAILED
                 if self._runtime is not None
@@ -473,13 +478,21 @@ class LivePaperRunner:
                 occurred_at=transition.occurred_at.isoformat(),
             )
 
+    def _safe_detail(self, exc: Exception) -> str:
+        detail = str(exc)
+        for key in ("OPENALGO_API_KEY", "DATABASE_URL"):
+            value = self.env.get(key)
+            if value:
+                detail = detail.replace(value, "<redacted>")
+        return detail
+
     def _shutdown(self, prepared: LivePaperPrepared | None) -> None:
         runtime = self._runtime
         if runtime is not None:
             try:
                 runtime.feed.close()
             except Exception as exc:
-                _emit(self.logger, "shutdown_feed_close_failed", detail=str(exc))
+                _emit(self.logger, "shutdown_feed_close_failed", detail=self._safe_detail(exc))
             _emit(
                 self.logger,
                 "shutdown",
