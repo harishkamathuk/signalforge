@@ -88,6 +88,7 @@ class PersistenceCoordinator:
         this boundary intentionally persists no MarketInputCheckpoint.
         """
 
+        self._validate_live_commit(run=run, commit=commit)
         with self._session.begin():
             if commit.indicator_state is not None:
                 PostgresIndicatorCheckpointRepository(self._session).upsert(
@@ -117,6 +118,34 @@ class PersistenceCoordinator:
                 PostgresArmedSetupRepository(self._session).upsert(run.run_id, setup)
             for transition in commit.transitions:
                 PostgresStateTransitionRepository(self._session).append(transition)
+
+    @staticmethod
+    def _validate_live_commit(
+        *,
+        run: RunIdentity,
+        commit: LiveMarketInputCommit,
+    ) -> None:
+        if (
+            commit.indicator_state is not None
+            and commit.indicator_state.calculation_version
+            != run.engine_calculation_version
+        ):
+            raise ValueError("Live indicator checkpoint calculation version must match run")
+        if any(item.strategy != run.strategy for item in commit.evaluations):
+            raise ValueError("Live strategy decision identity must match run")
+        run_scoped = (
+            *commit.signals,
+            *commit.triggers,
+            *commit.intents,
+            *commit.fills,
+            *commit.outcomes,
+            *commit.trades,
+            *commit.positions,
+            *commit.exits,
+            *commit.transitions,
+        )
+        if any(item.run != run for item in run_scoped):
+            raise ValueError("Live durable fact run identity must match requested run")
 
     def persist_market_input(
         self,
