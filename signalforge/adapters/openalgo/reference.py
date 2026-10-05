@@ -216,9 +216,11 @@ def _parse_search_response(response: OpenAlgoHttpResponse, *, symbol: str) -> _R
         if candidate_symbol != symbol or candidate_exchange != "NSE":
             continue
 
-        candidate_type = item.get("instrumenttype")
+        candidate_type = _required_text(item, "instrumenttype")
         if candidate_type != "EQ":
-            continue
+            raise OpenAlgoReferenceContradiction(
+                "OpenAlgo exact search candidate is not an NSE cash equity"
+            )
 
         exact.append(_reference_row(item))
 
