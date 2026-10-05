@@ -25,7 +25,6 @@ from signalforge.adapters.openalgo.websocket_transport import (
 from signalforge.domain.ids import InstrumentId
 from signalforge.runtime.eligibility import MarketDataFeedState
 
-
 REST_CONFIG = OpenAlgoConfig(host="http://127.0.0.1:5000", api_key="super-secret-key")
 MD_CONFIG = OpenAlgoMarketDataConfig(
     ws_url="ws://127.0.0.1:8765",
