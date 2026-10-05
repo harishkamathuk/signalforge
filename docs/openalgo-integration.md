@@ -36,6 +36,28 @@ The SignalForge-facing result is one of:
 A raw HTTP 200 is not sufficient for readiness. The response must be JSON with OpenAlgo's success
 envelope, `pong`, and a non-empty broker identity. Unknown provider behavior fails closed.
 
+## NSE instrument and tick-reference resolution
+
+SF-055 resolves one configured canonical `InstrumentId("NSE:<SYMBOL>")` against OpenAlgo's
+current symbol/reference metadata. Resolution requires exact NSE cash-equity identity and checks
+the exact `/symbol` result against the exact candidate returned from `/search`.
+
+OpenAlgo's public current-reference surfaces do not establish historical tick-size lineage.
+SignalForge therefore binds the accepted `TickSizeRule` to the requested trading date only:
+
+```text
+effective_from = trading_date
+effective_to   = trading_date
+```
+
+The observation timestamp must fall on that trading date in IST. This records what reference data
+was observed and accepted for the live trading date without claiming validity before or after it.
+
+Tick-size JSON numbers are decoded directly as `Decimal` values. Missing, non-finite,
+non-positive or contradictory tick sizes fail closed; SignalForge never substitutes a permanent
+NSE tick-size default. OpenAlgo broker tokens and native symbols remain provenance metadata and do
+not replace canonical SignalForge identity.
+
 ## Testing
 
 Unit tests inject a provider-private transport fake. CI therefore needs no OpenAlgo instance,
@@ -45,7 +67,6 @@ failure and malformed provider responses.
 
 ## Explicit non-goals
 
-SF-054 does not implement instrument/symbol normalization, effective tick reference data,
-WebSocket subscriptions, reconnect behavior, MarketEvent conversion, stale-feed handling,
-CandleEngine integration, runtime assembly, or any broker order operation. Those remain owned by
-SF-055 and later M8 issues.
+SF-055 does not implement WebSocket subscriptions, reconnect behavior, MarketEvent conversion,
+stale-feed handling, CandleEngine integration, runtime assembly, historical reference-data
+warehousing, or any broker order operation. Those remain owned by SF-056 and later M8 issues.
