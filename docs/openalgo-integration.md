@@ -9,13 +9,14 @@ runtime assembly belong to later M8 work.
 SignalForge reads OpenAlgo connection values from externally supplied configuration. The supported
 environment names are:
 
-- `OPENALGO_HOST` — the OpenAlgo service root, for example `http://127.0.0.1:5000`;
+- `OPENALGO_HOST` — the OpenAlgo service root. Plain HTTP is accepted only for loopback development hosts such as `http://127.0.0.1:5000`; remote hosts must use HTTPS;
 - `OPENALGO_API_KEY` — the OpenAlgo application API key;
 - `OPENALGO_CONNECT_TIMEOUT_SECONDS` — optional positive connect timeout;
 - `OPENALGO_REQUEST_TIMEOUT_SECONDS` — optional positive response/read timeout.
 
 The API key is represented as a secret value and must not be committed, logged, included in normal
-representations, or copied into diagnostic status objects. Broker credentials and broker access
+representations, or copied into diagnostic status objects. Remote plaintext HTTP is rejected so the
+API key cannot be transmitted over an unencrypted non-loopback connection. Broker credentials and broker access
 tokens are not SignalForge configuration; OpenAlgo owns those credentials and resolves the active
 broker session server-side.
 
