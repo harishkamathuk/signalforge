@@ -258,17 +258,25 @@ def _reference_row(data: dict[str, Any]) -> _ReferenceRow:
 
 def _required_text(data: dict[str, Any], key: str) -> str:
     value = data.get(key)
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value:
         raise OpenAlgoReferenceError(f"OpenAlgo reference field {key} must be non-empty text")
-    return value.strip()
+    if value != value.strip():
+        raise OpenAlgoReferenceError(
+            f"OpenAlgo reference field {key} must not contain surrounding whitespace"
+        )
+    return value
 
 
 def _optional_text(value: object) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value:
         raise OpenAlgoReferenceError("OpenAlgo optional reference identifiers must be non-empty text")
-    return value.strip()
+    if value != value.strip():
+        raise OpenAlgoReferenceError(
+            "OpenAlgo optional reference identifiers must not contain surrounding whitespace"
+        )
+    return value
 
 
 def _required_tick_size(value: object) -> Decimal:
