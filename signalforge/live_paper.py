@@ -348,28 +348,37 @@ class LivePaperRunner:
         prepared: LivePaperPrepared | None = None
         try:
             prepared = self.prepare()
-            phase = nse_session_phase(self.now())
+            checked_at = self.now()
+            phase = nse_session_phase(checked_at)
+            activation_at = nse_regular_session_open_at(checked_at)
             if phase is NseSessionPhase.POST_SESSION:
                 raise RuntimeError("live-paper cannot activate after the NSE regular session")
-            if phase is NseSessionPhase.ACTIVE:
+            if phase is NseSessionPhase.ACTIVE and checked_at.astimezone(activation_at.tzinfo) > activation_at:
                 raise RuntimeError(
-                    "live-paper must be prepared before the canonical NSE activation boundary"
+                    "live-paper missed the canonical NSE activation boundary"
                 )
 
-            _emit(
-                self.logger,
-                "pre_session_wait",
-                activate_at=nse_regular_session_open_at(self.now()).isoformat(),
-            )
-            while (
-                not self._shutdown_requested
-                and nse_session_phase(self.now()) is NseSessionPhase.PRE_SESSION
-            ):
-                self.sleep(1.0)
-            if self._shutdown_requested:
-                return LivePaperExitCode.OK
-            if nse_session_phase(self.now()) is not NseSessionPhase.ACTIVE:
-                raise RuntimeError("live-paper session became unsafe before activation")
+            if phase is NseSessionPhase.PRE_SESSION:
+                _emit(
+                    self.logger,
+                    "pre_session_wait",
+                    activate_at=activation_at.isoformat(),
+                )
+                while (
+                    not self._shutdown_requested
+                    and nse_session_phase(self.now()) is NseSessionPhase.PRE_SESSION
+                ):
+                    self.sleep(1.0)
+                if self._shutdown_requested:
+                    return LivePaperExitCode.OK
+                reached_at = self.now()
+                if (
+                    nse_session_phase(reached_at) is not NseSessionPhase.ACTIVE
+                    or reached_at.astimezone(activation_at.tzinfo) != activation_at
+                ):
+                    raise RuntimeError(
+                        "live-paper missed the canonical NSE activation boundary"
+                    )
 
             self._activate(prepared)
             if (
