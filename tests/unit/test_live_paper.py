@@ -355,13 +355,16 @@ def test_transport_error_after_gap_uses_reconciliation_exit_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
-    prepared = _prepared(at)
+    current = [datetime(2026, 10, 5, 9, 14, 59, tzinfo=IST)]
+    prepared = _prepared(current[0])
     stream = io.StringIO()
     runner = LivePaperRunner(
         config_path=_write_config(tmp_path),
         env=_env(),
-        now=lambda: at,
+        now=lambda: current[0],
+        sleep=lambda _seconds: current.__setitem__(
+            0, datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+        ),
         logger=configure_json_logger(stream=stream, name="sf058-gap-classification"),
     )
     monkeypatch.setattr(runner, "prepare", lambda: prepared)
