@@ -16,9 +16,7 @@ from signalforge.adapters.openalgo.live_market_data import (
     OpenAlgoMarketDataError,
     OpenAlgoMarketDataProtocolError,
 )
-from signalforge.adapters.openalgo.market_data_config import (
-    OpenAlgoMarketDataConfig,
-)
+from signalforge.adapters.openalgo.market_data_config import OpenAlgoMarketDataConfig
 from signalforge.adapters.openalgo.reference import OpenAlgoSubscriptionIdentity
 from signalforge.adapters.openalgo.websocket_transport import (
     OpenAlgoWebSocketReceiveTimeout,
