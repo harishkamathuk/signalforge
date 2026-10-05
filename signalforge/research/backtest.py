@@ -409,5 +409,3 @@ def _rejection(
         filled_at=fill.filled_at,
         reason=reason,
     )
-
-
