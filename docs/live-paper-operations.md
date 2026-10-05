@@ -1,0 +1,153 @@
+# Live PAPER operator
+
+SF-058 adds the operator-facing command for one configured NSE security:
+
+```bash
+signalforge live-paper --config path/to/live-paper.json
+```
+
+The command is **PAPER only**. It has no option that enables broker order placement.
+
+## Prerequisites
+
+Before starting the command:
+
+- PostgreSQL must be reachable through `DATABASE_URL`;
+- OpenAlgo must be configured and have an active broker session;
+- the configured instrument must resolve as one exact NSE cash equity;
+- the strategy/config identity must be valid;
+- no unresolved prior live PAPER run may require ADR-009 reconciliation.
+
+SignalForge does not auto-load `.env` files.
+
+Required environment values are the existing OpenAlgo and PostgreSQL settings, including:
+
+```text
+DATABASE_URL
+OPENALGO_HOST
+OPENALGO_API_KEY
+OPENALGO_WS_URL
+```
+
+Optional OpenAlgo timeout/reconnect variables retain their existing meanings.
+
+## Command configuration
+
+The JSON config contains no secrets:
+
+```json
+{
+  "instrument_id": "NSE:RELIANCE",
+  "quantity": 10,
+  "engine_calculation_version": "engine-v1",
+  "strategy": {
+    "id": "intraday_momentum_v1",
+    "version": "1.0.0",
+    "parameters": {}
+  }
+}
+```
+
+M8 live PAPER operation is restricted to the accepted
+`intraday_momentum_v1 / 1.0.0` strategy.
+
+## Startup phases
+
+The runner validates, in order:
+
+1. command configuration and strategy identity;
+2. PostgreSQL connectivity;
+3. read-only OpenAlgo preflight;
+4. current-trading-date NSE reference/tick metadata;
+5. durable M7 recovery status.
+
+No WebSocket subscription occurs before these checks succeed.
+
+If the same deterministic live-paper run is already RESUMABLE, the command reports
+`reconciliation_required` and does not start market processing.
+
+## Pre-session launch
+
+The command may be started before 09:15 IST.
+
+Validation runs immediately, but live WebSocket activation waits until the canonical regular NSE
+session opens. This prevents normal pre-open silence from being misclassified as stale market data.
+
+Starting after the regular-session boundary fails closed rather than guessing a continuity point.
+
+## Runtime behavior
+
+During the active session the runner:
+
+- advances accepted time-based ARMED lifecycle boundaries;
+- polls the SF-057 live runtime synchronously;
+- emits material feed/candle/decision/lifecycle changes as JSON lines;
+- stops when ADR-009 requires reconciliation or the runtime becomes terminal.
+
+OPEN compulsory exit still requires the first qualifying observed market price at/after the accepted
+forced-exit boundary. Wall-clock time alone never fabricates an exit price.
+
+## Structured logs
+
+Operational records are line-delimited JSON. Typical event names include:
+
+```text
+startup
+openalgo_preflight
+reference_ready
+recovery
+pre_session_wait
+live_activation
+feed_state
+candle_completed
+strategy_decision
+lifecycle_transition
+reconciliation_required
+runtime_failure
+shutdown
+```
+
+API keys, database URLs, broker credentials, raw environment dumps and raw provider payloads are not
+intended to be logged. Known credential-bearing environment values are redacted from surfaced error
+details.
+
+## Shutdown
+
+SIGINT and SIGTERM request cooperative shutdown between synchronous runtime steps.
+
+Shutdown best-effort closes the live feed and reports the last lifecycle/continuity state. It does
+not flush forming-candle memory as authoritative durable state and does not auto-close ARMED/OPEN
+lifecycle state.
+
+A later process restart must recover under ADR-009.
+
+## Exit codes
+
+- `0` — clean operator/session shutdown;
+- `2` — startup validation failure;
+- `3` — reconciliation required;
+- `4` — runtime failure after activation.
+
+## Current M8 limitation: live warmup
+
+A NEW live runtime currently has no authoritative historical/pre-session candle bootstrap.
+
+Strategy V1 requires 250 completed regular-session candles before it can become actionable.
+SF-058 therefore uses the actual persisted/live indicator completed-candle count and does not inject
+a synthetic warmup value.
+
+This means a fresh M8 live-paper session is operationally observable but cannot yet be relied upon to
+produce Strategy V1 PAPER signals from one session of live data alone. Historical/pre-session
+indicator warmup remains a separate correctness requirement.
+
+## Out of scope
+
+SF-058 does not provide:
+
+- live broker orders;
+- automatic gap reconciliation or backfill;
+- broker-position reconciliation;
+- emergency flattening;
+- multi-security operation;
+- dashboard/UI;
+- daemon/service-supervisor deployment.
