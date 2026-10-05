@@ -73,7 +73,7 @@ The command may be started before 09:15 IST.
 Validation runs immediately, but live WebSocket activation waits until the canonical regular NSE
 session opens. This prevents normal pre-open silence from being misclassified as stale market data.
 
-Starting after the regular-session boundary fails closed rather than guessing a continuity point.
+A fresh command started after the 09:15 IST activation boundary fails closed rather than guessing a continuity point. Start the operator before the session so it can cross the accepted activation boundary under observation.
 
 ## Runtime behavior
 
