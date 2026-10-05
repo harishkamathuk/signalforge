@@ -35,7 +35,11 @@ from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine, IndicatorSnapshot
-from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleSnapshot
+from signalforge.runtime.lifecycle import (
+    LifecycleCoordinator,
+    LifecycleSnapshot,
+    LifecycleState,
+)
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.strategy import (
@@ -305,7 +309,7 @@ class LiveRuntime:
             )
         if (
             feed_state is not MarketDataFeedState.HEALTHY
-            and self.lifecycle.state.value in {"armed", "open"}
+            and self.lifecycle.state in {LifecycleState.ARMED, LifecycleState.OPEN}
         ):
             self._continuity = LiveRuntimeContinuity.TERMINAL
             raise LiveRuntimeError(
