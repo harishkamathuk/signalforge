@@ -114,3 +114,61 @@ def test_live_commit_persists_atomic_facts_without_market_input_checkpoint(
             )
             is None
         )
+
+
+
+def test_live_commit_rolls_back_prior_writes_on_later_repository_failure(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy)
+    state = IndicatorEngine(
+        INSTRUMENT,
+        run.engine_calculation_version,
+        requirements=strategy.indicator_requirements,
+    ).state
+    decision = _decision(run)
+
+    with Session(postgres_engine) as session:
+        with session.begin():
+            PostgresRunProvenanceRepository(session).add(run)
+
+    def fail_append(self, run_id, fact):
+        raise RuntimeError("forced strategy-decision persistence failure")
+
+    monkeypatch.setattr(
+        PostgresStrategyDecisionRepository,
+        "append",
+        fail_append,
+    )
+
+    with Session(postgres_engine) as session:
+        with pytest.raises(RuntimeError, match="forced strategy-decision"):
+            PersistenceCoordinator(session).persist_live_market_input(
+                run=run,
+                commit=LiveMarketInputCommit(
+                    indicator_state=state,
+                    evaluations=(decision,),
+                ),
+            )
+
+    with Session(postgres_engine) as session:
+        assert (
+            PostgresIndicatorCheckpointRepository(session).get(
+                run.run_id, INSTRUMENT
+            )
+            is None
+        )
+        assert (
+            PostgresStrategyDecisionRepository(session).get(
+                run.run_id, INSTRUMENT, decision.interval
+            )
+            is None
+        )
+        assert (
+            PostgresMarketInputCheckpointRepository(session).get(
+                run.run_id, INSTRUMENT
+            )
+            is None
+        )
