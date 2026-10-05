@@ -271,9 +271,24 @@ class OpenAlgoMarketDataAdapter:
         if prior_volume is not None and volume < prior_volume:
             raise OpenAlgoMarketDataContinuityError("OpenAlgo cumulative volume regressed")
 
+        stale_interval_crossed = (
+            prior_volume is not None
+            and self._last_valid_monotonic is not None
+            and now_mono - self._last_valid_monotonic
+            > self._md_config.stale_after_seconds
+        )
+
         self._baseline_volume = volume
         self._last_timestamp_ms = timestamp_ms
         self._last_valid_monotonic = now_mono
+
+        if stale_interval_crossed:
+            # The newly received quote cannot prove what happened during the
+            # quote-free interval. Consume it only as a fresh provider baseline
+            # and surface STALE so the live runtime can require reconciliation.
+            self._state = MarketDataFeedState.STALE
+            return None
+
         self._state = MarketDataFeedState.HEALTHY
 
         if prior_volume is None or volume == prior_volume:
