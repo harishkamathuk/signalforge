@@ -892,7 +892,7 @@ def test_exact_0915_activation_boundary_is_allowed(
     assert activated == [True]
 
 
-def test_pre_session_wait_that_overshoots_0915_fails_closed(
+def test_pre_session_wait_activates_on_first_active_scheduler_tick(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -909,8 +909,16 @@ def test_pre_session_wait_that_overshoots_0915_fails_closed(
     )
     monkeypatch.setattr(runner, "prepare", lambda: prepared)
     activated: list[bool] = []
-    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+
+    def activate(_prepared: LivePaperPrepared) -> None:
+        activated.append(True)
+        runner._runtime = SimpleNamespace(
+            continuity=LiveRuntimeContinuity.CONTINUOUS
+        )  # type: ignore[assignment]
+
+    monkeypatch.setattr(runner, "_activate", activate)
+    monkeypatch.setattr(runner, "_operator_loop", lambda: None)
     monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
 
-    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
-    assert activated == []
+    assert runner.run() is LivePaperExitCode.OK
+    assert activated == [True]
