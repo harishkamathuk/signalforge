@@ -39,6 +39,7 @@ nav:
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - OpenAlgo Adapter: api/openalgo-adapter.md
       - Live Runtime: api/live-runtime.md
+      - Live PAPER Runner: api/live-paper-runner.md
       - Indicators: api/indicators.md
 
 plugins:
