@@ -63,7 +63,7 @@ def quote(
         '{"type":"market_data",'
         f'"symbol":"{symbol}","exchange":"{exchange}","mode":{mode_json},'
         f'"data":{{"ltp":{price},"volume":{volume},"timestamp":{timestamp},'
-        '"open":1400.0,"high":1430.0,"low":1395.0,"close":1410.0}}}'
+        '"open":1400.0,"high":1430.0,"low":1395.0,"close":1410.0}}'
     )
 
 
