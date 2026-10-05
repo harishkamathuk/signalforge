@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from ipaddress import ip_address
 from os import environ
 from urllib.parse import urlsplit
 
@@ -25,7 +26,11 @@ class OpenAlgoConfig(BaseModel):
         """Validate and canonicalize the OpenAlgo service root URL."""
 
         candidate = value.strip()
-        parsed = urlsplit(candidate)
+        try:
+            parsed = urlsplit(candidate)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("OpenAlgo host contains an invalid port") from exc
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("OpenAlgo host must be an absolute HTTP(S) URL")
         if parsed.username is not None or parsed.password is not None:
@@ -34,6 +39,10 @@ class OpenAlgoConfig(BaseModel):
             raise ValueError("OpenAlgo host must not contain query or fragment components")
         if parsed.path not in {"", "/"}:
             raise ValueError("OpenAlgo host must identify the service root without a path")
+        if port is not None and not 1 <= port <= 65535:
+            raise ValueError("OpenAlgo host contains an invalid port")
+        if parsed.scheme == "http" and not _is_loopback_hostname(parsed.hostname):
+            raise ValueError("Remote OpenAlgo hosts must use HTTPS")
         return candidate.rstrip("/")
 
     @field_validator("api_key", mode="before")
@@ -62,3 +71,15 @@ class OpenAlgoConfig(BaseModel):
         if "OPENALGO_REQUEST_TIMEOUT_SECONDS" in source:
             payload["request_timeout_seconds"] = source["OPENALGO_REQUEST_TIMEOUT_SECONDS"]
         return cls.model_validate(payload)
+
+
+def _is_loopback_hostname(hostname: str) -> bool:
+    """Return whether a host is safely local for plaintext HTTP development use."""
+
+    normalized = hostname.rstrip(".").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
