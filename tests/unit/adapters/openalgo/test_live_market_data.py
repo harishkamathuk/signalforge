@@ -264,7 +264,7 @@ def test_positive_volume_delta_emits_canonical_market_event_with_decimal_precisi
     assert event.source_event_id is None
     assert event.received_timestamp == WALL_TIME
     assert event.exchange_timestamp == datetime(
-        2025, 8, 28, 8, 20, 45, 124000, tzinfo=UTC
+        2025, 8, 28, 10, 20, 45, 124000, tzinfo=UTC
     )
 
 
