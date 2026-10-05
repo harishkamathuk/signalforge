@@ -383,3 +383,26 @@ def test_transport_error_after_gap_uses_reconciliation_exit_code(
     assert runner.run() is LivePaperExitCode.RECONCILIATION_REQUIRED
     records = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert records[-1]["event"] == "reconciliation_required"
+
+
+
+def test_mid_session_fresh_start_fails_closed_without_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    prepared = _prepared(at)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-mid-session"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert nse_session_phase(at) is NseSessionPhase.ACTIVE
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
