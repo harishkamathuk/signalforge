@@ -62,6 +62,7 @@ def test_ready_preflight_returns_only_signalforge_owned_result() -> None:
     assert result.detail is None
     assert transport.seen_payload == {"apikey": SECRET}
     assert SECRET not in repr(result)
+    assert SECRET not in (result.detail or "")
 
 
 def test_transport_failure_is_unreachable_and_secret_safe() -> None:
@@ -111,7 +112,10 @@ def test_other_ping_403_is_broker_session_unavailable() -> None:
         response(200, b'not-json'),
         response(200, b'[]'),
         response(200, b'{"status":"success","data":{}}'),
-        response(500, b'{"status":"error","message":"internal"}'),
+        response(
+            500,
+            ('{"status":"error","message":"provider echoed ' + SECRET + '"}').encode(),
+        ),
         response(
             200,
             b'{"status":"success","data":{"message":"pong","broker":"zerodha"}}',
