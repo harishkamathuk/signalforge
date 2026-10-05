@@ -67,7 +67,7 @@ The command may be launched before 09:15 IST. Validation occurs immediately, but
 WebSocket and `LiveRuntime` do not start until 09:15. This prevents expected pre-open silence from
 being misclassified as stale market data.
 
-Starting at or after the post-session boundary fails closed.
+A fresh command started after 09:15 IST fails closed rather than guessing that the unobserved opening-session chronology was continuous. Start the operator before the session so it can cross the accepted activation boundary under observation.
 
 ## Runtime behavior
 
