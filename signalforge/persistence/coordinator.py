@@ -133,18 +133,17 @@ class PersistenceCoordinator:
             raise ValueError("Live indicator checkpoint calculation version must match run")
         if any(item.strategy != run.strategy for item in commit.evaluations):
             raise ValueError("Live strategy decision identity must match run")
-        run_scoped = (
-            *commit.signals,
-            *commit.triggers,
-            *commit.intents,
-            *commit.fills,
-            *commit.outcomes,
-            *commit.trades,
-            *commit.positions,
-            *commit.exits,
-            *commit.transitions,
-        )
-        if any(item.run != run for item in run_scoped):
+        if (
+            any(item.run != run for item in commit.signals)
+            or any(item.run != run for item in commit.triggers)
+            or any(item.run != run for item in commit.intents)
+            or any(item.run != run for item in commit.fills)
+            or any(item.run != run for item in commit.outcomes)
+            or any(item.run != run for item in commit.trades)
+            or any(item.run != run for item in commit.positions)
+            or any(item.run != run for item in commit.exits)
+            or any(item.run != run for item in commit.transitions)
+        ):
             raise ValueError("Live durable fact run identity must match requested run")
 
     def persist_market_input(
