@@ -353,7 +353,7 @@ class LivePaperRunner:
             activation_at = nse_regular_session_open_at(checked_at)
             if phase is NseSessionPhase.POST_SESSION:
                 raise RuntimeError("live-paper cannot activate after the NSE regular session")
-            if phase is NseSessionPhase.ACTIVE and checked_at.astimezone(activation_at.tzinfo) > activation_at:
+            if phase is NseSessionPhase.ACTIVE and checked_at > activation_at:
                 raise RuntimeError(
                     "live-paper missed the canonical NSE activation boundary"
                 )
@@ -374,7 +374,7 @@ class LivePaperRunner:
                 reached_at = self.now()
                 if (
                     nse_session_phase(reached_at) is not NseSessionPhase.ACTIVE
-                    or reached_at.astimezone(activation_at.tzinfo) != activation_at
+                    or reached_at != activation_at
                 ):
                     raise RuntimeError(
                         "live-paper missed the canonical NSE activation boundary"
