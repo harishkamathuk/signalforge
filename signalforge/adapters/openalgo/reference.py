@@ -102,21 +102,25 @@ def resolve_nse_equity_reference(
         )
     selected_transport = transport or StdlibOpenAlgoTransport(config.host)
 
-    symbol_response = _post_provider(
-        selected_transport,
-        config,
-        path="/api/v1/symbol",
-        payload={"symbol": symbol, "exchange": "NSE"},
-    )
     search_response = _post_provider(
         selected_transport,
         config,
         path="/api/v1/search",
         payload={"query": symbol, "exchange": "NSE"},
     )
-
-    symbol_row = _parse_symbol_response(symbol_response, symbol=symbol)
     search_row = _parse_search_response(search_response, symbol=symbol)
+
+    symbol_response = _post_provider(
+        selected_transport,
+        config,
+        path="/api/v1/symbol",
+        payload={"symbol": symbol, "exchange": "NSE"},
+    )
+    symbol_row = _parse_symbol_response(symbol_response, symbol=symbol)
+
+    # Cross-check both provider surfaces deliberately: exact search establishes
+    # existence/ambiguity, while /symbol corroborates the accepted reference
+    # metadata before SignalForge trusts tick size and broker-native identifiers.
     _require_consistent(symbol_row, search_row)
 
     accepted = symbol_row
@@ -206,9 +210,17 @@ def _parse_search_response(response: OpenAlgoHttpResponse, *, symbol: str) -> _R
     for item in data:
         if not isinstance(item, dict):
             raise OpenAlgoReferenceError("OpenAlgo search returned a malformed candidate")
-        row = _reference_row(item)
-        if row.symbol == symbol and row.exchange == "NSE" and row.instrument_type == "EQ":
-            exact.append(row)
+
+        candidate_symbol = item.get("symbol")
+        candidate_exchange = item.get("exchange")
+        if candidate_symbol != symbol or candidate_exchange != "NSE":
+            continue
+
+        candidate_type = item.get("instrumenttype")
+        if candidate_type != "EQ":
+            continue
+
+        exact.append(_reference_row(item))
 
     if not exact:
         raise OpenAlgoReferenceNotFound(
@@ -313,7 +325,14 @@ def _require_consistent(primary: _ReferenceRow, secondary: _ReferenceRow) -> Non
         or primary.exchange != secondary.exchange
         or primary.instrument_type != secondary.instrument_type
         or primary.tick_size != secondary.tick_size
+        or _optional_values_conflict(primary.token, secondary.token)
+        or _optional_values_conflict(primary.broker_symbol, secondary.broker_symbol)
+        or _optional_values_conflict(primary.broker_exchange, secondary.broker_exchange)
     ):
         raise OpenAlgoReferenceContradiction(
             "OpenAlgo symbol and search reference data contradict each other"
         )
+
+
+def _optional_values_conflict(primary: str | None, secondary: str | None) -> bool:
+    return primary is not None and secondary is not None and primary != secondary
