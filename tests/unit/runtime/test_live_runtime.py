@@ -343,7 +343,7 @@ def test_new_recovery_completes_before_feed_start(
         evaluation_context_factory=context,
     )
 
-    assert order == ["recover", "start", "persist_run"]
+    assert order == ["recover", "persist_run", "start"]
     assert value.continuity is LiveRuntimeContinuity.CONTINUOUS
 
 
@@ -378,7 +378,8 @@ def test_resumable_recovery_is_inspected_before_feed_start_and_is_not_continuous
         evaluation_context_factory=context,
     )
 
-    assert order == ["recover", "start"]
+    assert order == ["recover"]
+    assert not feed.started
     assert value.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
 
 
