@@ -12,6 +12,10 @@ class OpenAlgoWebSocketUnavailable(RuntimeError):
     """Raised when the OpenAlgo WebSocket transport cannot complete an operation."""
 
 
+class OpenAlgoWebSocketReceiveTimeout(OpenAlgoWebSocketUnavailable):
+    """Raised when no message arrives before a receive deadline on an open socket."""
+
+
 class OpenAlgoWebSocketConnection(Protocol):
     """Narrow connection contract used by the live adapter and deterministic fakes."""
 
@@ -47,7 +51,7 @@ class _WebsocketsConnection:
         try:
             message = self._connection.recv(timeout=timeout_seconds)
         except TimeoutError as exc:
-            raise OpenAlgoWebSocketUnavailable("OpenAlgo WebSocket receive timed out") from exc
+            raise OpenAlgoWebSocketReceiveTimeout("OpenAlgo WebSocket receive timed out") from exc
         except (OSError, WebSocketException) as exc:
             raise OpenAlgoWebSocketUnavailable("OpenAlgo WebSocket receive failed") from exc
         if not isinstance(message, str):
