@@ -385,6 +385,17 @@ class LivePaperRunner:
             _emit(self.logger, "runtime_failure", detail=self._safe_detail(exc))
             return LivePaperExitCode.RUNTIME_FAILED
         except Exception as exc:
+            if (
+                self._runtime is not None
+                and self._runtime.continuity
+                is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+            ):
+                _emit(
+                    self.logger,
+                    "reconciliation_required",
+                    detail=self._safe_detail(exc),
+                )
+                return LivePaperExitCode.RECONCILIATION_REQUIRED
             _emit(self.logger, "startup_or_runtime_failure", detail=self._safe_detail(exc))
             return (
                 LivePaperExitCode.RUNTIME_FAILED
