@@ -89,6 +89,7 @@ class OpenAlgoMarketDataAdapter:
                 timeout_seconds=self._md_config.connect_timeout_seconds,
             )
             self._authenticate_and_subscribe()
+            self._last_valid_monotonic = self._monotonic_clock()
         except (OpenAlgoWebSocketUnavailable, OpenAlgoMarketDataError):
             self._state = MarketDataFeedState.FAILED
             self._close_transport()
@@ -110,12 +111,21 @@ class OpenAlgoMarketDataAdapter:
             raise OpenAlgoMarketDataDisconnected("OpenAlgo market-data connection was lost") from exc
 
         payload = _decode_object(raw)
-        return self._apply_market_data(payload)
+        try:
+            return self._apply_market_data(payload)
+        except OpenAlgoMarketDataContinuityError:
+            self._state = MarketDataFeedState.FAILED
+            raise
 
     def check_stale(self) -> MarketDataFeedState:
         """Advance HEALTHY to STALE when the operational no-data threshold is exceeded."""
 
-        if self._state not in {MarketDataFeedState.HEALTHY, MarketDataFeedState.STALE}:
+        if self._state not in {
+            MarketDataFeedState.STARTING,
+            MarketDataFeedState.HEALTHY,
+            MarketDataFeedState.STALE,
+            MarketDataFeedState.RECOVERING,
+        }:
             return self._state
         if self._last_valid_monotonic is None:
             return self._state
@@ -142,6 +152,7 @@ class OpenAlgoMarketDataAdapter:
                     timeout_seconds=self._md_config.connect_timeout_seconds,
                 )
                 self._authenticate_and_subscribe()
+                self._last_valid_monotonic = self._monotonic_clock()
                 return
             except (OpenAlgoWebSocketUnavailable, OpenAlgoMarketDataError):
                 self._close_transport()
@@ -168,6 +179,8 @@ class OpenAlgoMarketDataAdapter:
         except OpenAlgoWebSocketUnavailable:
             pass
         self._close_transport()
+        self._reset_stream_baseline()
+        self._state = MarketDataFeedState.DISCONNECTED
 
     def _authenticate_and_subscribe(self) -> None:
         connection = self._require_connection()
@@ -198,20 +211,21 @@ class OpenAlgoMarketDataAdapter:
         if ack.get("type") != "subscribe" or ack.get("status") != "success":
             raise OpenAlgoMarketDataProtocolError("OpenAlgo Quote subscription failed")
         subscriptions = ack.get("subscriptions")
-        if subscriptions is not None:
-            if not isinstance(subscriptions, list) or len(subscriptions) != 1:
-                raise OpenAlgoMarketDataProtocolError("OpenAlgo subscription acknowledgement is ambiguous")
-            item = subscriptions[0]
-            if not isinstance(item, dict):
-                raise OpenAlgoMarketDataProtocolError("OpenAlgo subscription acknowledgement is malformed")
-            if (
-                item.get("symbol") != self._subscription.symbol
-                or item.get("exchange") != self._subscription.exchange
-                or str(item.get("mode", "")).upper() != "QUOTE"
-            ):
-                raise OpenAlgoMarketDataProtocolError(
-                    "OpenAlgo subscription acknowledgement contradicts requested identity"
-                )
+        if not isinstance(subscriptions, list) or len(subscriptions) != 1:
+            raise OpenAlgoMarketDataProtocolError(
+                "OpenAlgo subscription acknowledgement must confirm one exact subscription"
+            )
+        item = subscriptions[0]
+        if not isinstance(item, dict):
+            raise OpenAlgoMarketDataProtocolError("OpenAlgo subscription acknowledgement is malformed")
+        if (
+            item.get("symbol") != self._subscription.symbol
+            or item.get("exchange") != self._subscription.exchange
+            or str(item.get("mode", "")).upper() != "QUOTE"
+        ):
+            raise OpenAlgoMarketDataProtocolError(
+                "OpenAlgo subscription acknowledgement contradicts requested identity"
+            )
 
     def _apply_market_data(self, payload: dict[str, Any]) -> MarketEvent | None:
         if payload.get("type") != "market_data":
@@ -230,7 +244,7 @@ class OpenAlgoMarketDataAdapter:
 
         price = _positive_decimal(data.get("ltp"), field="ltp")
         volume = _non_negative_int(data.get("volume"), field="volume")
-        timestamp_ms = _non_negative_int(data.get("timestamp"), field="timestamp")
+        timestamp_ms = _epoch_millis(data.get("timestamp"))
         if self._last_timestamp_ms is not None and timestamp_ms < self._last_timestamp_ms:
             raise OpenAlgoMarketDataContinuityError("OpenAlgo provider timestamp regressed")
 
@@ -296,10 +310,10 @@ def _decode_object(raw: str) -> dict[str, Any]:
 
 
 def _positive_decimal(value: object, *, field: str) -> Decimal:
-    if isinstance(value, bool) or value is None or isinstance(value, float):
-        raise OpenAlgoMarketDataProtocolError(f"OpenAlgo {field} must be exact decimal-compatible")
+    if isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        raise OpenAlgoMarketDataProtocolError(f"OpenAlgo {field} must be an exact JSON number")
     try:
-        result = value if isinstance(value, Decimal) else Decimal(str(value))
+        result = value if isinstance(value, Decimal) else Decimal(value)
     except (InvalidOperation, ValueError):
         raise OpenAlgoMarketDataProtocolError(f"OpenAlgo {field} is not a valid decimal") from None
     if not result.is_finite() or result <= 0:
@@ -313,3 +327,12 @@ def _non_negative_int(value: object, *, field: str) -> int:
             f"OpenAlgo {field} must be a non-negative integer"
         )
     return value
+
+
+def _epoch_millis(value: object) -> int:
+    timestamp_ms = _non_negative_int(value, field="timestamp")
+    if not 1_000_000_000_000 <= timestamp_ms <= 9_999_999_999_999:
+        raise OpenAlgoMarketDataProtocolError(
+            "OpenAlgo timestamp must be a documented epoch-millisecond value"
+        )
+    return timestamp_ms
