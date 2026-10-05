@@ -311,15 +311,23 @@ def test_volume_regression_fails_closed_without_rebasing() -> None:
 
     assert adapter.state is MarketDataFeedState.FAILED
 
+
+def test_timestamp_regression_fails_closed() -> None:
+    timestamp = 1_756_376_445_123
+    adapter, connection, _, _ = started(quote(volume=100, timestamp=timestamp))
+    assert adapter.receive_once() is None
+    connection.messages.append(quote(volume=101, timestamp=timestamp - 1))
+
+    with pytest.raises(OpenAlgoMarketDataContinuityError):
+        adapter.receive_once()
+
     assert adapter.state is MarketDataFeedState.FAILED
 
 
-def test_timestamp_regression_fails_closed() -> None:
-    adapter, connection, _, _ = started(quote(volume=100, timestamp=2000))
-    assert adapter.receive_once() is None
-    connection.messages.append(quote(volume=101, timestamp=1999))
+def test_second_based_timestamp_is_rejected_instead_of_guessed_as_milliseconds() -> None:
+    adapter, _, _, _ = started(quote(timestamp=1_756_376_445))
 
-    with pytest.raises(OpenAlgoMarketDataContinuityError):
+    with pytest.raises(OpenAlgoMarketDataProtocolError, match="epoch-millisecond"):
         adapter.receive_once()
 
 
@@ -334,13 +342,6 @@ def test_timestamp_regression_fails_closed() -> None:
         "not-json",
     ],
 )
-def test_second_based_timestamp_is_rejected_instead_of_guessed_as_milliseconds() -> None:
-    adapter, _, _, _ = started(quote(timestamp=1_756_376_445))
-
-    with pytest.raises(OpenAlgoMarketDataProtocolError, match="epoch-millisecond"):
-        adapter.receive_once()
-
-
 def test_wrong_instrument_mode_or_malformed_data_is_rejected(payload: str) -> None:
     adapter, _, _, _ = started(payload)
 
