@@ -18,7 +18,7 @@ from signalforge.adapters.openalgo.transport import (
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.instruments import Instrument, TickSizeRule, TickSizeSchedule
 from signalforge.domain.money import Price
-from signalforge.domain.time import require_aware
+from signalforge.domain.time import require_aware, to_ist
 
 
 class OpenAlgoReferenceError(RuntimeError):
@@ -96,6 +96,10 @@ def resolve_nse_equity_reference(
 
     symbol = _configured_symbol(instrument_id)
     require_aware(observed_at)
+    if to_ist(observed_at).date() != trading_date:
+        raise ValueError(
+            "OpenAlgo reference observation date must match the requested NSE trading date"
+        )
     selected_transport = transport or StdlibOpenAlgoTransport(config.host)
 
     symbol_response = _post_provider(
