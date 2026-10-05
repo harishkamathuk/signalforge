@@ -22,7 +22,7 @@ from signalforge.domain.strategy import (
     TrendResult,
 )
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.persistence.coordinator import PersistenceCoordinator
+from signalforge.persistence.coordinator import LiveMarketInputCommit, PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
@@ -625,3 +625,47 @@ def test_live_runtime_exposes_no_broker_order_surface() -> None:
         "modifyorder",
         "cancelorder",
     }
+
+
+def test_armed_runtime_rejects_non_healthy_direct_event_before_price_processing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    before = value.lifecycle.snapshot()
+
+    with pytest.raises(LiveRuntimeError, match="Price-sensitive lifecycle"):
+        value.process_event(
+            MarketEvent(
+                instrument_id=INSTRUMENT,
+                exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+                received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+                price=Price(Decimal("200")),
+                quantity=1,
+                source="openalgo:quote",
+                source_event_id=None,
+            ),
+            feed_state=MarketDataFeedState.STARTING,
+        )
+
+    assert value.terminal
+    assert value.lifecycle.snapshot() == before
+    assert commits == []
+
+
+def test_live_commit_rejects_mismatched_indicator_calculation_version() -> None:
+    selected_strategy = strategy()
+    run = run_for(selected_strategy, "commit-mismatch")
+    wrong_state = IndicatorEngine(
+        INSTRUMENT,
+        "other-engine",
+        requirements=selected_strategy.indicator_requirements,
+    ).state
+    coordinator = PersistenceCoordinator(cast(Session, FakeSession()))
+
+    with pytest.raises(ValueError, match="calculation version"):
+        coordinator.persist_live_market_input(
+            run=run,
+            commit=LiveMarketInputCommit(indicator_state=wrong_state),
+        )
