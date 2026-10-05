@@ -542,3 +542,86 @@ def test_direct_event_in_stale_state_cannot_advance_armed_or_candle_state(
     assert value.candle_engine.state == before_candle
     assert value.lifecycle.snapshot() == before_lifecycle
     assert commits == []
+
+
+def test_healthy_live_event_preserves_paper_trigger_fill_and_open_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    trigger = MarketEvent(
+        instrument_id=INSTRUMENT,
+        exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+        received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+        price=Price(Decimal("102")),
+        quantity=1,
+        source="openalgo:quote",
+        source_event_id=None,
+    )
+
+    step = value.process_event(trigger, feed_state=MarketDataFeedState.HEALTHY)
+
+    assert step.lifecycle.state is LifecycleState.OPEN
+    assert len(commits) == 1
+    commit = commits[0]
+    assert len(commit.triggers) == 1
+    assert len(commit.intents) == 1
+    assert len(commit.fills) == 1
+    assert len(commit.outcomes) == 1
+    assert len(commit.trades) == 1
+    assert len(commit.positions) == 1
+
+
+def test_healthy_live_event_preserves_paper_target_exit_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    value.process_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            price=Price(Decimal("102")),
+            quantity=1,
+            source="openalgo:quote",
+            source_event_id=None,
+        ),
+        feed_state=MarketDataFeedState.HEALTHY,
+    )
+    assert value.lifecycle.state is LifecycleState.OPEN
+
+    step = value.process_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=datetime(2026, 10, 5, 10, 7, tzinfo=IST),
+            received_timestamp=datetime(2026, 10, 5, 10, 7, tzinfo=IST),
+            price=Price(Decimal("105")),
+            quantity=1,
+            source="openalgo:quote",
+            source_event_id=None,
+        ),
+        feed_state=MarketDataFeedState.HEALTHY,
+    )
+
+    assert step.lifecycle.state is LifecycleState.CLOSED
+    assert len(commits) == 2
+    exit_commit = commits[-1]
+    assert len(exit_commit.exits) == 1
+    assert len(exit_commit.trades) == 1
+    assert len(exit_commit.positions) == 1
+
+
+def test_live_runtime_exposes_no_broker_order_surface() -> None:
+    public_names = {name for name in dir(LiveRuntime) if not name.startswith("_")}
+
+    assert not public_names & {
+        "place_order",
+        "modify_order",
+        "cancel_order",
+        "placeorder",
+        "modifyorder",
+        "cancelorder",
+    }
