@@ -107,12 +107,13 @@ def resolve(
     symbol: OpenAlgoHttpResponse | None = None,
     search: OpenAlgoHttpResponse | None = None,
     trading_date: date = TRADING_DATE,
+    observed_at: datetime = OBSERVED_AT,
 ) -> object:
     return resolve_nse_equity_reference(
         config=CONFIG,
         instrument_id=InstrumentId("NSE:RELIANCE"),
         trading_date=trading_date,
-        observed_at=OBSERVED_AT,
+        observed_at=observed_at,
         transport=FakeTransport(
             symbol_response=symbol or symbol_response(),
             search_response=search or search_response(row()),
@@ -155,7 +156,10 @@ def test_decimal_tick_precision_is_preserved_without_binary_float_conversion() -
 
 def test_trading_date_is_bound_to_one_day_only() -> None:
     next_date = date(2026, 10, 6)
-    resolved = resolve(trading_date=next_date)
+    resolved = resolve(
+        trading_date=next_date,
+        observed_at=datetime(2026, 10, 6, 9, 15, tzinfo=UTC),
+    )
 
     rule = resolved.tick_size_schedule.rules[0]
     assert rule.effective_from == next_date
