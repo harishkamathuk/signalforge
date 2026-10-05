@@ -20,7 +20,6 @@ from signalforge.adapters.openalgo.transport import (
 )
 from signalforge.domain.ids import InstrumentId
 
-
 CONFIG = OpenAlgoConfig(host="http://127.0.0.1:5000", api_key="secret")
 OBSERVED_AT = datetime(2026, 10, 5, 9, 15, tzinfo=UTC)
 TRADING_DATE = date(2026, 10, 5)
@@ -74,13 +73,11 @@ def symbol_response(
     tick_size: str = "0.05",
 ) -> OpenAlgoHttpResponse:
     return response(
-        (
-            '{"status":"success","data":{'
-            f'"symbol":"{symbol}","exchange":"{exchange}",'
-            f'"instrumenttype":"{instrument_type}","tick_size":{tick_size},'
-            '"token":"2885","brsymbol":"RELIANCE","brexchange":"NSE"'
-            "}}"
-        )
+        '{"status":"success","data":{'
+        f'"symbol":"{symbol}","exchange":"{exchange}",'
+        f'"instrumenttype":"{instrument_type}","tick_size":{tick_size},'
+        '"token":"2885","brsymbol":"RELIANCE","brexchange":"NSE"'
+        "}}"
     )
 
 
