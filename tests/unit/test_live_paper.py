@@ -34,12 +34,14 @@ from signalforge.live_paper import (
     LivePaperRunner,
     configure_json_logger,
     install_shutdown_handlers,
+    live_paper_command,
     restore_shutdown_handlers,
 )
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeError,
+    LiveRuntimeReconciliationRequired,
 )
 from signalforge.runtime.recovery import RecoveryDisposition
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
@@ -757,3 +759,104 @@ def test_shutdown_close_failure_is_redacted_and_does_not_skip_dispose(
     assert secret not in output
     assert "<redacted>" in output
     assert engine.disposed
+
+
+
+def test_missing_database_url_fails_before_database_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _env()
+    env.pop("DATABASE_URL")
+    created: list[bool] = []
+    monkeypatch.setattr(
+        "signalforge.live_paper.sa.create_engine",
+        lambda _url: created.append(True),
+    )
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=env,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-missing-db"),
+    )
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert created == []
+
+
+def test_preflight_exception_disposes_engine_and_prevents_reference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = FakeEngine()
+    referenced: list[bool] = []
+    monkeypatch.setattr("signalforge.live_paper.sa.create_engine", lambda _url: engine)
+    monkeypatch.setattr(
+        "signalforge.live_paper.preflight",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("preflight failed")),
+    )
+    monkeypatch.setattr(
+        "signalforge.live_paper.resolve_nse_equity_reference",
+        lambda **_kwargs: referenced.append(True),
+    )
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-preflight-exception"),
+    )
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert referenced == []
+    assert engine.disposed
+
+
+def test_recovery_exception_disposes_engine_and_prevents_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 8, 30, tzinfo=IST)
+    engine = _patch_prepare_dependencies(monkeypatch, at=at)
+    monkeypatch.setattr(
+        "signalforge.live_paper.RecoveryBootstrap.inspect",
+        lambda self, **_kwargs: (_ for _ in ()).throw(RuntimeError("corrupt recovery")),
+    )
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-recovery-exception"),
+    )
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
+    assert engine.disposed
+
+
+def test_live_paper_command_restores_signal_handlers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write_config(tmp_path)
+    calls: list[str] = []
+
+    class FakeRunner:
+        def __init__(self, *, config_path: Path) -> None:
+            assert config_path == config
+
+        def run(self) -> LivePaperExitCode:
+            calls.append("run")
+            return LivePaperExitCode.OK
+
+    monkeypatch.setattr("signalforge.live_paper.LivePaperRunner", FakeRunner)
+    monkeypatch.setattr(
+        "signalforge.live_paper.install_shutdown_handlers",
+        lambda _runner: calls.append("install") or {signal.SIGINT: signal.SIG_DFL},
+    )
+    monkeypatch.setattr(
+        "signalforge.live_paper.restore_shutdown_handlers",
+        lambda _prior: calls.append("restore"),
+    )
+
+    assert live_paper_command(config) == 0
+    assert calls == ["install", "run", "restore"]
