@@ -16,7 +16,9 @@ from signalforge.adapters.openalgo.live_market_data import (
     OpenAlgoMarketDataError,
     OpenAlgoMarketDataProtocolError,
 )
-from signalforge.adapters.openalgo.market_data_config import OpenAlgoMarketDataConfig
+from signalforge.adapters.openalgo.market_data_config import (
+    OpenAlgoMarketDataConfig,
+)
 from signalforge.adapters.openalgo.reference import OpenAlgoSubscriptionIdentity
 from signalforge.adapters.openalgo.websocket_transport import (
     OpenAlgoWebSocketReceiveTimeout,
@@ -392,7 +394,12 @@ def test_transport_loss_enters_disconnected() -> None:
 
 def test_reconnect_reauthenticates_resubscribes_and_rebaselines() -> None:
     first = FakeConnection(
-        [auth_success(), subscribe_success(), quote(volume=100), OpenAlgoWebSocketUnavailable("lost")]
+        [
+            auth_success(),
+            subscribe_success(),
+            quote(volume=100),
+            OpenAlgoWebSocketUnavailable("lost"),
+        ]
     )
     second = FakeConnection(
         [
@@ -420,7 +427,13 @@ def test_reconnect_reauthenticates_resubscribes_and_rebaselines() -> None:
 
 
 def test_exhausted_recovery_enters_failed() -> None:
-    first = FakeConnection([auth_success(), subscribe_success(), OpenAlgoWebSocketUnavailable("lost")])
+    first = FakeConnection(
+        [
+            auth_success(),
+            subscribe_success(),
+            OpenAlgoWebSocketUnavailable("lost"),
+        ]
+    )
     connector = FakeConnector(
         [
             first,
