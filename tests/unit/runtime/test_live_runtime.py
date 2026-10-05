@@ -13,6 +13,7 @@ from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.strategy import (
     DecisionReason,
     MomentumResult,
@@ -21,9 +22,9 @@ from signalforge.domain.strategy import (
     TrendResult,
 )
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.domain.provenance import RunIdentity
 from signalforge.persistence.coordinator import PersistenceCoordinator
 from signalforge.persistence.errors import ContradictoryFactError
+from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
@@ -41,7 +42,6 @@ from signalforge.runtime.recovery import (
 )
 from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
-from signalforge.runtime.candles import CandleEngine
 
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 AT = datetime(2026, 10, 5, 4, 0, tzinfo=UTC)
