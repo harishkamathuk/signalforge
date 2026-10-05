@@ -860,3 +860,57 @@ def test_live_paper_command_restores_signal_handlers(
 
     assert live_paper_command(config) == 0
     assert calls == ["install", "run", "restore"]
+
+
+
+def test_exact_0915_activation_boundary_is_allowed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    prepared = _prepared(at)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-exact-boundary"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+    activated: list[bool] = []
+
+    def activate(_prepared: LivePaperPrepared) -> None:
+        activated.append(True)
+        runner._runtime = SimpleNamespace(
+            continuity=LiveRuntimeContinuity.CONTINUOUS
+        )  # type: ignore[assignment]
+
+    monkeypatch.setattr(runner, "_activate", activate)
+    monkeypatch.setattr(runner, "_operator_loop", lambda: None)
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.OK
+    assert activated == [True]
+
+
+def test_pre_session_wait_that_overshoots_0915_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = [datetime(2026, 10, 5, 9, 14, 59, tzinfo=IST)]
+    prepared = _prepared(current[0])
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: current[0],
+        sleep=lambda _seconds: current.__setitem__(
+            0, datetime(2026, 10, 5, 9, 15, 1, tzinfo=IST)
+        ),
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-overshoot"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
