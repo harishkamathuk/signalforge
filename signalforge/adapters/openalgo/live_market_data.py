@@ -14,6 +14,7 @@ from signalforge.adapters.openalgo.reference import OpenAlgoSubscriptionIdentity
 from signalforge.adapters.openalgo.websocket_transport import (
     OpenAlgoWebSocketConnection,
     OpenAlgoWebSocketConnector,
+    OpenAlgoWebSocketReceiveTimeout,
     OpenAlgoWebSocketUnavailable,
     WebsocketsOpenAlgoConnector,
 )
@@ -99,6 +100,9 @@ class OpenAlgoMarketDataAdapter:
         connection = self._require_connection()
         try:
             raw = connection.receive_text(self._md_config.receive_timeout_seconds)
+        except OpenAlgoWebSocketReceiveTimeout:
+            self.check_stale()
+            return None
         except OpenAlgoWebSocketUnavailable as exc:
             self._state = MarketDataFeedState.DISCONNECTED
             self._connection = None
@@ -236,6 +240,9 @@ class OpenAlgoMarketDataAdapter:
             raise ValueError("Injected wall clock must return a timezone-aware datetime")
 
         prior_volume = self._baseline_volume
+        if prior_volume is not None and volume < prior_volume:
+            raise OpenAlgoMarketDataContinuityError("OpenAlgo cumulative volume regressed")
+
         self._baseline_volume = volume
         self._last_timestamp_ms = timestamp_ms
         self._last_valid_monotonic = now_mono
@@ -243,8 +250,6 @@ class OpenAlgoMarketDataAdapter:
 
         if prior_volume is None or volume == prior_volume:
             return None
-        if volume < prior_volume:
-            raise OpenAlgoMarketDataContinuityError("OpenAlgo cumulative volume regressed")
 
         exchange_timestamp = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=timestamp_ms)
         return MarketEvent(
