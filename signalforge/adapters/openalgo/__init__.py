@@ -6,10 +6,28 @@ from signalforge.adapters.openalgo.health import (
     OpenAlgoPreflightStatus,
     preflight,
 )
+from signalforge.adapters.openalgo.reference import (
+    OpenAlgoReferenceAmbiguous,
+    OpenAlgoReferenceContradiction,
+    OpenAlgoReferenceError,
+    OpenAlgoReferenceNotFound,
+    OpenAlgoReferenceProvenance,
+    OpenAlgoSubscriptionIdentity,
+    ResolvedOpenAlgoInstrument,
+    resolve_nse_equity_reference,
+)
 
 __all__ = [
     "OpenAlgoConfig",
     "OpenAlgoPreflightResult",
     "OpenAlgoPreflightStatus",
+    "OpenAlgoReferenceAmbiguous",
+    "OpenAlgoReferenceContradiction",
+    "OpenAlgoReferenceError",
+    "OpenAlgoReferenceNotFound",
+    "OpenAlgoReferenceProvenance",
+    "OpenAlgoSubscriptionIdentity",
+    "ResolvedOpenAlgoInstrument",
     "preflight",
+    "resolve_nse_equity_reference",
 ]
