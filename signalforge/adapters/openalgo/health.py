@@ -59,7 +59,10 @@ def preflight(
 
 
 def _classify_ping(response: OpenAlgoHttpResponse) -> OpenAlgoPreflightResult:
-    if response.content_type is not None and "application/json" not in response.content_type.lower():
+    if (
+        response.content_type is not None
+        and "application/json" not in response.content_type.lower()
+    ):
         return _protocol_error("OpenAlgo ping returned a non-JSON content type")
 
     payload = _decode_json_object(response.body)
