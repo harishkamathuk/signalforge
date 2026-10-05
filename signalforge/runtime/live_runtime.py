@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -235,14 +236,14 @@ class LiveRuntime:
             continuity=continuity,
         )
 
-        # Recovery and hydration are complete before external live input can arrive.
-        feed.start()
-
         if recovered.disposition is RecoveryDisposition.NEW:
             try:
                 with session_factory() as session:
                     with session.begin():
                         PostgresRunProvenanceRepository(session).add(run)
+                # Recovery, hydration and run provenance are durable before
+                # external live input can arrive.
+                feed.start()
             except Exception:
                 runtime._continuity = LiveRuntimeContinuity.TERMINAL
                 feed.close()
@@ -399,6 +400,39 @@ class LiveRuntime:
             feed_state=feed_state,
             continuity=self._continuity,
         )
+
+    def process_time(self, at: datetime) -> LifecycleSnapshot:
+        """Advance ARMED time policy and atomically persist any resulting transition."""
+
+        self._require_processable()
+        before_transition_ids = {
+            str(item.transition_id) for item in self.lifecycle.audit_transitions
+        }
+        try:
+            snapshot = self.lifecycle.process_time(at)
+            transitions = tuple(
+                item
+                for item in self.lifecycle.audit_transitions
+                if str(item.transition_id) not in before_transition_ids
+            )
+            if transitions:
+                setup = (
+                    ()
+                    if snapshot.arming is None
+                    else (snapshot.arming.armed_setup,)
+                )
+                with self._session_factory() as session:
+                    PersistenceCoordinator(session).persist_live_market_input(
+                        run=self.run,
+                        commit=LiveMarketInputCommit(
+                            setups=setup,
+                            transitions=transitions,
+                        ),
+                    )
+        except Exception:
+            self._continuity = LiveRuntimeContinuity.TERMINAL
+            raise
+        return snapshot
 
     def _require_processable(self) -> None:
         if self._continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED:
