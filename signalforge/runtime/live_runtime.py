@@ -15,6 +15,7 @@ from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
@@ -34,7 +35,7 @@ from signalforge.persistence.repositories import PostgresRunProvenanceRepository
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
-from signalforge.runtime.indicators import IndicatorEngine, IndicatorSnapshot
+from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import (
     LifecycleCoordinator,
     LifecycleSnapshot,
