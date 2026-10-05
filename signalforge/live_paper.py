@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -34,7 +34,9 @@ from signalforge.config.strategy_registry import (
     StrategyRegistry,
     normalize_strategy_selection,
 )
+from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
+from signalforge.domain.market import CompletedCandle
 from signalforge.domain.money import Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.session import (
@@ -118,7 +120,7 @@ class LivePaperPrepared:
 class _RuntimeFactsProvider:
     runtime: LiveRuntime | None = None
 
-    def __call__(self, _candle: object) -> StrategyRuntimeFacts:
+    def __call__(self, _candle: CompletedCandle) -> StrategyRuntimeFacts:
         if self.runtime is None:
             raise RuntimeError("Live evaluation context requested before runtime binding")
         return StrategyRuntimeFacts(
@@ -158,12 +160,17 @@ def _read_config(path: Path) -> LivePaperConfig:
     return LivePaperConfig.model_validate(raw)
 
 
-def _decision_projector(strategy: Strategy) -> Callable[[StrategyDecision], Any]:
+def _decision_projector(
+    strategy: Strategy,
+) -> Callable[[StrategyDecision], StrategyDecisionFact]:
     key = (strategy.identity.strategy_id, strategy.identity.strategy_version)
     if key == ("intraday_momentum_v1", "1.0.0"):
-        return project_v1_decision
+        return cast(Callable[[StrategyDecision], StrategyDecisionFact], project_v1_decision)
     if key == ("rsi_mean_reversion_v1", "1.0.0"):
-        return project_rsi_mean_reversion_decision
+        return cast(
+            Callable[[StrategyDecision], StrategyDecisionFact],
+            project_rsi_mean_reversion_decision,
+        )
     raise ValueError(f"No decision-audit projector registered for {key[0]} / {key[1]}")
 
 
