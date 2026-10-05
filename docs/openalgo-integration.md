@@ -70,3 +70,28 @@ failure and malformed provider responses.
 SF-055 does not implement WebSocket subscriptions, reconnect behavior, MarketEvent conversion,
 stale-feed handling, CandleEngine integration, runtime assembly, historical reference-data
 warehousing, or any broker order operation. Those remain owned by SF-056 and later M8 issues.
+
+## Live Quote market-data adapter
+
+SF-056 connects to the OpenAlgo WebSocket proxy for one SF-055-resolved NSE equity. It subscribes
+in Quote mode because canonical SignalForge `MarketEvent` requires positive trade quantity while
+OpenAlgo LTP-only mode has no quantity.
+
+Only `ltp`, cumulative `volume` and provider `timestamp` are consumed for canonical events.
+The first valid Quote establishes a cumulative-volume baseline and emits no event. Later positive
+volume deltas emit one observed `MarketEvent`; unchanged volume emits nothing. Volume regression
+within one connected stream fails closed. After disconnect/recovery the first valid Quote establishes
+a fresh baseline so SignalForge does not fabricate catch-up trade chronology.
+
+Feed states use the existing `STARTING / HEALTHY / STALE / DISCONNECTED / RECOVERING / FAILED`
+contract. Receive timeout alone does not imply disconnect: the injected monotonic clock drives stale
+detection. Reconnect always re-authenticates and re-subscribes because OpenAlgo subscriptions are
+session-scoped.
+
+WebSocket configuration is separate from REST configuration. Loopback development endpoints may use
+`ws://`; non-loopback endpoints require `wss://`. API keys remain carried only through the
+existing secret-safe OpenAlgo configuration boundary.
+
+SF-056 emits `MarketEvent` only. It does not mutate candles, reconstruct missed trades, place
+orders, process depth, or assemble the live runtime; those concerns remain with SF-057 and later M8
+work.
