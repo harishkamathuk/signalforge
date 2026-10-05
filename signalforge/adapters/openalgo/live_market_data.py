@@ -96,7 +96,7 @@ class OpenAlgoMarketDataAdapter:
             raise
 
     def receive_once(self) -> MarketEvent | None:
-        """Receive and apply one provider message, returning an event only for positive volume delta."""
+        """Receive one provider message and emit only for a positive volume delta."""
 
         connection = self._require_connection()
         try:
@@ -108,7 +108,9 @@ class OpenAlgoMarketDataAdapter:
             self._state = MarketDataFeedState.DISCONNECTED
             self._connection = None
             self._reset_stream_baseline()
-            raise OpenAlgoMarketDataDisconnected("OpenAlgo market-data connection was lost") from exc
+            raise OpenAlgoMarketDataDisconnected(
+                "OpenAlgo market-data connection was lost"
+            ) from exc
 
         payload = _decode_object(raw)
         try:
@@ -217,7 +219,9 @@ class OpenAlgoMarketDataAdapter:
             )
         item = subscriptions[0]
         if not isinstance(item, dict):
-            raise OpenAlgoMarketDataProtocolError("OpenAlgo subscription acknowledgement is malformed")
+            raise OpenAlgoMarketDataProtocolError(
+                "OpenAlgo subscription acknowledgement is malformed"
+            )
         if (
             item.get("symbol") != self._subscription.symbol
             or item.get("exchange") != self._subscription.exchange
@@ -303,7 +307,9 @@ def _decode_object(raw: str) -> dict[str, Any]:
     try:
         payload = json.loads(raw, parse_float=Decimal)
     except json.JSONDecodeError:
-        raise OpenAlgoMarketDataProtocolError("OpenAlgo WebSocket returned malformed JSON") from None
+        raise OpenAlgoMarketDataProtocolError(
+            "OpenAlgo WebSocket returned malformed JSON"
+        ) from None
     if not isinstance(payload, dict):
         raise OpenAlgoMarketDataProtocolError("OpenAlgo WebSocket message must be a JSON object")
     return payload
