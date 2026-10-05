@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from signalforge.adapters.openalgo.config import OpenAlgoConfig
 
@@ -38,7 +38,13 @@ def test_environment_construction_supports_timeouts() -> None:
 
 @pytest.mark.parametrize(
     "host",
-    ["", "localhost:5000", "ftp://example.test", "http://user:pass@example.test", "http://example.test/api"],
+    [
+        "",
+        "localhost:5000",
+        "ftp://example.test",
+        "http://user:pass@example.test",
+        "http://example.test/api",
+    ],
 )
 def test_invalid_hosts_are_rejected(host: str) -> None:
     with pytest.raises(ValidationError):
