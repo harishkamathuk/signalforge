@@ -226,7 +226,10 @@ def _decode_provider_object(
     *,
     source: str,
 ) -> dict[str, Any]:
-    if response.content_type is not None and "application/json" not in response.content_type.lower():
+    if (
+        response.content_type is not None
+        and "application/json" not in response.content_type.lower()
+    ):
         raise OpenAlgoReferenceError(f"{source} returned a non-JSON content type")
     try:
         decoded = json.loads(
@@ -271,7 +274,9 @@ def _optional_text(value: object) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str) or not value:
-        raise OpenAlgoReferenceError("OpenAlgo optional reference identifiers must be non-empty text")
+        raise OpenAlgoReferenceError(
+            "OpenAlgo optional reference identifiers must be non-empty text"
+        )
     if value != value.strip():
         raise OpenAlgoReferenceError(
             "OpenAlgo optional reference identifiers must not contain surrounding whitespace"
@@ -293,7 +298,9 @@ def _required_tick_size(value: object) -> Decimal:
 
 def _require_exact_equity(row: _ReferenceRow, *, symbol: str) -> None:
     if row.symbol != symbol:
-        raise OpenAlgoReferenceContradiction("OpenAlgo symbol response contradicts configured symbol")
+        raise OpenAlgoReferenceContradiction(
+            "OpenAlgo symbol response contradicts configured symbol"
+        )
     if row.exchange != "NSE":
         raise OpenAlgoReferenceContradiction("OpenAlgo symbol response contradicts NSE exchange")
     if row.instrument_type != "EQ":
