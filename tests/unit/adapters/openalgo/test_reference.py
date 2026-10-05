@@ -92,12 +92,14 @@ def row(
     instrument_type: str = "EQ",
     tick_size: str = "0.05",
     token: str = "2885",
+    broker_symbol: str = "RELIANCE",
+    broker_exchange: str = "NSE",
 ) -> str:
     return (
         "{"
         f'"symbol":"{symbol}","exchange":"{exchange}",'
         f'"instrumenttype":"{instrument_type}","tick_size":{tick_size},'
-        f'"token":"{token}","brsymbol":"RELIANCE","brexchange":"NSE"'
+        f'"token":"{token}","brsymbol":"{broker_symbol}","brexchange":"{broker_exchange}"'
         "}"
     )
 
@@ -190,9 +192,30 @@ def test_fuzzy_search_rows_do_not_become_authoritative() -> None:
     assert resolved.instrument_id == InstrumentId("NSE:RELIANCE")
 
 
+def test_incomplete_unrelated_fuzzy_search_row_does_not_block_exact_match() -> None:
+    incomplete = '{"symbol":"RELIANCEPP","exchange":"NSE"}'
+    resolved = resolve(search=search_response(incomplete, row()))
+
+    assert resolved.instrument_id == InstrumentId("NSE:RELIANCE")
+
+
 def test_missing_exact_search_match_fails() -> None:
     with pytest.raises(OpenAlgoReferenceNotFound):
         resolve(search=search_response(row(symbol="RELIANCEPP")))
+
+
+def test_search_not_found_is_authoritative_before_symbol_lookup() -> None:
+    with pytest.raises(OpenAlgoReferenceNotFound):
+        resolve_nse_equity_reference(
+            config=CONFIG,
+            instrument_id=InstrumentId("NSE:RELIANCE"),
+            trading_date=TRADING_DATE,
+            observed_at=OBSERVED_AT,
+            transport=FakeTransport(
+                search_response=search_response(row(symbol="RELIANCEPP")),
+                symbol_response=None,
+            ),
+        )
 
 
 def test_duplicate_exact_search_matches_are_ambiguous_even_if_identical() -> None:
@@ -232,6 +255,21 @@ def test_provider_symbol_is_not_silently_normalized(provider_symbol: str) -> Non
     )
     with pytest.raises(expected_error):
         resolve(symbol=symbol_response(symbol=provider_symbol))
+
+
+@pytest.mark.parametrize(
+    "search_row",
+    [
+        row(token="9999"),
+        row(broker_symbol="RELIANCE-EQ"),
+        row(broker_exchange="NSE_EQ"),
+    ],
+)
+def test_symbol_and_search_broker_identifier_contradiction_fails_closed(
+    search_row: str,
+) -> None:
+    with pytest.raises(OpenAlgoReferenceContradiction):
+        resolve(search=search_response(search_row))
 
 
 def test_symbol_and_search_tick_size_contradiction_fails_closed() -> None:
