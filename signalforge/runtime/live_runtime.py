@@ -15,6 +15,7 @@ from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.execution import EntryIntent, Fill, TriggerEvent
 from signalforge.domain.exits import Exit
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.position_outcomes import (
@@ -25,7 +26,6 @@ from signalforge.domain.positions import Position
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.trades import Trade
-from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.persistence.coordinator import (
     LiveMarketInputCommit,
     PersistenceCoordinator,
