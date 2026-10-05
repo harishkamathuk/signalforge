@@ -91,6 +91,20 @@ def test_invalid_api_key_is_classified_separately(message: str) -> None:
     assert result.status is OpenAlgoPreflightStatus.API_AUTH_FAILED
 
 
+def test_unknown_ping_403_fails_closed_as_protocol_error() -> None:
+    result = preflight(
+        CONFIG,
+        transport=FakeTransport(
+            response=response(
+                403,
+                b'{"status":"error","message":"Forbidden by maintenance policy"}',
+            )
+        ),
+    )
+
+    assert result.status is OpenAlgoPreflightStatus.PROTOCOL_ERROR
+
+
 def test_other_ping_403_is_broker_session_unavailable() -> None:
     result = preflight(
         CONFIG,
