@@ -440,7 +440,6 @@ class LiveRuntime:
 
         self._require_processable()
         before_ids = {str(item.transition_id) for item in self.lifecycle.audit_transitions}
-        before = self.lifecycle.snapshot()
         try:
             after = self.lifecycle.process_time(at)
             transitions = tuple(
@@ -450,12 +449,11 @@ class LiveRuntime:
             )
             if not transitions:
                 return after
-            setups: tuple[ArmedSetup, ...] = ()
-            if after.arming is not None and after.arming is not before.arming:
-                setups = (after.arming.armed_setup,)
-            elif after.arming is not None and before.arming is not None:
-                if after.arming.armed_setup.state != before.arming.armed_setup.state:
-                    setups = (after.arming.armed_setup,)
+            setups = (
+                ()
+                if after.arming is None
+                else (after.arming.armed_setup,)
+            )
             with self._session_factory() as session:
                 PersistenceCoordinator(session).persist_live_market_input(
                     run=self.run,
