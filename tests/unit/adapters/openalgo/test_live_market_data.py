@@ -481,3 +481,96 @@ def test_adapter_has_no_order_methods() -> None:
         "modifyorder",
         "cancelorder",
     }
+
+
+def test_market_data_config_from_environment_parses_operational_values() -> None:
+    config = OpenAlgoMarketDataConfig.from_environment(
+        {
+            "OPENALGO_WS_URL": "ws://127.0.0.1:8765",
+            "OPENALGO_STALE_AFTER_SECONDS": "12.5",
+            "OPENALGO_RECONNECT_ATTEMPTS": "4",
+            "OPENALGO_RECONNECT_DELAY_SECONDS": "2.5",
+            "OPENALGO_WS_CONNECT_TIMEOUT_SECONDS": "3.5",
+            "OPENALGO_WS_RECEIVE_TIMEOUT_SECONDS": "4.5",
+        }
+    )
+
+    assert config.stale_after_seconds == 12.5
+    assert config.reconnect_attempts == 4
+    assert config.reconnect_delay_seconds == 2.5
+    assert config.connect_timeout_seconds == 3.5
+    assert config.receive_timeout_seconds == 4.5
+
+
+def test_instrument_and_subscription_identity_must_match() -> None:
+    with pytest.raises(ValueError, match="must match exactly"):
+        OpenAlgoMarketDataAdapter(
+            config=REST_CONFIG,
+            market_data_config=MD_CONFIG,
+            instrument_id=InstrumentId("NSE:TCS"),
+            subscription=IDENTITY,
+            connector=FakeConnector([]),
+            wall_clock=lambda: WALL_TIME,
+            monotonic_clock=lambda: 100.0,
+            sleep=lambda _: None,
+        )
+
+
+def test_recover_requires_disconnected_state() -> None:
+    adapter, _, _, _ = started()
+
+    with pytest.raises(OpenAlgoMarketDataError, match="requires DISCONNECTED"):
+        adapter.recover()
+
+
+def test_check_stale_is_noop_after_disconnect() -> None:
+    adapter, connection, _, _ = started()
+    connection.messages.append(OpenAlgoWebSocketUnavailable("lost"))
+    with pytest.raises(OpenAlgoMarketDataDisconnected):
+        adapter.receive_once()
+
+    assert adapter.check_stale() is MarketDataFeedState.DISCONNECTED
+
+
+def test_close_without_active_connection_is_idempotent() -> None:
+    adapter, connection, _, _ = started()
+    adapter.close()
+    assert connection.closed
+
+    adapter.close()
+
+    assert adapter.state is MarketDataFeedState.DISCONNECTED
+
+
+def test_naive_wall_clock_fails_closed() -> None:
+    connection = FakeConnection([auth_success(), subscribe_success(), quote(volume=100)])
+    adapter = OpenAlgoMarketDataAdapter(
+        config=REST_CONFIG,
+        market_data_config=MD_CONFIG,
+        instrument_id=INSTRUMENT_ID,
+        subscription=IDENTITY,
+        connector=FakeConnector([connection]),
+        wall_clock=lambda: datetime(2026, 10, 5, 4, 0),
+        monotonic_clock=lambda: 100.0,
+        sleep=lambda _: None,
+    )
+    adapter.start()
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        adapter.receive_once()
+
+
+@pytest.mark.parametrize("price", ["0", "-1", "NaN"])
+def test_invalid_ltp_fails_closed(price: str) -> None:
+    adapter, _, _, _ = started(quote(price=price))
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError):
+        adapter.receive_once()
+
+
+@pytest.mark.parametrize("volume", [-1])
+def test_negative_volume_fails_closed(volume: int) -> None:
+    adapter, _, _, _ = started(quote(volume=volume))
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError):
+        adapter.receive_once()
