@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -14,8 +13,6 @@ from sqlalchemy.orm import Session
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId
-from signalforge.domain.indicators import IndicatorRequirements
-from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.persistence.coordinator import LiveMarketInputCommit, PersistenceCoordinator
