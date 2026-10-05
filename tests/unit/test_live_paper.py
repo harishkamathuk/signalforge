@@ -348,3 +348,38 @@ def test_signal_handlers_request_cooperative_shutdown(tmp_path: Path) -> None:
         assert runner._shutdown_requested
     finally:
         restore_shutdown_handlers(prior)
+
+
+
+def test_transport_error_after_gap_uses_reconciliation_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    prepared = _prepared(at)
+    stream = io.StringIO()
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=stream, name="sf058-gap-classification"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+
+    def activate(_prepared: LivePaperPrepared) -> None:
+        runner._runtime = SimpleNamespace(
+            continuity=LiveRuntimeContinuity.CONTINUOUS
+        )  # type: ignore[assignment]
+
+    def operator_loop() -> None:
+        assert runner._runtime is not None
+        runner._runtime.continuity = LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+        raise RuntimeError("transport lost after continuity gap")
+
+    monkeypatch.setattr(runner, "_activate", activate)
+    monkeypatch.setattr(runner, "_operator_loop", operator_loop)
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.RECONCILIATION_REQUIRED
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert records[-1]["event"] == "reconciliation_required"
