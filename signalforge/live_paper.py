@@ -265,7 +265,11 @@ class LivePaperRunner:
             instrument_id=str(instrument_id),
         )
 
-        result = preflight(openalgo)
+        try:
+            result = preflight(openalgo)
+        except Exception:
+            engine.dispose()
+            raise
         _emit(
             self.logger,
             "openalgo_preflight",
@@ -296,13 +300,17 @@ class LivePaperRunner:
             trading_date=trading_date.isoformat(),
         )
         session_factory = lambda: Session(engine)
-        with session_factory() as session:
-            recovered = RecoveryBootstrap().inspect(
-                session=session,
-                requested_run=run,
-                instrument_id=instrument_id,
-                indicator_requirements=strategy.indicator_requirements,
-            )
+        try:
+            with session_factory() as session:
+                recovered = RecoveryBootstrap().inspect(
+                    session=session,
+                    requested_run=run,
+                    instrument_id=instrument_id,
+                    indicator_requirements=strategy.indicator_requirements,
+                )
+        except Exception:
+            engine.dispose()
+            raise
         _emit(
             self.logger,
             "recovery",
