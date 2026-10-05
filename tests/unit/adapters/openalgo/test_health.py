@@ -11,7 +11,6 @@ from signalforge.adapters.openalgo.transport import (
     OpenAlgoTransportUnavailable,
 )
 
-
 SECRET = "super-secret-openalgo-key"
 CONFIG = OpenAlgoConfig(host="http://127.0.0.1:5000", api_key=SECRET)
 
