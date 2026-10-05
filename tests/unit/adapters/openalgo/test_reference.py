@@ -222,6 +222,17 @@ def test_symbol_surface_must_exactly_match_configured_nse_equity(
         )
 
 
+@pytest.mark.parametrize("provider_symbol", [" RELIANCE", "RELIANCE ", "reliance"])
+def test_provider_symbol_is_not_silently_normalized(provider_symbol: str) -> None:
+    expected_error = (
+        OpenAlgoReferenceError
+        if provider_symbol != provider_symbol.strip()
+        else OpenAlgoReferenceContradiction
+    )
+    with pytest.raises(expected_error):
+        resolve(symbol=symbol_response(symbol=provider_symbol))
+
+
 def test_symbol_and_search_tick_size_contradiction_fails_closed() -> None:
     with pytest.raises(OpenAlgoReferenceContradiction):
         resolve(
