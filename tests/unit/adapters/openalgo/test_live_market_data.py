@@ -368,15 +368,33 @@ def test_stale_threshold_boundary_is_not_early() -> None:
     assert adapter.check_stale() is MarketDataFeedState.STALE
 
 
-def test_valid_quote_restores_stale_to_healthy() -> None:
+def test_first_quote_after_stale_interval_rebaselines_without_emitting_event() -> None:
     adapter, connection, clocks, _ = started(quote(volume=100))
     assert adapter.receive_once() is None
     clocks.monotonic += 11
     assert adapter.check_stale() is MarketDataFeedState.STALE
-    connection.messages.append(quote(volume=100, timestamp=1_756_376_445_124))
+    connection.messages.append(quote(volume=150, timestamp=1_756_376_445_124))
 
     assert adapter.receive_once() is None
+    assert adapter.state is MarketDataFeedState.STALE
+
+    connection.messages.append(quote(volume=155, timestamp=1_756_376_445_125))
+    event = adapter.receive_once()
+
     assert adapter.state is MarketDataFeedState.HEALTHY
+    assert event is not None
+    assert event.quantity == 5
+
+
+def test_quote_arriving_after_stale_threshold_cannot_hide_missing_interval() -> None:
+    adapter, connection, clocks, _ = started(quote(volume=100))
+    assert adapter.receive_once() is None
+    clocks.monotonic += 11
+    connection.messages.append(quote(volume=150, timestamp=1_756_376_445_124))
+
+    assert adapter.state is MarketDataFeedState.HEALTHY
+    assert adapter.receive_once() is None
+    assert adapter.state is MarketDataFeedState.STALE
 
 
 def test_malformed_quote_after_healthy_fails_feed_and_closes_connection() -> None:
