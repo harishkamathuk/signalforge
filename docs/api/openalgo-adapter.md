@@ -14,3 +14,11 @@ results while keeping provider transport details private.
 ## Instrument reference resolution
 
 ::: signalforge.adapters.openalgo.reference
+
+## Live market-data configuration
+
+::: signalforge.adapters.openalgo.market_data_config
+
+## Live market-data adapter
+
+::: signalforge.adapters.openalgo.live_market_data
