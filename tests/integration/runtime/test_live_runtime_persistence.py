@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from datetime import datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -205,7 +206,7 @@ def test_failed_new_live_activation_rolls_back_run_provenance(
         instrument_id=INSTRUMENT,
         rules=(
             TickSizeRule(
-                tick_size=Price("0.05"),
+                tick_size=Price(Decimal("0.05")),
                 effective_from=datetime(2026, 10, 5, tzinfo=IST).date(),
             ),
         ),
