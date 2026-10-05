@@ -76,11 +76,13 @@ def _classify_ping(response: OpenAlgoHttpResponse) -> OpenAlgoPreflightResult:
                 status=OpenAlgoPreflightStatus.API_AUTH_FAILED,
                 detail="OpenAlgo API key was rejected",
             )
-        if response.status_code == 403:
+        if response.status_code == 403 and _is_broker_session_unavailable(provider_message):
             return OpenAlgoPreflightResult(
                 status=OpenAlgoPreflightStatus.BROKER_SESSION_UNAVAILABLE,
                 detail="OpenAlgo broker session is unavailable",
             )
+        if response.status_code == 403:
+            return _protocol_error("OpenAlgo ping returned an unclassified forbidden response")
         return OpenAlgoPreflightResult(
             status=OpenAlgoPreflightStatus.API_AUTH_FAILED,
             detail="OpenAlgo API authentication failed",
@@ -130,6 +132,22 @@ def _is_api_key_rejection(message: str) -> bool:
             "invalid openalgo api key",
             "invalid api key",
             "invalid apikey",
+        )
+    )
+
+
+def _is_broker_session_unavailable(message: str) -> bool:
+    return any(
+        marker in message
+        for marker in (
+            "broker session",
+            "broker not connected",
+            "broker is not connected",
+            "no active broker",
+            "broker login",
+            "broker token",
+            "session expired",
+            "session revoked",
         )
     )
 
