@@ -36,8 +36,8 @@ from signalforge.domain.indicators import (
 )
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
-from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.positions import Position, PositionState
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
@@ -50,8 +50,8 @@ from signalforge.persistence.models import (
     IndicatorCheckpointRecord,
     MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
-    PreparedIndicatorCheckpointRecord,
     PositionRecord,
+    PreparedIndicatorCheckpointRecord,
     RunRecord,
     SignalRecord,
     StateTransitionRecord,
