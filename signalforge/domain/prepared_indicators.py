@@ -68,6 +68,10 @@ class PreparedIndicatorCheckpoint:
             raise ValueError("Prepared checkpoint requested range is invalid")
         if self.accepted_candle_count <= 0:
             raise ValueError("Prepared checkpoint requires accepted historical candles")
+        if self.accepted_candle_count > self.state.completed_candle_count:
+            raise ValueError(
+                "Prepared checkpoint accepted-candle count exceeds lifetime indicator count"
+            )
         if len(self.candle_sequence_digest) != 64 or any(
             ch not in "0123456789abcdef" for ch in self.candle_sequence_digest
         ):
@@ -76,6 +80,8 @@ class PreparedIndicatorCheckpoint:
             raise ValueError("Prepared checkpoint state must have HEALTHY continuity")
         if self.state.last_interval != self.final_accepted_interval:
             raise ValueError("Prepared checkpoint state boundary contradicts provenance")
+        if self.first_accepted_interval.start > self.final_accepted_interval.start:
+            raise ValueError("Prepared checkpoint accepted interval range is reversed")
         expected_id = prepared_checkpoint_id(
             instrument_id=self.state.instrument_id,
             requirements=self.state.requirements,
