@@ -86,7 +86,7 @@ def fetch_openalgo_history(
         raise ValueError("SF-073 history requires canonical NSE:<SYMBOL> identity")
     symbol = raw_id.removeprefix("NSE:")
     selected = transport or StdlibOpenAlgoTransport(config.host)
-    request = {
+    request: dict[str, object] = {
         "apikey": config.api_key.get_secret_value(),
         "symbol": symbol,
         "exchange": "NSE",
