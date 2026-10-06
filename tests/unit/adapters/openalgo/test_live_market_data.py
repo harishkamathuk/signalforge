@@ -127,6 +127,7 @@ def adapter_for(
     clocks: Clocks | None = None,
     connector: FakeConnector | None = None,
     config: OpenAlgoMarketDataConfig = MD_CONFIG,
+    diagnostic_sink: object | None = None,
 ) -> tuple[OpenAlgoMarketDataAdapter, Clocks, FakeConnector]:
     actual_clocks = clocks or Clocks()
     actual_connector = connector or FakeConnector([connection])
@@ -139,6 +140,7 @@ def adapter_for(
         wall_clock=actual_clocks.now,
         monotonic_clock=actual_clocks.mono,
         sleep=lambda _: None,
+        diagnostic_sink=diagnostic_sink,  # type: ignore[arg-type]
     )
     return adapter, actual_clocks, actual_connector
 
@@ -649,3 +651,102 @@ def test_negative_volume_fails_closed(volume: int) -> None:
 
     with pytest.raises(OpenAlgoMarketDataProtocolError):
         adapter.receive_once()
+
+
+def test_quote_diagnostics_capture_baseline_unchanged_and_emitted_delta() -> None:
+    records: list[tuple[str, dict[str, object]]] = []
+
+    def capture(event: str, fields: object) -> None:
+        assert isinstance(fields, dict)
+        records.append((event, fields))
+
+    connection = FakeConnection(
+        [
+            auth_success(),
+            subscribe_success(),
+            quote(volume=100),
+            quote(volume=100, timestamp=1_756_376_445_124),
+            quote(volume=137, timestamp=1_756_376_445_125),
+        ]
+    )
+    adapter, _, _ = adapter_for(connection, diagnostic_sink=capture)
+    adapter.start()
+
+    assert adapter.receive_once() is None
+    assert adapter.receive_once() is None
+    event = adapter.receive_once()
+
+    assert event is not None
+    quote_records = [fields for name, fields in records if name == "openalgo_quote"]
+    assert [record["disposition"] for record in quote_records] == [
+        "baseline",
+        "unchanged",
+        "emitted_delta",
+    ]
+    assert quote_records[0]["connection_generation"] == 1
+    assert quote_records[2]["emitted_quantity"] == 37
+    assert quote_records[2]["cumulative_volume"] == 137
+    assert quote_records[2]["ltp"] == "1424.05"
+    assert quote_records[2]["instrument_id"] == "NSE:RELIANCE"
+    assert quote_records[2]["feed_state"] == MarketDataFeedState.HEALTHY.value
+
+
+def test_reconnect_quote_diagnostics_advance_generation_and_rebaseline() -> None:
+    records: list[tuple[str, dict[str, object]]] = []
+
+    def capture(event: str, fields: object) -> None:
+        assert isinstance(fields, dict)
+        records.append((event, fields))
+
+    first = FakeConnection(
+        [
+            auth_success(),
+            subscribe_success(),
+            quote(volume=100),
+            OpenAlgoWebSocketUnavailable("lost"),
+        ]
+    )
+    second = FakeConnection(
+        [
+            auth_success(),
+            subscribe_success(),
+            quote(volume=150, timestamp=1_756_376_445_200),
+        ]
+    )
+    connector = FakeConnector([first, second])
+    adapter, _, _ = adapter_for(first, connector=connector, diagnostic_sink=capture)
+    adapter.start()
+    assert adapter.receive_once() is None
+    with pytest.raises(OpenAlgoMarketDataDisconnected):
+        adapter.receive_once()
+
+    adapter.recover()
+    assert adapter.receive_once() is None
+
+    quote_records = [fields for name, fields in records if name == "openalgo_quote"]
+    assert quote_records[0]["connection_generation"] == 1
+    assert quote_records[0]["disposition"] == "baseline"
+    assert quote_records[1]["connection_generation"] == 2
+    assert quote_records[1]["disposition"] == "baseline"
+
+
+def test_rejected_quote_diagnostic_contains_no_raw_payload_or_api_key() -> None:
+    records: list[tuple[str, dict[str, object]]] = []
+
+    def capture(event: str, fields: object) -> None:
+        assert isinstance(fields, dict)
+        records.append((event, fields))
+
+    connection = FakeConnection([auth_success(), subscribe_success(), "not-json"])
+    adapter, _, _ = adapter_for(connection, diagnostic_sink=capture)
+    adapter.start()
+
+    with pytest.raises(OpenAlgoMarketDataProtocolError):
+        adapter.receive_once()
+
+    rejected = [fields for name, fields in records if name == "openalgo_quote_rejected"]
+    assert len(rejected) == 1
+    rendered = json.dumps(rejected[0], sort_keys=True)
+    assert "super-secret-key" not in rendered
+    assert "not-json" not in rendered
+    assert rejected[0]["disposition"] == "rejected"
