@@ -236,16 +236,23 @@ class _JsonlEvidenceSink:
     def __init__(self, path: Path, *, max_bytes: int) -> None:
         self.path = path
         self.max_bytes = max_bytes
-        path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             self._stream = path.open("x", encoding="utf-8")
         except FileExistsError:
             raise LivePaperEvidenceError(
                 f"Validation evidence path already exists: {path}"
             ) from None
+        except OSError as exc:
+            raise LivePaperEvidenceError(
+                f"Validation evidence could not be opened: {exc}"
+            ) from exc
+        descriptor = os.fstat(self._stream.fileno())
+        self._file_identity = (descriptor.st_dev, descriptor.st_ino)
         self._bytes_written = 0
 
     def write(self, event: str, **fields: object) -> None:
+        self._verify_path_identity()
         payload = {
             "evidence_schema": "signalforge.m9.live-paper.v1",
             "event": event,
@@ -268,14 +275,28 @@ class _JsonlEvidenceSink:
                 f"Validation evidence write failed: {exc}"
             ) from exc
         self._bytes_written += size
+        self._verify_path_identity()
 
     def close(self) -> None:
+        self._verify_path_identity()
         try:
             self._stream.close()
         except OSError as exc:
             raise LivePaperEvidenceError(
                 f"Validation evidence close failed: {exc}"
             ) from exc
+
+    def _verify_path_identity(self) -> None:
+        try:
+            current = self.path.stat()
+        except OSError as exc:
+            raise LivePaperEvidenceError(
+                f"Validation evidence path is no longer accessible: {exc}"
+            ) from exc
+        if (current.st_dev, current.st_ino) != self._file_identity:
+            raise LivePaperEvidenceError(
+                "Validation evidence path no longer identifies the opened evidence file"
+            )
 
 
 def _read_config(path: Path) -> LivePaperConfig:
@@ -545,6 +566,19 @@ class LivePaperRunner:
         )
 
     def run(self) -> LivePaperExitCode:
+        """Run one PAPER session and convert final evidence failures to stable exit codes."""
+
+        try:
+            return self._run_session()
+        except LivePaperEvidenceError as exc:
+            _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
+            return (
+                LivePaperExitCode.RUNTIME_FAILED
+                if self._runtime is not None
+                else LivePaperExitCode.STARTUP_FAILED
+            )
+
+    def _run_session(self) -> LivePaperExitCode:
         """Prepare, activate at the canonical boundary, run and shut down safely."""
 
         prepared: LivePaperPrepared | None = None
@@ -776,6 +810,19 @@ class LivePaperRunner:
             "run_id": str(runtime.run.run_id),
             "instrument_id": str(runtime.instrument_id),
         }
+        market_event = step.market_event
+        if market_event is not None:
+            evidence.write(
+                "accepted_market_event",
+                **base,
+                exchange_timestamp=market_event.exchange_timestamp.isoformat(),
+                received_timestamp=market_event.received_timestamp.isoformat(),
+                price=str(market_event.price.value),
+                quantity=market_event.quantity,
+                source=market_event.source,
+                source_event_id=market_event.source_event_id,
+            )
+
         candle = step.completed_candle
         if candle is not None:
             evidence.write(
@@ -888,10 +935,7 @@ class LivePaperRunner:
             prepared.engine.dispose()
         evidence, self._evidence_sink = self._evidence_sink, None
         if evidence is not None:
-            try:
-                evidence.close()
-            except LivePaperEvidenceError as exc:
-                _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
+            evidence.close()
 
 
 def install_shutdown_handlers(runner: LivePaperRunner) -> dict[int, Any]:
