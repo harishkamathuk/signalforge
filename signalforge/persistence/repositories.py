@@ -28,6 +28,7 @@ from signalforge.domain.ids import (
     InstrumentId,
     PositionId,
     PositionOpenOutcomeId,
+    PreparedIndicatorCheckpointId,
     RunId,
     SignalId,
     StateTransitionId,
@@ -36,6 +37,7 @@ from signalforge.domain.ids import (
 )
 from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position, PositionState
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
@@ -62,6 +64,8 @@ from signalforge.persistence.mappers import (
     position_open_outcome_from_record,
     position_open_outcome_record_from_domain,
     position_record_from_domain,
+    prepared_indicator_checkpoint_from_record,
+    prepared_indicator_checkpoint_record_from_domain,
     run_identity_from_records,
     run_record_from_domain,
     signal_from_record,
@@ -85,6 +89,8 @@ from signalforge.persistence.models import (
     MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
     PositionRecord,
+    PreparedIndicatorCheckpointRecord,
+    RunPreparedIndicatorCheckpointRecord,
     RunRecord,
     SignalRecord,
     StateTransitionRecord,
@@ -1029,6 +1035,153 @@ class PostgresIndicatorCheckpointRepository(_PostgresRepository):
         record = self._session.get(IndicatorCheckpointRecord, (str(run_id), str(instrument_id)))
         return None if record is None else indicator_checkpoint_state_from_record(record)
 
+
+
+class PostgresPreparedIndicatorCheckpointRepository(_PostgresRepository):
+    """Append and resolve immutable run-independent prepared indicator facts."""
+
+    def add(self, checkpoint: PreparedIndicatorCheckpoint) -> PreparedIndicatorCheckpoint:
+        candidate = prepared_indicator_checkpoint_record_from_domain(checkpoint)
+        records = self._session.scalars(
+            sa.select(PreparedIndicatorCheckpointRecord).where(
+                sa.or_(
+                    PreparedIndicatorCheckpointRecord.checkpoint_id == candidate.checkpoint_id,
+                    sa.and_(
+                        PreparedIndicatorCheckpointRecord.instrument_id
+                        == candidate.instrument_id,
+                        PreparedIndicatorCheckpointRecord.requirements_hash
+                        == candidate.requirements_hash,
+                        PreparedIndicatorCheckpointRecord.calculation_version
+                        == candidate.calculation_version,
+                        PreparedIndicatorCheckpointRecord.last_interval_start
+                        == candidate.last_interval_start,
+                        PreparedIndicatorCheckpointRecord.last_interval_end
+                        == candidate.last_interval_end,
+                    ),
+                )
+            )
+        ).all()
+        stored = _single_collision(records, fact_name="prepared indicator checkpoint")
+        if stored is None:
+            _insert_ignoring_unique_conflicts(
+                self._session,
+                PreparedIndicatorCheckpointRecord.__table__,
+                candidate,
+            )
+            self._session.flush()
+            records = self._session.scalars(
+                sa.select(PreparedIndicatorCheckpointRecord).where(
+                    sa.or_(
+                        PreparedIndicatorCheckpointRecord.checkpoint_id
+                        == candidate.checkpoint_id,
+                        sa.and_(
+                            PreparedIndicatorCheckpointRecord.instrument_id
+                            == candidate.instrument_id,
+                            PreparedIndicatorCheckpointRecord.requirements_hash
+                            == candidate.requirements_hash,
+                            PreparedIndicatorCheckpointRecord.calculation_version
+                            == candidate.calculation_version,
+                            PreparedIndicatorCheckpointRecord.last_interval_start
+                            == candidate.last_interval_start,
+                            PreparedIndicatorCheckpointRecord.last_interval_end
+                            == candidate.last_interval_end,
+                        ),
+                    )
+                )
+            ).all()
+            stored = _single_collision(records, fact_name="prepared indicator checkpoint")
+        if stored is None:
+            raise PersistenceError(
+                "prepared indicator checkpoint insert produced no persisted fact"
+            )
+        persisted = prepared_indicator_checkpoint_from_record(stored)
+        if (
+            persisted.state != checkpoint.state
+            or persisted.candle_sequence_digest != checkpoint.candle_sequence_digest
+        ):
+            raise ContradictoryFactError(
+                "stored prepared indicator checkpoint contradicts requested immutable fact"
+            )
+        return persisted
+
+    def get(
+        self, checkpoint_id: PreparedIndicatorCheckpointId
+    ) -> PreparedIndicatorCheckpoint | None:
+        record = self._session.get(PreparedIndicatorCheckpointRecord, str(checkpoint_id))
+        return None if record is None else prepared_indicator_checkpoint_from_record(record)
+
+    def find_for_boundary(
+        self,
+        *,
+        instrument_id: InstrumentId,
+        requirements_hash: str,
+        calculation_version: str,
+        interval: CandleInterval,
+    ) -> PreparedIndicatorCheckpoint | None:
+        records = self._session.scalars(
+            sa.select(PreparedIndicatorCheckpointRecord).where(
+                PreparedIndicatorCheckpointRecord.instrument_id == str(instrument_id),
+                PreparedIndicatorCheckpointRecord.requirements_hash == requirements_hash,
+                PreparedIndicatorCheckpointRecord.calculation_version == calculation_version,
+                PreparedIndicatorCheckpointRecord.last_interval_start == interval.start,
+                PreparedIndicatorCheckpointRecord.last_interval_end == interval.end,
+            )
+        ).all()
+        record = _single_collision(records, fact_name="prepared indicator checkpoint")
+        return None if record is None else prepared_indicator_checkpoint_from_record(record)
+
+
+class PostgresRunPreparedIndicatorCheckpointRepository(_PostgresRepository):
+    """Persist the immutable prepared-state provenance used to initialize one run."""
+
+    def add(
+        self,
+        run: RunIdentity,
+        checkpoint: PreparedIndicatorCheckpoint,
+    ) -> PreparedIndicatorCheckpoint:
+        self._require_run(run)
+        persisted = PostgresPreparedIndicatorCheckpointRepository(self._session).get(
+            checkpoint.checkpoint_id
+        )
+        if persisted is None:
+            raise PersistenceDependencyError(
+                "prepared indicator checkpoint must be persisted before run provenance link"
+            )
+        if persisted != checkpoint:
+            raise ContradictoryFactError(
+                "prepared indicator checkpoint provenance contradicts persisted checkpoint"
+            )
+        candidate = RunPreparedIndicatorCheckpointRecord(
+            run_id=str(run.run_id),
+            checkpoint_id=str(checkpoint.checkpoint_id),
+        )
+        stored = self._session.get(RunPreparedIndicatorCheckpointRecord, str(run.run_id))
+        if stored is None:
+            _insert_ignoring_unique_conflicts(
+                self._session,
+                RunPreparedIndicatorCheckpointRecord.__table__,
+                candidate,
+            )
+            self._session.flush()
+            stored = self._session.get(RunPreparedIndicatorCheckpointRecord, str(run.run_id))
+        if stored is None:
+            raise PersistenceError("run prepared-checkpoint provenance insert produced no fact")
+        if stored.checkpoint_id != candidate.checkpoint_id:
+            raise ContradictoryFactError(
+                "run already references a different prepared indicator checkpoint"
+            )
+        return checkpoint
+
+    def get_for_run(self, run_id: RunId) -> PreparedIndicatorCheckpoint | None:
+        link = self._session.get(RunPreparedIndicatorCheckpointRecord, str(run_id))
+        if link is None:
+            return None
+        record = self._session.get(PreparedIndicatorCheckpointRecord, link.checkpoint_id)
+        if record is None:
+            raise PersistenceDependencyError(
+                "run prepared-checkpoint provenance references missing checkpoint"
+            )
+        return prepared_indicator_checkpoint_from_record(record)
 
 
 class PostgresMarketInputCheckpointRepository(_PostgresRepository):

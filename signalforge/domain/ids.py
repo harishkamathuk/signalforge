@@ -105,6 +105,11 @@ class InstrumentId(_IdBase):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedIndicatorCheckpointId(_IdBase):
+    pass
+
+
 def deterministic_id[IdT: _IdBase](id_type: type[IdT], *parts: str) -> IdT:
     """Create a stable identifier from explicit logical identity components.
 

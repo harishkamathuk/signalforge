@@ -6,13 +6,14 @@ SQLAlchemy entities directly; mapping/repository behavior is introduced by later
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -536,6 +537,91 @@ class IndicatorCheckpointRecord(Base):
     macd_slow_seed_sum: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     macd_signal_value: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     macd_signal_seed_sum: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+
+
+class PreparedIndicatorCheckpointRecord(Base):
+    """Immutable run-independent prepared indicator state at one market boundary."""
+
+    __tablename__ = "prepared_indicator_checkpoints"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "requirements_hash",
+            "calculation_version",
+            "last_interval_start",
+            "last_interval_end",
+            name="uq_prepared_indicator_checkpoint_logical_identity",
+        ),
+        CheckConstraint(
+            "completed_candle_count >= 0",
+            name="ck_prepared_indicator_count_nonnegative",
+        ),
+        CheckConstraint(
+            "accepted_candle_count > 0",
+            name="ck_prepared_indicator_accepted_positive",
+        ),
+        CheckConstraint(
+            "continuity_state = 'healthy'",
+            name="ck_prepared_indicator_continuity_healthy",
+        ),
+        CheckConstraint(
+            "last_interval_end > last_interval_start",
+            name="ck_prepared_indicator_interval_order",
+        ),
+        CheckConstraint(
+            "first_accepted_interval_end > first_accepted_interval_start",
+            name="ck_prepared_indicator_first_interval_order",
+        ),
+        CheckConstraint(
+            "final_accepted_interval_end > final_accepted_interval_start",
+            name="ck_prepared_indicator_final_interval_order",
+        ),
+    )
+
+    checkpoint_id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True)
+    instrument_id: Mapped[str] = mapped_column(String(INSTRUMENT_LENGTH), nullable=False)
+    exchange: Mapped[str] = mapped_column(String(16), nullable=False)
+    requirements_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    calculation_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_trading_date: Mapped[date] = mapped_column(Date, nullable=False)
+    continuity_state: Mapped[str] = mapped_column(String(STATE_LENGTH), nullable=False)
+    last_interval_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_interval_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_candle_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    requirements_manifest: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
+    state_payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    historical_source: Mapped[str] = mapped_column(String(128), nullable=False)
+    requested_from: Mapped[date] = mapped_column(Date, nullable=False)
+    requested_to: Mapped[date] = mapped_column(Date, nullable=False)
+    first_accepted_interval_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    first_accepted_interval_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    final_accepted_interval_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    final_accepted_interval_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    accepted_candle_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    candle_sequence_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    prepared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class RunPreparedIndicatorCheckpointRecord(Base):
+    """Immutable provenance link from one live run to its prepared initial state."""
+
+    __tablename__ = "run_prepared_indicator_checkpoints"
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.run_id", ondelete="CASCADE"), primary_key=True
+    )
+    checkpoint_id: Mapped[str] = mapped_column(
+        ForeignKey("prepared_indicator_checkpoints.checkpoint_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
 
 
 class MarketInputCheckpointRecord(Base):

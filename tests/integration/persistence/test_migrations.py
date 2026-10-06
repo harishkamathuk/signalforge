@@ -43,6 +43,8 @@ EXPECTED_TABLES = {
     "market_input_checkpoints",
     "positions",
     "position_open_outcomes",
+    "prepared_indicator_checkpoints",
+    "run_prepared_indicator_checkpoints",
     "runs",
     "signals",
     "state_transitions",
@@ -137,6 +139,23 @@ def test_initial_migration_is_reversible_and_reproducible(postgres_engine: Engin
     command.upgrade(config, "head")
     assert EXPECTED_TABLES <= set(sa.inspect(postgres_engine).get_table_names())
 
+
+
+def test_sf073_upgrades_cleanly_from_previous_head(postgres_engine: Engine) -> None:
+    """Prove SF-073 prepared-state tables appear on the real 0007 -> 0008 path."""
+
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20261004_0007")
+    tables = set(sa.inspect(postgres_engine).get_table_names())
+    assert "prepared_indicator_checkpoints" not in tables
+    assert "run_prepared_indicator_checkpoints" not in tables
+
+    command.upgrade(config, "head")
+
+    tables = set(sa.inspect(postgres_engine).get_table_names())
+    assert "prepared_indicator_checkpoints" in tables
+    assert "run_prepared_indicator_checkpoints" in tables
 
 
 def test_sf067_upgrades_cleanly_from_previous_head(postgres_engine: Engine) -> None:

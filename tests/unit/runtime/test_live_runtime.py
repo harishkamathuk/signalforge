@@ -13,6 +13,10 @@ from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.prepared_indicators import (
+    PreparedIndicatorCheckpoint,
+    prepared_checkpoint_id,
+)
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.strategy import (
     DecisionReason,
@@ -182,6 +186,58 @@ def runtime(
     return result, selected_feed, selected_strategy, commits
 
 
+def prepared_checkpoint(
+    selected_strategy: RecordingStrategy,
+) -> PreparedIndicatorCheckpoint:
+    indicator = IndicatorEngine(
+        INSTRUMENT,
+        "engine-v1",
+        requirements=selected_strategy.indicator_requirements,
+    )
+    first: CandleInterval | None = None
+    start = datetime(2026, 10, 1, 0, 0, tzinfo=UTC)
+    for offset in range(250):
+        interval = CandleInterval.five_minutes(start + timedelta(minutes=5 * offset))
+        first = first or interval
+        close = Decimal("100") + Decimal(offset) / Decimal("100")
+        indicator.update(
+            CompletedCandle(
+                instrument_id=INSTRUMENT,
+                interval=interval,
+                quality=CandleQuality.VALID,
+                open=Price(close),
+                high=Price(close + Decimal("1")),
+                low=Price(close - Decimal("1")),
+                close=Price(close),
+                volume=100,
+                source="sf073-runtime-test",
+                source_event_count=1,
+            )
+        )
+    assert first is not None
+    final = indicator.state.last_interval
+    assert final is not None
+    return PreparedIndicatorCheckpoint(
+        checkpoint_id=prepared_checkpoint_id(
+            instrument_id=INSTRUMENT,
+            requirements=selected_strategy.indicator_requirements,
+            calculation_version="engine-v1",
+            boundary=final,
+        ),
+        state=indicator.state,
+        exchange="NSE",
+        target_trading_date=date(2026, 10, 5),
+        historical_source="openalgo:/api/v1/history",
+        requested_from=first.start.date(),
+        requested_to=final.start.date(),
+        first_accepted_interval=first,
+        final_accepted_interval=final,
+        accepted_candle_count=250,
+        candle_sequence_digest="c" * 64,
+        prepared_at=datetime(2026, 10, 5, 2, 30, tzinfo=UTC),
+    )
+
+
 def empty_recovery(
     run: RunIdentity,
     *,
@@ -345,6 +401,95 @@ def test_new_recovery_completes_before_feed_start(
 
     assert order == ["recover", "persist_run", "start"]
     assert value.continuity is LiveRuntimeContinuity.CONTINUOUS
+
+
+def test_new_runtime_consumes_prepared_state_and_records_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected_strategy = strategy()
+    run = run_for(selected_strategy, "prepared")
+    checkpoint = prepared_checkpoint(selected_strategy)
+    feed = FakeFeed()
+    order: list[str] = []
+
+    monkeypatch.setattr(
+        "signalforge.runtime.live_runtime.RecoveryBootstrap.inspect",
+        lambda self, **kwargs: (
+            order.append("recover")
+            or empty_recovery(run, disposition=RecoveryDisposition.NEW)
+        ),
+    )
+    monkeypatch.setattr(
+        "signalforge.runtime.live_runtime.PostgresRunProvenanceRepository.add",
+        lambda self, value: order.append("persist_run") or value,
+    )
+    monkeypatch.setattr(
+        "signalforge.runtime.live_runtime.PostgresIndicatorCheckpointRepository.upsert",
+        lambda self, value, state: order.append("persist_indicator") or state,
+    )
+    monkeypatch.setattr(
+        "signalforge.runtime.live_runtime.PostgresRunPreparedIndicatorCheckpointRepository.add",
+        lambda self, value, prepared: order.append("persist_prepared_link") or prepared,
+    )
+
+    def start() -> None:
+        order.append("start")
+        feed.started = True
+
+    feed.start = start
+    value = LiveRuntime.bootstrap(
+        feed=feed,
+        run=run,
+        instrument_id=INSTRUMENT,
+        tick_schedule=schedule(),
+        quantity=Quantity(10),
+        strategy=selected_strategy,
+        session_factory=lambda: cast(Session, FakeSession()),
+        decision_projector=project_v1_decision,
+        evaluation_context_factory=context,
+        initial_prepared_checkpoint=checkpoint,
+    )
+
+    assert value.indicator_engine.state == checkpoint.state
+    assert order == [
+        "recover",
+        "persist_run",
+        "persist_indicator",
+        "persist_prepared_link",
+        "start",
+    ]
+
+
+def test_resumable_runtime_rejects_prepared_state_without_feed_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected_strategy = strategy()
+    run = run_for(selected_strategy, "resumable-prepared")
+    checkpoint = prepared_checkpoint(selected_strategy)
+    feed = FakeFeed()
+    monkeypatch.setattr(
+        "signalforge.runtime.live_runtime.RecoveryBootstrap.inspect",
+        lambda self, **kwargs: empty_recovery(
+            run,
+            disposition=RecoveryDisposition.RESUMABLE,
+        ),
+    )
+
+    with pytest.raises(LiveRuntimeReconciliationRequired, match="cannot bypass"):
+        LiveRuntime.bootstrap(
+            feed=feed,
+            run=run,
+            instrument_id=INSTRUMENT,
+            tick_schedule=schedule(),
+            quantity=Quantity(10),
+            strategy=selected_strategy,
+            session_factory=lambda: cast(Session, FakeSession()),
+            decision_projector=project_v1_decision,
+            evaluation_context_factory=context,
+            initial_prepared_checkpoint=checkpoint,
+        )
+
+    assert not feed.started
 
 
 def test_resumable_recovery_is_inspected_before_feed_start_and_is_not_continuous(

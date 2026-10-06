@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import (
@@ -15,7 +16,8 @@ from signalforge.domain.indicators import (
     MacdRequirement,
     RsiRequirement,
 )
-from signalforge.domain.market import CandleQuality, CompletedCandle
+from signalforge.domain.market import CandleQuality
+from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.adx import Adx14, AdxState
 from signalforge.runtime.ema import Ema, EmaState
@@ -33,6 +35,34 @@ V1_INDICATOR_REQUIREMENTS = IndicatorRequirements.of(
     AdxRequirement(14),
     MacdRequirement(12, 26, 9),
 )
+
+
+class IndicatorCandle(Protocol):
+    """Read-only completed-candle surface required by canonical indicator math."""
+
+    @property
+    def instrument_id(self) -> InstrumentId: ...
+
+    @property
+    def interval(self) -> CandleInterval: ...
+
+    @property
+    def quality(self) -> CandleQuality: ...
+
+    @property
+    def open(self) -> Price | None: ...
+
+    @property
+    def high(self) -> Price | None: ...
+
+    @property
+    def low(self) -> Price | None: ...
+
+    @property
+    def close(self) -> Price | None: ...
+
+    @property
+    def volume(self) -> int | None: ...
 
 
 class IndicatorContinuity(StrEnum):
@@ -255,7 +285,7 @@ class IndicatorEngine:
 
         self._continuity = IndicatorContinuity.BROKEN
 
-    def update(self, candle: CompletedCandle, *, continuity_ok: bool = True) -> IndicatorSnapshot:
+    def update(self, candle: IndicatorCandle, *, continuity_ok: bool = True) -> IndicatorSnapshot:
         """Advance configured indicators from one valid completed candle."""
 
         if self._continuity is IndicatorContinuity.BROKEN:

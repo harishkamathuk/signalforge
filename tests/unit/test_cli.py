@@ -402,6 +402,29 @@ def test_test_only_second_strategy_runs_without_replay_runtime_changes(
 
 
 
+def test_prepare_session_cli_routes_explicitly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write(
+        tmp_path / "prepare-session.json",
+        {
+            "instrument_id": "NSE:RELIANCE",
+            "quantity": 10,
+            "engine_calculation_version": "engine-v1",
+            "strategy": {},
+        },
+    )
+    seen: list[Path] = []
+    monkeypatch.setattr(
+        "signalforge.cli.prepare_session_command",
+        lambda path: seen.append(path) or 0,
+    )
+
+    assert main(["prepare-session", "--config", str(config)]) == 0
+    assert seen == [config]
+
+
 def test_live_paper_cli_is_explicit_and_has_no_live_broker_switch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
