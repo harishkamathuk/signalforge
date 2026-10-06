@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import (
@@ -33,6 +34,19 @@ V1_INDICATOR_REQUIREMENTS = IndicatorRequirements.of(
     AdxRequirement(14),
     MacdRequirement(12, 26, 9),
 )
+
+
+class IndicatorCandle(Protocol):
+    """Minimum completed-candle surface required by canonical indicator math."""
+
+    instrument_id: InstrumentId
+    interval: CandleInterval
+    quality: CandleQuality
+    open: object
+    high: object
+    low: object
+    close: object
+    volume: int | None
 
 
 class IndicatorContinuity(StrEnum):
@@ -255,7 +269,7 @@ class IndicatorEngine:
 
         self._continuity = IndicatorContinuity.BROKEN
 
-    def update(self, candle: CompletedCandle, *, continuity_ok: bool = True) -> IndicatorSnapshot:
+    def update(self, candle: IndicatorCandle, *, continuity_ok: bool = True) -> IndicatorSnapshot:
         """Advance configured indicators from one valid completed candle."""
 
         if self._continuity is IndicatorContinuity.BROKEN:
