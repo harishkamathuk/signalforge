@@ -1,10 +1,14 @@
 # Live PAPER operator
 
-SF-058 adds the operator-facing command for one configured NSE security:
+SF-058/SF-073 expose a two-stage operator flow for one configured NSE security:
 
 ```bash
+signalforge prepare-session --config path/to/live-paper.json
 signalforge live-paper --config path/to/live-paper.json
 ```
+
+`prepare-session` establishes or verifies trustworthy indicator readiness before the target
+session. `live-paper` consumes that prepared state; it never fetches history implicitly.
 
 The command is **PAPER only**. It has no option that enables broker order placement.
 
@@ -16,7 +20,9 @@ Before starting the command:
 - OpenAlgo must be configured and have an active broker session;
 - the configured instrument must resolve as one exact NSE cash equity;
 - the strategy/config identity must be valid;
-- no unresolved prior live PAPER run may require ADR-009 reconciliation.
+- no unresolved prior live PAPER run may require ADR-009 reconciliation;
+- a suitable immutable `PreparedIndicatorCheckpoint` must exist through the final completed
+  5-minute candle of the immediately preceding NSE trading session.
 
 SignalForge does not auto-load `.env` files.
 
@@ -59,9 +65,11 @@ The runner validates, in order:
 2. PostgreSQL connectivity;
 3. read-only OpenAlgo preflight;
 4. current-trading-date NSE reference/tick metadata;
-5. durable M7 recovery status.
+5. durable M7 recovery status;
+6. prepared-indicator checkpoint suitability for the target NSE session.
 
-No WebSocket subscription occurs before these checks succeed.
+No WebSocket subscription occurs before these checks succeed. Missing, stale, incompatible,
+non-ready, broken-continuity or invalid-provenance prepared state fails closed.
 
 If the same deterministic live-paper run is already RESUMABLE, the command reports
 `reconciliation_required` and does not start market processing.
@@ -132,17 +140,24 @@ A later process restart must recover under ADR-009.
 - `3` — reconciliation required;
 - `4` — runtime failure after activation.
 
-## Current M8 limitation: live warmup
+## Pre-session indicator preparation
 
-A NEW live runtime currently has no authoritative historical/pre-session candle bootstrap.
+Run `prepare-session` before the live activation boundary. The operation is idempotent:
 
-Strategy V1 requires 250 completed regular-session candles before it can become actionable.
-SF-058 therefore uses the actual persisted/live indicator completed-candle count and does not inject
-a synthetic warmup value.
+- if suitable prepared state already exists, it returns `READY_EXISTING`;
+- otherwise it fetches authoritative completed 5-minute OpenAlgo history, validates the bounded NSE
+  session sequence, advances the canonical `IndicatorEngine`, and atomically persists a new
+  immutable checkpoint;
+- it never fabricates MarketEvents, completed-candle counts or indicator seeds;
+- historical candles never enter strategy/lifecycle evaluation;
+- an unprovable expected 5-minute history gap fails closed rather than being filled synthetically.
 
-This means a fresh M8 live-paper session is operationally observable but cannot yet be relied upon to
-produce Strategy V1 PAPER signals from one session of live data alone. Historical/pre-session
-indicator warmup remains a separate correctness requirement.
+Strategy V1's 250 completed regular-session candle requirement is unchanged. The count comes from
+actual canonical indicator updates.
+
+Prepared checkpoints are run-independent and retained by market boundary. At NEW live activation,
+the suitable checkpoint initializes the normal run-scoped indicator state and the run durably
+records which prepared checkpoint it consumed. ADR-009 recovery semantics remain unchanged.
 
 ## Out of scope
 
