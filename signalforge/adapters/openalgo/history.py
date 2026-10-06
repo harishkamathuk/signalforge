@@ -54,6 +54,11 @@ class HistoricalCompletedCandle:
     def __post_init__(self) -> None:
         if self.quality is not CandleQuality.VALID:
             raise ValueError("historical completed candle must be VALID")
+        if any(
+            price.value <= 0
+            for price in (self.open, self.high, self.low, self.close)
+        ):
+            raise ValueError("historical candle prices must be strictly positive")
         if self.high.value < max(self.open.value, self.close.value, self.low.value):
             raise ValueError("historical candle high violates OHLC invariants")
         if self.low.value > min(self.open.value, self.close.value, self.high.value):
@@ -173,17 +178,22 @@ def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedC
             "OpenAlgo history volume must be a non-negative integer"
         )
 
-    return HistoricalCompletedCandle(
-        instrument_id=instrument_id,
-        interval=CandleInterval(start, end),
-        quality=CandleQuality.VALID,
-        open=_price(raw.get("open"), "open"),
-        high=_price(raw.get("high"), "high"),
-        low=_price(raw.get("low"), "low"),
-        close=_price(raw.get("close"), "close"),
-        volume=volume,
-        source="openalgo:/api/v1/history",
-    )
+    try:
+        return HistoricalCompletedCandle(
+            instrument_id=instrument_id,
+            interval=CandleInterval(start, end),
+            quality=CandleQuality.VALID,
+            open=_price(raw.get("open"), "open"),
+            high=_price(raw.get("high"), "high"),
+            low=_price(raw.get("low"), "low"),
+            close=_price(raw.get("close"), "close"),
+            volume=volume,
+            source="openalgo:/api/v1/history",
+        )
+    except ValueError as exc:
+        raise OpenAlgoHistoryValidationError(
+            "OpenAlgo history row violates canonical candle invariants"
+        ) from exc
 
 
 def _price(value: object, field: str) -> Price:
