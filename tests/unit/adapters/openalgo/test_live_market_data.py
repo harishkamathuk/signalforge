@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -12,6 +13,7 @@ from signalforge.adapters.openalgo.live_market_data import (
     OPENALGO_MARKET_DATA_SOURCE,
     OpenAlgoMarketDataAdapter,
     OpenAlgoMarketDataContinuityError,
+    OpenAlgoMarketDataDiagnosticSink,
     OpenAlgoMarketDataDisconnected,
     OpenAlgoMarketDataError,
     OpenAlgoMarketDataProtocolError,
@@ -127,7 +129,7 @@ def adapter_for(
     clocks: Clocks | None = None,
     connector: FakeConnector | None = None,
     config: OpenAlgoMarketDataConfig = MD_CONFIG,
-    diagnostic_sink: object | None = None,
+    diagnostic_sink: OpenAlgoMarketDataDiagnosticSink | None = None,
 ) -> tuple[OpenAlgoMarketDataAdapter, Clocks, FakeConnector]:
     actual_clocks = clocks or Clocks()
     actual_connector = connector or FakeConnector([connection])
@@ -140,7 +142,7 @@ def adapter_for(
         wall_clock=actual_clocks.now,
         monotonic_clock=actual_clocks.mono,
         sleep=lambda _: None,
-        diagnostic_sink=diagnostic_sink,  # type: ignore[arg-type]
+        diagnostic_sink=diagnostic_sink,
     )
     return adapter, actual_clocks, actual_connector
 
@@ -656,9 +658,8 @@ def test_negative_volume_fails_closed(volume: int) -> None:
 def test_quote_diagnostics_capture_baseline_unchanged_and_emitted_delta() -> None:
     records: list[tuple[str, dict[str, object]]] = []
 
-    def capture(event: str, fields: object) -> None:
-        assert isinstance(fields, dict)
-        records.append((event, fields))
+    def capture(event: str, fields: Mapping[str, object]) -> None:
+        records.append((event, dict(fields)))
 
     connection = FakeConnection(
         [
@@ -694,9 +695,8 @@ def test_quote_diagnostics_capture_baseline_unchanged_and_emitted_delta() -> Non
 def test_reconnect_quote_diagnostics_advance_generation_and_rebaseline() -> None:
     records: list[tuple[str, dict[str, object]]] = []
 
-    def capture(event: str, fields: object) -> None:
-        assert isinstance(fields, dict)
-        records.append((event, fields))
+    def capture(event: str, fields: Mapping[str, object]) -> None:
+        records.append((event, dict(fields)))
 
     first = FakeConnection(
         [
@@ -733,9 +733,8 @@ def test_reconnect_quote_diagnostics_advance_generation_and_rebaseline() -> None
 def test_rejected_quote_diagnostic_contains_no_raw_payload_or_api_key() -> None:
     records: list[tuple[str, dict[str, object]]] = []
 
-    def capture(event: str, fields: object) -> None:
-        assert isinstance(fields, dict)
-        records.append((event, fields))
+    def capture(event: str, fields: Mapping[str, object]) -> None:
+        records.append((event, dict(fields)))
 
     connection = FakeConnection([auth_success(), subscribe_success(), "not-json"])
     adapter, _, _ = adapter_for(connection, diagnostic_sink=capture)
