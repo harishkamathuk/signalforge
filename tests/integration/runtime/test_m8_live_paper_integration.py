@@ -21,6 +21,7 @@ from signalforge.adapters.openalgo.live_market_data import (
 from signalforge.adapters.openalgo.market_data_config import OpenAlgoMarketDataConfig
 from signalforge.adapters.openalgo.reference import OpenAlgoSubscriptionIdentity
 from signalforge.adapters.openalgo.websocket_transport import (
+    OpenAlgoWebSocketReceiveTimeout,
     OpenAlgoWebSocketUnavailable,
 )
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
@@ -119,6 +120,22 @@ class FakeConnector:
             raise item
         assert isinstance(item, FakeConnection)
         return item
+
+
+@dataclass
+class DeterministicClock:
+    wall: datetime
+    monotonic: float = 100.0
+
+    def now(self) -> datetime:
+        return self.wall
+
+    def mono(self) -> float:
+        return self.monotonic
+
+    def advance(self, seconds: float) -> None:
+        self.monotonic += seconds
+        self.wall += timedelta(seconds=seconds)
 
 
 @dataclass
@@ -241,7 +258,7 @@ def _persist_prepared(engine: Engine, checkpoint) -> None:
 def _adapter(
     connector: FakeConnector,
     *,
-    wall_clock: datetime,
+    clock: DeterministicClock,
 ) -> OpenAlgoMarketDataAdapter:
     return OpenAlgoMarketDataAdapter(
         config=REST_CONFIG,
@@ -249,8 +266,8 @@ def _adapter(
         instrument_id=INSTRUMENT,
         subscription=SUBSCRIPTION,
         connector=connector,
-        wall_clock=lambda: wall_clock,
-        monotonic_clock=lambda: 100.0,
+        wall_clock=clock.now,
+        monotonic_clock=clock.mono,
         sleep=lambda _seconds: None,
     )
 
@@ -306,7 +323,7 @@ def test_golden_live_like_session_reaches_closed_from_prepared_state(
             _quote(at=start + timedelta(minutes=7), price="127.0", volume=105),
         ]
     )
-    adapter = _adapter(FakeConnector([connection]), wall_clock=start)
+    adapter = _adapter(FakeConnector([connection]), clock=DeterministicClock(start))
     runtime, _, run = _bootstrap_runtime(
         engine=postgres_engine,
         adapter=adapter,
@@ -447,7 +464,7 @@ def test_adapter_recovery_does_not_restore_runtime_chronology(
             ),
         ]
     )
-    adapter = _adapter(FakeConnector([first, second]), wall_clock=start)
+    adapter = _adapter(FakeConnector([first, second]), clock=DeterministicClock(start))
     runtime, _, _ = _bootstrap_runtime(
         engine=postgres_engine,
         adapter=adapter,
@@ -469,3 +486,43 @@ def test_adapter_recovery_does_not_restore_runtime_chronology(
     with pytest.raises(LiveRuntimeReconciliationRequired):
         runtime.poll_once()
     assert runtime.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+
+
+def test_stale_feed_marks_runtime_reconciliation_required_with_advancing_clock(
+    postgres_engine: Engine,
+) -> None:
+    strategy = _strategy()
+    checkpoint = _prepared(strategy)
+    _persist_prepared(postgres_engine, checkpoint)
+    start = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    clock = DeterministicClock(start)
+    connection = FakeConnection(
+        [
+            _auth_success(),
+            _subscribe_success(),
+            _quote(at=start, price="124.0", volume=100),
+            OpenAlgoWebSocketReceiveTimeout("deterministic quiet feed"),
+        ]
+    )
+    adapter = _adapter(FakeConnector([connection]), clock=clock)
+    runtime, _, _ = _bootstrap_runtime(
+        engine=postgres_engine,
+        adapter=adapter,
+        strategy=strategy,
+        checkpoint=checkpoint,
+        suffix="stale",
+    )
+
+    assert runtime.poll_once().market_event is None
+    assert adapter.state is MarketDataFeedState.HEALTHY
+
+    clock.advance(MD_CONFIG.stale_after_seconds + 0.001)
+    stale_step = runtime.poll_once()
+
+    assert stale_step.market_event is None
+    assert stale_step.feed_state is MarketDataFeedState.STALE
+    assert stale_step.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+    assert runtime.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
+
+    with pytest.raises(LiveRuntimeReconciliationRequired):
+        runtime.poll_once()
