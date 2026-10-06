@@ -136,6 +136,8 @@ The evidence stream records:
 
 - safe observed OpenAlgo Quote facts needed to validate provider timestamp and cumulative-volume
   handling, including connection generation and baseline/unchanged/emitted-delta disposition;
+- accepted normalized `MarketEvent` facts recorded only after session filtering and successful live-runtime
+  processing/persistence, so observed provider quotes remain distinguishable from accepted runtime input;
 - canonical completed-candle interval, OHLCV, quality, source, and source-event count;
 - the canonical per-candle `IndicatorSnapshot`, including calculation version and requirement
   readings/readiness;
