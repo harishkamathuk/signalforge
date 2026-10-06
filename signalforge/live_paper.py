@@ -575,6 +575,13 @@ class LivePaperRunner:
 
         try:
             return self._run_session()
+        except LivePaperEvidenceError as exc:
+            _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
+            return (
+                LivePaperExitCode.RUNTIME_FAILED
+                if self._runtime is not None
+                else LivePaperExitCode.STARTUP_FAILED
+            )
 
     def _run_session(self) -> LivePaperExitCode:
         """Prepare, activate at the canonical boundary, run and shut down safely."""
@@ -627,13 +634,6 @@ class LivePaperRunner:
         except LiveRuntimeReconciliationRequired as exc:
             _emit(self.logger, "reconciliation_required", detail=self._safe_detail(exc))
             return LivePaperExitCode.RECONCILIATION_REQUIRED
-        except LivePaperEvidenceError as exc:
-            _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
-            return (
-                LivePaperExitCode.RUNTIME_FAILED
-                if self._runtime is not None
-                else LivePaperExitCode.STARTUP_FAILED
-            )
         except LiveRuntimeError as exc:
             _emit(self.logger, "runtime_failure", detail=self._safe_detail(exc))
             return LivePaperExitCode.RUNTIME_FAILED
