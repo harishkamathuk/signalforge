@@ -23,7 +23,7 @@ from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
-from signalforge.live_paper import live_paper_command
+from signalforge.live_paper import live_paper_command, prepare_session_command
 from signalforge.research.command import research_run_command
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
@@ -74,6 +74,12 @@ def _parser() -> argparse.ArgumentParser:
         help="run one configured NSE security in PAPER mode",
     )
     live_paper.add_argument("--config", required=True, type=Path)
+
+    prepare_session = subparsers.add_parser(
+        "prepare-session",
+        help="prepare trustworthy indicator state for the next NSE live PAPER session",
+    )
+    prepare_session.add_argument("--config", required=True, type=Path)
 
     research = subparsers.add_parser("research", help="run reproducible historical research")
     research_subparsers = research.add_subparsers(
@@ -243,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "live-paper":
             return live_paper_command(args.config)
+        if args.command == "prepare-session":
+            return prepare_session_command(args.config)
         if args.command == "research" and args.research_command == "run":
             result = research_run_command(args.experiment)
             print(json.dumps(result, sort_keys=True, separators=(",", ":")))
