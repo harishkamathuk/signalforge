@@ -9,7 +9,7 @@ from signalforge.domain.prepared_indicators import (
     PreparedIndicatorCheckpoint,
     prepared_checkpoint_id,
 )
-from signalforge.domain.time import CandleInterval
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.persistence.mappers import (
     prepared_indicator_checkpoint_from_record,
     prepared_indicator_checkpoint_record_from_domain,
@@ -66,3 +66,27 @@ def test_prepared_checkpoint_mapping_round_trips_canonical_indicator_state() -> 
     restored = prepared_indicator_checkpoint_from_record(record)
 
     assert restored == checkpoint
+
+
+def test_prepared_checkpoint_identity_survives_postgres_timezone_normalization() -> None:
+    instrument_id = InstrumentId("NSE:TZ")
+    requirements = IndicatorRequirements.of(RsiRequirement(14))
+    interval_ist = CandleInterval.five_minutes(
+        datetime(2026, 10, 1, 15, 25, tzinfo=IST)
+    )
+    interval_utc = CandleInterval(
+        interval_ist.start.astimezone(UTC),
+        interval_ist.end.astimezone(UTC),
+    )
+
+    assert prepared_checkpoint_id(
+        instrument_id=instrument_id,
+        requirements=requirements,
+        calculation_version="engine-v1",
+        boundary=interval_ist,
+    ) == prepared_checkpoint_id(
+        instrument_id=instrument_id,
+        requirements=requirements,
+        calculation_version="engine-v1",
+        boundary=interval_utc,
+    )
