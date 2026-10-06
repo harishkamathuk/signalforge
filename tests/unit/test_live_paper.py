@@ -234,6 +234,7 @@ def _patch_prepare_dependencies(
     *,
     at: datetime,
     disposition: RecoveryDisposition = RecoveryDisposition.NEW,
+    patch_checkpoint: bool = True,
 ) -> FakeEngine:
     engine = FakeEngine()
     monkeypatch.setattr("signalforge.live_paper.sa.create_engine", lambda _url: engine)
@@ -253,12 +254,13 @@ def _patch_prepare_dependencies(
         "signalforge.live_paper.RecoveryBootstrap.inspect",
         lambda self, **_kwargs: SimpleNamespace(disposition=disposition),
     )
-    prepared_strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
-    checkpoint = _prepared_checkpoint(at, prepared_strategy)
-    monkeypatch.setattr(
-        "signalforge.live_paper.PostgresPreparedIndicatorCheckpointRepository.find_for_boundary",
-        lambda self, **_kwargs: checkpoint,
-    )
+    if patch_checkpoint:
+        prepared_strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+        checkpoint = _prepared_checkpoint(at, prepared_strategy)
+        monkeypatch.setattr(
+            "signalforge.live_paper.PostgresPreparedIndicatorCheckpointRepository.find_for_boundary",
+            lambda self, **_kwargs: checkpoint,
+        )
     return engine
 
 
@@ -316,6 +318,66 @@ def test_missing_prepared_state_fails_before_live_activation(
     records = [json.loads(line) for line in stream.getvalue().splitlines()]
     failures = [item for item in records if item["event"] == "prepared_state_failure"]
     assert failures[-1]["code"] == "PREPARED_STATE_MISSING"
+
+
+def test_configured_warmup_above_checkpoint_count_fails_before_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 0, tzinfo=IST)
+    engine = _patch_prepare_dependencies(monkeypatch, at=at)
+    path = tmp_path / "live-paper-warmup.json"
+    path.write_text(
+        json.dumps(
+            {
+                "instrument_id": "NSE:RELIANCE",
+                "quantity": 10,
+                "engine_calculation_version": "engine-v1",
+                "strategy": {"minimum_warmup_candles": 300},
+            }
+        ),
+        encoding="utf-8",
+    )
+    stream = io.StringIO()
+    runner = LivePaperRunner(
+        config_path=path,
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=stream, name="sf073-configured-warmup"),
+    )
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
+    assert engine.disposed
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    failures = [item for item in records if item["event"] == "prepared_state_failure"]
+    assert failures[-1]["code"] == "PREPARED_STATE_NOT_READY"
+
+
+def test_calendar_resolution_failure_disposes_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2027, 1, 4, 9, 0, tzinfo=IST)
+    engine = _patch_prepare_dependencies(
+        monkeypatch,
+        at=at,
+        patch_checkpoint=False,
+    )
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf073-calendar-fail"),
+    )
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
+    assert engine.disposed
 
 
 def test_non_ready_preflight_prevents_reference_and_activation(
