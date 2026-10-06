@@ -20,7 +20,6 @@ from signalforge.runtime.prepared_indicators import (
 )
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
-
 INSTRUMENT = InstrumentId("NSE:RELIANCE")
 STRATEGY = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
 
