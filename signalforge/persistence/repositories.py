@@ -1040,31 +1040,6 @@ class PostgresIndicatorCheckpointRepository(_PostgresRepository):
 class PostgresPreparedIndicatorCheckpointRepository(_PostgresRepository):
     """Append and resolve immutable run-independent prepared indicator facts."""
 
-    _FIELDS = (
-        "checkpoint_id",
-        "instrument_id",
-        "exchange",
-        "requirements_hash",
-        "calculation_version",
-        "target_trading_date",
-        "continuity_state",
-        "last_interval_start",
-        "last_interval_end",
-        "completed_candle_count",
-        "requirements_manifest",
-        "state_payload",
-        "historical_source",
-        "requested_from",
-        "requested_to",
-        "first_accepted_interval_start",
-        "first_accepted_interval_end",
-        "final_accepted_interval_start",
-        "final_accepted_interval_end",
-        "accepted_candle_count",
-        "candle_sequence_digest",
-        "prepared_at",
-    )
-
     def add(self, checkpoint: PreparedIndicatorCheckpoint) -> PreparedIndicatorCheckpoint:
         candidate = prepared_indicator_checkpoint_record_from_domain(checkpoint)
         records = self._session.scalars(
@@ -1119,11 +1094,15 @@ class PostgresPreparedIndicatorCheckpointRepository(_PostgresRepository):
             raise PersistenceError(
                 "prepared indicator checkpoint insert produced no persisted fact"
             )
-        if not _same_record_fields(stored, candidate, self._FIELDS):
+        persisted = prepared_indicator_checkpoint_from_record(stored)
+        if (
+            persisted.state != checkpoint.state
+            or persisted.candle_sequence_digest != checkpoint.candle_sequence_digest
+        ):
             raise ContradictoryFactError(
                 "stored prepared indicator checkpoint contradicts requested immutable fact"
             )
-        return prepared_indicator_checkpoint_from_record(stored)
+        return persisted
 
     def get(
         self, checkpoint_id: PreparedIndicatorCheckpointId
