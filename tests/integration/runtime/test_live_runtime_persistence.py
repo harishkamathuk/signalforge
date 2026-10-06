@@ -15,6 +15,7 @@ from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
+from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST, CandleInterval
@@ -28,7 +29,13 @@ from signalforge.persistence.repositories import (
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
-from signalforge.runtime.live_runtime import LiveRuntime
+from signalforge.runtime.candles import CandleEngine
+from signalforge.runtime.lifecycle import LifecycleCoordinator
+from signalforge.runtime.live_runtime import (
+    LiveRuntime,
+    LiveRuntimeContinuity,
+    LiveRuntimeError,
+)
 from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
@@ -231,3 +238,124 @@ def test_failed_new_live_activation_rolls_back_run_provenance(
 
     with Session(postgres_engine) as session:
         assert PostgresRunProvenanceRepository(session).get(run.run_id) is None
+
+
+class _HealthyUnusedFeed:
+    @property
+    def state(self) -> MarketDataFeedState:
+        return MarketDataFeedState.HEALTHY
+
+    def start(self) -> None:
+        return None
+
+    def receive_once(self):
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def test_live_runtime_persistence_failure_rolls_back_and_becomes_terminal(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy)
+    schedule = TickSizeSchedule(
+        instrument_id=INSTRUMENT,
+        rules=(
+            TickSizeRule(
+                tick_size=Price(Decimal("0.05")),
+                effective_from=datetime(2026, 10, 5, tzinfo=IST).date(),
+            ),
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with session.begin():
+            PostgresRunProvenanceRepository(session).add(run)
+
+    runtime = LiveRuntime(
+        feed=_HealthyUnusedFeed(),
+        run=run,
+        instrument_id=INSTRUMENT,
+        candle_engine=CandleEngine(instrument_id=INSTRUMENT),
+        indicator_engine=IndicatorEngine(
+            INSTRUMENT,
+            run.engine_calculation_version,
+            requirements=strategy.indicator_requirements,
+        ),
+        lifecycle=LifecycleCoordinator(
+            run=run,
+            tick_schedule=schedule,
+            quantity=Quantity(10),
+            strategy=strategy,
+        ),
+        strategy=strategy,
+        session_factory=lambda: Session(postgres_engine),
+        decision_projector=project_v1_decision,
+        evaluation_context_factory=lambda _candle: StrategyRuntimeFacts(
+            completed_regular_session_candles=1,
+            continuity=IndicatorContinuity.HEALTHY,
+            feed_state=MarketDataFeedState.HEALTHY,
+        ),
+        continuity=LiveRuntimeContinuity.CONTINUOUS,
+    )
+
+    first_at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    runtime.process_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=first_at,
+            received_timestamp=first_at,
+            price=Price(Decimal("100")),
+            quantity=1,
+            source="sf059-test",
+            source_event_id=None,
+        ),
+        feed_state=MarketDataFeedState.HEALTHY,
+    )
+
+    def fail_indicator_upsert(self, run_identity, state):
+        raise RuntimeError("forced SF-059 indicator persistence failure")
+
+    monkeypatch.setattr(
+        PostgresIndicatorCheckpointRepository,
+        "upsert",
+        fail_indicator_upsert,
+    )
+    second_at = first_at + timedelta(minutes=5)
+    with pytest.raises(RuntimeError, match="forced SF-059"):
+        runtime.process_event(
+            MarketEvent(
+                instrument_id=INSTRUMENT,
+                exchange_timestamp=second_at,
+                received_timestamp=second_at,
+                price=Price(Decimal("101")),
+                quantity=1,
+                source="sf059-test",
+                source_event_id=None,
+            ),
+            feed_state=MarketDataFeedState.HEALTHY,
+        )
+
+    assert runtime.continuity is LiveRuntimeContinuity.TERMINAL
+    with pytest.raises(LiveRuntimeError, match="terminal"):
+        runtime.process_time(second_at)
+
+    with Session(postgres_engine) as session:
+        assert (
+            PostgresIndicatorCheckpointRepository(session).get(
+                run.run_id,
+                INSTRUMENT,
+            )
+            is None
+        )
+        interval = CandleInterval.five_minutes(first_at)
+        assert (
+            PostgresStrategyDecisionRepository(session).get(
+                run.run_id,
+                INSTRUMENT,
+                interval,
+            )
+            is None
+        )
