@@ -999,7 +999,7 @@ def prepared_indicator_checkpoint_from_record(
     # Prepared and run-scoped checkpoint records intentionally share the exact
     # state-bearing field names consumed by the canonical checkpoint decoder.
     state = _state_from_payload(cast(IndicatorCheckpointRecord, record), requirements)
-    return PreparedIndicatorCheckpoint(
+    checkpoint = PreparedIndicatorCheckpoint(
         checkpoint_id=PreparedIndicatorCheckpointId(record.checkpoint_id),
         state=state,
         exchange=record.exchange,
@@ -1019,3 +1019,8 @@ def prepared_indicator_checkpoint_from_record(
         candle_sequence_digest=record.candle_sequence_digest,
         prepared_at=record.prepared_at,
     )
+    if record.requirements_hash != checkpoint.requirements_hash:
+        raise ValueError(
+            "Prepared indicator checkpoint requirements hash contradicts state manifest"
+        )
+    return checkpoint
