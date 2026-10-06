@@ -343,7 +343,7 @@ def test_new_recovery_completes_before_feed_start(
         evaluation_context_factory=context,
     )
 
-    assert order == ["recover", "start", "persist_run"]
+    assert order == ["recover", "persist_run", "start"]
     assert value.continuity is LiveRuntimeContinuity.CONTINUOUS
 
 
@@ -378,7 +378,8 @@ def test_resumable_recovery_is_inspected_before_feed_start_and_is_not_continuous
         evaluation_context_factory=context,
     )
 
-    assert order == ["recover", "start"]
+    assert order == ["recover"]
+    assert not feed.started
     assert value.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
 
 
@@ -692,4 +693,53 @@ def test_receive_that_discovers_stale_interval_requires_reconciliation_same_poll
     assert step.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED
     assert value.candle_engine.state == before_candle
     assert value.lifecycle.snapshot() == before_lifecycle
+    assert commits == []
+
+
+
+def test_live_time_dispatch_expires_armed_and_persists_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    commits.clear()
+    assert value.lifecycle.state is LifecycleState.ARMED
+
+    snapshot = value.process_time(datetime(2026, 10, 5, 10, 10, tzinfo=IST))
+
+    assert snapshot.state is LifecycleState.EXPIRED
+    assert len(commits) == 1
+    commit = commits[0]
+    assert len(commit.setups) == 1
+    assert len(commit.transitions) == 1
+    assert commit.transitions[0].entity_type.value == "armed_setup"
+    assert commit.transitions[0].to_state == "expired"
+
+
+def test_live_time_dispatch_does_not_fabricate_open_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value, _, _, commits = runtime(monkeypatch)
+    candle, decision = actionable_candle_and_decision()
+    value.lifecycle.process_evaluation(candle, decision)
+    value.process_event(
+        MarketEvent(
+            instrument_id=INSTRUMENT,
+            exchange_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            received_timestamp=datetime(2026, 10, 5, 10, 6, tzinfo=IST),
+            price=Price(Decimal("102")),
+            quantity=1,
+            source="openalgo:quote",
+            source_event_id=None,
+        ),
+        feed_state=MarketDataFeedState.HEALTHY,
+    )
+    commits.clear()
+    assert value.lifecycle.state is LifecycleState.OPEN
+
+    snapshot = value.process_time(datetime(2026, 10, 5, 15, 30, tzinfo=IST))
+
+    assert snapshot.state is LifecycleState.OPEN
+    assert snapshot.exit is None
     assert commits == []

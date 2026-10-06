@@ -399,3 +399,33 @@ def test_test_only_second_strategy_runs_without_replay_runtime_changes(
     assert summary["signals"] == 0
     assert summary["trades"] == 0
     assert summary["decision_counts"] == {"reference_test": 1}
+
+
+
+def test_live_paper_cli_is_explicit_and_has_no_live_broker_switch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write(
+        tmp_path / "live-paper.json",
+        {
+            "instrument_id": "NSE:RELIANCE",
+            "quantity": 10,
+            "engine_calculation_version": "engine-v1",
+            "strategy": {},
+        },
+    )
+    seen: list[Path] = []
+
+    monkeypatch.setattr(
+        "signalforge.cli.live_paper_command",
+        lambda path: seen.append(path) or 0,
+    )
+
+    assert main(["live-paper", "--config", str(config)]) == 0
+    assert seen == [config]
+
+    with pytest.raises(SystemExit):
+        main(["live-paper", "--config", str(config), "--live"])
+    with pytest.raises(SystemExit):
+        main(["live-paper", "--config", str(config), "--real"])

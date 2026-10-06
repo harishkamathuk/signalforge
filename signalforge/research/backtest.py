@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime
 from decimal import Decimal
 
 from signalforge.config.identity import ConfigIdentity
@@ -26,6 +26,10 @@ from signalforge.domain.ids import (
 )
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.session import (
+    NSE_REGULAR_SESSION_BOUNDARY,
+    NSE_REGULAR_SESSION_OPEN,
+)
 from signalforge.domain.time import to_ist, to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
@@ -287,7 +291,7 @@ class BacktestRunner:
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
             event_time_ist = to_ist(event.exchange_timestamp).time().replace(tzinfo=None)
-            if not (_NSE_SESSION_OPEN <= event_time_ist <= _NSE_SESSION_BOUNDARY):
+            if not (NSE_REGULAR_SESSION_OPEN <= event_time_ist <= NSE_REGULAR_SESSION_BOUNDARY):
                 raise ValueError(
                     "Backtest market event falls outside the canonical NSE regular-session "
                     "input window"
@@ -405,7 +409,3 @@ def _rejection(
         filled_at=fill.filled_at,
         reason=reason,
     )
-
-
-_NSE_SESSION_OPEN = time(9, 15)
-_NSE_SESSION_BOUNDARY = time(15, 30)

@@ -12,6 +12,7 @@ nav:
       - Replay CLI: replay-cli.md
       - Research CLI: research-cli.md
       - OpenAlgo Integration: openalgo-integration.md
+      - Live PAPER Operator: live-paper-operations.md
   - Strategies:
       - RSI Mean-Reversion V1 Reference: strategies/rsi-mean-reversion-v1.md
   - Validation:
@@ -38,6 +39,7 @@ nav:
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
       - OpenAlgo Adapter: api/openalgo-adapter.md
       - Live Runtime: api/live-runtime.md
+      - Live PAPER Runner: api/live-paper-runner.md
       - Indicators: api/indicators.md
 
 plugins:

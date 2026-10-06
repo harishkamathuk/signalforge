@@ -23,6 +23,7 @@ from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
+from signalforge.live_paper import live_paper_command
 from signalforge.research.command import research_run_command
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
@@ -67,6 +68,12 @@ def _parser() -> argparse.ArgumentParser:
     replay = subparsers.add_parser("replay", help="run deterministic single-security replay")
     replay.add_argument("--config", required=True, type=Path)
     replay.add_argument("--input", required=True, type=Path)
+
+    live_paper = subparsers.add_parser(
+        "live-paper",
+        help="run one configured NSE security in PAPER mode",
+    )
+    live_paper.add_argument("--config", required=True, type=Path)
 
     research = subparsers.add_parser("research", help="run reproducible historical research")
     research_subparsers = research.add_subparsers(
@@ -234,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
             summary = replay_command(args.config, args.input)
             print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
             return 0
+        if args.command == "live-paper":
+            return live_paper_command(args.config)
         if args.command == "research" and args.research_command == "run":
             result = research_run_command(args.experiment)
             print(json.dumps(result, sort_keys=True, separators=(",", ":")))

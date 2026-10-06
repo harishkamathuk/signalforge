@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from datetime import datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId
+from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
+from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.persistence.coordinator import LiveMarketInputCommit, PersistenceCoordinator
@@ -22,7 +25,11 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresStrategyDecisionRepository,
 )
-from signalforge.runtime.indicators import IndicatorEngine
+from signalforge.runtime.decision_audit import project_v1_decision
+from signalforge.runtime.eligibility import MarketDataFeedState
+from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
+from signalforge.runtime.live_runtime import LiveRuntime
+from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:SF057LIVE")
@@ -172,3 +179,55 @@ def test_live_commit_rolls_back_prior_writes_on_later_repository_failure(
             )
             is None
         )
+
+
+
+class _FailingStartFeed:
+    @property
+    def state(self) -> MarketDataFeedState:
+        return MarketDataFeedState.STARTING
+
+    def start(self) -> None:
+        raise RuntimeError("forced websocket startup failure")
+
+    def receive_once(self):
+        raise AssertionError("receive must not run")
+
+    def close(self) -> None:
+        return None
+
+
+def test_failed_new_live_activation_rolls_back_run_provenance(
+    postgres_engine: Engine,
+) -> None:
+    strategy = _strategy()
+    run = _run(strategy)
+    schedule = TickSizeSchedule(
+        instrument_id=INSTRUMENT,
+        rules=(
+            TickSizeRule(
+                tick_size=Price(Decimal("0.05")),
+                effective_from=datetime(2026, 10, 5, tzinfo=IST).date(),
+            ),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="forced websocket startup failure"):
+        LiveRuntime.bootstrap(
+            feed=_FailingStartFeed(),
+            run=run,
+            instrument_id=INSTRUMENT,
+            tick_schedule=schedule,
+            quantity=Quantity(10),
+            strategy=strategy,
+            session_factory=lambda: Session(postgres_engine),
+            decision_projector=project_v1_decision,
+            evaluation_context_factory=lambda _candle: StrategyRuntimeFacts(
+                completed_regular_session_candles=0,
+                continuity=IndicatorContinuity.HEALTHY,
+                feed_state=MarketDataFeedState.HEALTHY,
+            ),
+        )
+
+    with Session(postgres_engine) as session:
+        assert PostgresRunProvenanceRepository(session).get(run.run_id) is None
