@@ -1116,7 +1116,9 @@ class PostgresPreparedIndicatorCheckpointRepository(_PostgresRepository):
             ).all()
             stored = _single_collision(records, fact_name="prepared indicator checkpoint")
         if stored is None:
-            raise PersistenceError(\n                "prepared indicator checkpoint insert produced no persisted fact"\n            )
+            raise PersistenceError(
+                "prepared indicator checkpoint insert produced no persisted fact"
+            )
         if not _same_record_fields(stored, candidate, self._FIELDS):
             raise ContradictoryFactError(
                 "stored prepared indicator checkpoint contradicts requested immutable fact"
