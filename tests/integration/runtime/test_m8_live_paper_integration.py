@@ -149,23 +149,10 @@ def _subscribe_success() -> str:
 
 def _quote(*, at: datetime, price: str, volume: int) -> str:
     epoch_ms = int(at.timestamp() * 1000)
-    return json.dumps(
-        {
-            "type": "market_data",
-            "symbol": "SF059",
-            "exchange": "NSE",
-            "mode": 2,
-            "data": {
-                "ltp": price,
-                "volume": volume,
-                "timestamp": epoch_ms,
-                "open": price,
-                "high": price,
-                "low": price,
-                "close": price,
-            },
-        },
-        separators=(",", ":"),
+    return (
+        '{"type":"market_data","symbol":"SF059","exchange":"NSE","mode":2,'
+        f'"data":{{"ltp":{price},"volume":{volume},"timestamp":{epoch_ms},'
+        f'"open":{price},"high":{price},"low":{price},"close":{price}}}}}'
     )
 
 
