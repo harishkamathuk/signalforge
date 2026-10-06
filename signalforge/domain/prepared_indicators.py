@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from hashlib import sha256
 
 from signalforge.domain.ids import (
@@ -12,7 +12,7 @@ from signalforge.domain.ids import (
     deterministic_id,
 )
 from signalforge.domain.indicators import IndicatorRequirements
-from signalforge.domain.time import CandleInterval, require_aware
+from signalforge.domain.time import IST, CandleInterval, require_aware
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngineState
 
 
@@ -31,13 +31,16 @@ def prepared_checkpoint_id(
 ) -> PreparedIndicatorCheckpointId:
     """Identify one authoritative prepared-state fact independent of its derivation."""
 
+    # SF-073 established prepared-checkpoint identity from NSE exchange-session
+    # boundaries represented in IST. Canonicalise every equivalent instant back
+    # to IST so PostgreSQL timestamptz hydration cannot change a durable ID.
     return deterministic_id(
         PreparedIndicatorCheckpointId,
         str(instrument_id),
         indicator_requirements_hash(requirements),
         calculation_version,
-        boundary.start.astimezone(UTC).isoformat(),
-        boundary.end.astimezone(UTC).isoformat(),
+        boundary.start.astimezone(IST).isoformat(),
+        boundary.end.astimezone(IST).isoformat(),
     )
 
 
