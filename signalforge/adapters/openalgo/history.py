@@ -121,7 +121,10 @@ def fetch_openalgo_history(
 
 
 def _decode(response: OpenAlgoHttpResponse) -> dict[str, Any]:
-    if (\n        response.content_type is not None\n        and "application/json" not in response.content_type.lower()\n    ):
+    if (
+        response.content_type is not None
+        and "application/json" not in response.content_type.lower()
+    ):
         raise OpenAlgoHistoryValidationError("OpenAlgo history returned a non-JSON content type")
     try:
         payload = json.loads(response.body.decode("utf-8"), parse_float=Decimal)
@@ -137,7 +140,9 @@ def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedC
         raise OpenAlgoHistoryValidationError("OpenAlgo history contains a malformed row")
     timestamp = raw.get("timestamp")
     if isinstance(timestamp, bool):
-        raise OpenAlgoHistoryValidationError(\n            "OpenAlgo history timestamp must be Unix epoch seconds"\n        )
+        raise OpenAlgoHistoryValidationError(
+            "OpenAlgo history timestamp must be Unix epoch seconds"
+        )
     if isinstance(timestamp, Decimal):
         if timestamp != timestamp.to_integral_value():
             raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp must be integral")
@@ -145,7 +150,9 @@ def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedC
     elif isinstance(timestamp, int):
         epoch = timestamp
     else:
-        raise OpenAlgoHistoryValidationError(\n            "OpenAlgo history timestamp must be Unix epoch seconds"\n        )
+        raise OpenAlgoHistoryValidationError(
+            "OpenAlgo history timestamp must be Unix epoch seconds"
+        )
     start = datetime.fromtimestamp(epoch, tz=UTC).astimezone(IST)
     if start.second or start.microsecond or start.minute % 5:
         raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp is not 5-minute aligned")
@@ -156,11 +163,15 @@ def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedC
     if start.hour > 15 or (start.hour == 15 and start.minute > 25):
         raise OpenAlgoHistoryValidationError("OpenAlgo history contains a post-market row")
     if end.hour > 15 or (end.hour == 15 and end.minute > 30):
-        raise OpenAlgoHistoryValidationError(\n            "OpenAlgo history interval exceeds regular-session boundary"\n        )
+        raise OpenAlgoHistoryValidationError(
+            "OpenAlgo history interval exceeds regular-session boundary"
+        )
 
     volume = raw.get("volume")
     if isinstance(volume, bool) or not isinstance(volume, int) or volume < 0:
-        raise OpenAlgoHistoryValidationError(\n            "OpenAlgo history volume must be a non-negative integer"\n        )
+        raise OpenAlgoHistoryValidationError(
+            "OpenAlgo history volume must be a non-negative integer"
+        )
 
     return HistoricalCompletedCandle(
         instrument_id=instrument_id,
