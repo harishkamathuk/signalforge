@@ -2,11 +2,15 @@
 
 SF-058 exposes the single-security live runtime through the existing `signalforge` CLI.
 
-## Command
+## Commands
 
 ```bash
+signalforge prepare-session --config live-paper.json
 signalforge live-paper --config live-paper.json
 ```
+
+Preparation is explicit and separate from live startup. `live-paper` never downloads historical
+bars as an implicit repair step.
 
 The command is explicitly **PAPER only**. It has no option that enables broker order placement.
 
@@ -51,8 +55,10 @@ Before market-data activation the runner:
 4. requires OpenAlgo REST preflight status `READY`;
 5. resolves exact current-date NSE reference/tick metadata;
 6. inspects durable recovery state;
-7. waits for the canonical NSE regular-session activation boundary when launched early;
-8. constructs and starts the live runtime.
+7. requires a suitable `PreparedIndicatorCheckpoint` through the immediately preceding NSE
+   trading-session close;
+8. waits for the canonical NSE regular-session activation boundary when launched early;
+9. constructs and starts the live runtime from that prepared indicator state.
 
 A failed dependency prevents WebSocket subscription.
 
@@ -125,12 +131,25 @@ Shutdown:
 
 Durable ARMED/OPEN state remains authoritative and is recovered under ADR-009 on a later process.
 
+## SF-073 prepared-state boundary
+
+`prepare-session` uses completed OpenAlgo historical OHLCV bars directly at the canonical
+indicator-input boundary; it does not manufacture historical MarketEvents or intrabar chronology.
+
+The operation requires complete provable regular-session 5-minute history for its accepted bootstrap
+window. The provider does not expose evidence that distinguishes an omitted zero-event bar from
+provider data loss, so an expected missing interval fails closed and no synthetic flat candle is
+created.
+
+A NEW live run copies the suitable prepared `IndicatorEngineState` into the existing run-scoped
+checkpoint path and records the prepared-checkpoint provenance. A RESUMABLE interrupted run cannot
+use prepared state to bypass ADR-009 reconciliation.
+
 ## Current M8 limitations
 
 - PAPER only; no broker order methods are exposed.
 - One NSE security only.
-- No automatic gap reconciliation or historical backfill.
+- No automatic gap reconciliation or historical backfill for interrupted runs.
+- NSE session-calendar coverage is deliberately bounded to the authoritative 2026 equities calendar
+  required by the current M8 implementation.
 - No service supervisor/dashboard.
-- A new live run derives warmup readiness from real indicator checkpoint samples. It does not inject
-  an artificial 250-candle warmup value. Historical indicator pre-seeding is not implemented by
-  SF-058.
