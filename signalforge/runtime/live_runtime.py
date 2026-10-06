@@ -25,6 +25,7 @@ from signalforge.domain.position_outcomes import (
     PositionOpenOutcomeType,
 )
 from signalforge.domain.positions import Position
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.trades import Trade
@@ -32,7 +33,11 @@ from signalforge.persistence.coordinator import (
     LiveMarketInputCommit,
     PersistenceCoordinator,
 )
-from signalforge.persistence.repositories import PostgresRunProvenanceRepository
+from signalforge.persistence.repositories import (
+    PostgresIndicatorCheckpointRepository,
+    PostgresRunPreparedIndicatorCheckpointRepository,
+    PostgresRunProvenanceRepository,
+)
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
@@ -177,6 +182,7 @@ class LiveRuntime:
         session_factory: SessionFactory,
         decision_projector: DecisionProjector,
         evaluation_context_factory: EvaluationContextFactory,
+        initial_prepared_checkpoint: PreparedIndicatorCheckpoint | None = None,
     ) -> LiveRuntime:
         """Recover durable state before the live adapter is allowed to start."""
 
@@ -196,7 +202,26 @@ class LiveRuntime:
                 "Live runtime cannot resume a run containing replay market-input checkpoints"
             )
 
+        if (
+            recovered.disposition is RecoveryDisposition.RESUMABLE
+            and initial_prepared_checkpoint is not None
+        ):
+            raise LiveRuntimeReconciliationRequired(
+                "Prepared indicator state cannot bypass RESUMABLE live-run reconciliation"
+            )
+
         base_indicator = recovered.indicator_state
+        if recovered.disposition is RecoveryDisposition.NEW and initial_prepared_checkpoint is not None:
+            prepared_state = initial_prepared_checkpoint.state
+            if (
+                prepared_state.instrument_id != instrument_id
+                or prepared_state.calculation_version != run.engine_calculation_version
+                or prepared_state.requirements != strategy.indicator_requirements
+            ):
+                raise LiveRuntimeError(
+                    "Prepared indicator checkpoint contradicts requested live runtime identity"
+                )
+            base_indicator = prepared_state
         if base_indicator is None:
             base_indicator = IndicatorEngine(
                 instrument_id,
@@ -241,7 +266,14 @@ class LiveRuntime:
                 with session_factory() as session:
                     with session.begin():
                         PostgresRunProvenanceRepository(session).add(run)
-                        # Keep NEW-run provenance and external activation
+                        if initial_prepared_checkpoint is not None:
+                            PostgresIndicatorCheckpointRepository(session).upsert(
+                                run, initial_prepared_checkpoint.state
+                            )
+                            PostgresRunPreparedIndicatorCheckpointRepository(session).add(
+                                run, initial_prepared_checkpoint
+                            )
+                        # Keep NEW-run provenance, prepared-state provenance, and external activation
                         # failure-atomic: a failed handshake must not leave an
                         # otherwise-empty run that recovery would classify as
                         # RESUMABLE on retry.
