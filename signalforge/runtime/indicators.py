@@ -16,7 +16,8 @@ from signalforge.domain.indicators import (
     MacdRequirement,
     RsiRequirement,
 )
-from signalforge.domain.market import CandleQuality, CompletedCandle
+from signalforge.domain.market import CandleQuality
+from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.adx import Adx14, AdxState
 from signalforge.runtime.ema import Ema, EmaState
@@ -42,10 +43,10 @@ class IndicatorCandle(Protocol):
     instrument_id: InstrumentId
     interval: CandleInterval
     quality: CandleQuality
-    open: object
-    high: object
-    low: object
-    close: object
+    open: Price | None
+    high: Price | None
+    low: Price | None
+    close: Price | None
     volume: int | None
 
 
