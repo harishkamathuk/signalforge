@@ -6,7 +6,7 @@ SQLAlchemy entities directly; mapping/repository behavior is introduced by later
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -577,7 +577,7 @@ class PreparedIndicatorCheckpointRecord(Base):
     exchange: Mapped[str] = mapped_column(String(16), nullable=False)
     requirements_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     calculation_version: Mapped[str] = mapped_column(String(128), nullable=False)
-    target_trading_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    target_trading_date: Mapped[date] = mapped_column(Date, nullable=False)
     continuity_state: Mapped[str] = mapped_column(String(STATE_LENGTH), nullable=False)
     last_interval_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_interval_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -585,8 +585,8 @@ class PreparedIndicatorCheckpointRecord(Base):
     requirements_manifest: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     state_payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     historical_source: Mapped[str] = mapped_column(String(128), nullable=False)
-    requested_from: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    requested_to: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    requested_from: Mapped[date] = mapped_column(Date, nullable=False)
+    requested_to: Mapped[date] = mapped_column(Date, nullable=False)
     first_accepted_interval_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
