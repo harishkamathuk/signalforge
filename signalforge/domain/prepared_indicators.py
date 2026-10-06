@@ -76,8 +76,6 @@ class PreparedIndicatorCheckpoint:
             raise ValueError("Prepared checkpoint state must have HEALTHY continuity")
         if self.state.last_interval != self.final_accepted_interval:
             raise ValueError("Prepared checkpoint state boundary contradicts provenance")
-        if self.state.completed_candle_count != self.accepted_candle_count:
-            raise ValueError("Prepared checkpoint candle count contradicts indicator state")
         expected_id = prepared_checkpoint_id(
             instrument_id=self.state.instrument_id,
             requirements=self.state.requirements,
