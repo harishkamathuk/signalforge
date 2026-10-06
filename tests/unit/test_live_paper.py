@@ -45,12 +45,12 @@ from signalforge.live_paper import (
 )
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorEngine
-from signalforge.runtime.prepared_indicators import previous_session_final_interval
 from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeError,
     LiveRuntimeReconciliationRequired,
 )
+from signalforge.runtime.prepared_indicators import previous_session_final_interval
 from signalforge.runtime.recovery import RecoveryDisposition
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
