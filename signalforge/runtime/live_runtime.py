@@ -211,7 +211,7 @@ class LiveRuntime:
             )
 
         base_indicator = recovered.indicator_state
-        if recovered.disposition is RecoveryDisposition.NEW and initial_prepared_checkpoint is not None:
+        if (\n            recovered.disposition is RecoveryDisposition.NEW\n            and initial_prepared_checkpoint is not None\n        ):
             prepared_state = initial_prepared_checkpoint.state
             if (
                 prepared_state.instrument_id != instrument_id
@@ -273,7 +273,7 @@ class LiveRuntime:
                             PostgresRunPreparedIndicatorCheckpointRepository(session).add(
                                 run, initial_prepared_checkpoint
                             )
-                        # Keep NEW-run provenance, prepared-state provenance, and external activation
+                        # Keep NEW-run provenance, prepared-state provenance,\n                        # and external activation failure-atomic.
                         # failure-atomic: a failed handshake must not leave an
                         # otherwise-empty run that recovery would classify as
                         # RESUMABLE on retry.
