@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -24,6 +24,8 @@ from signalforge.domain.money import Price
 from signalforge.runtime.eligibility import MarketDataFeedState
 
 OPENALGO_MARKET_DATA_SOURCE = "openalgo:quote"
+
+OpenAlgoMarketDataDiagnosticSink = Callable[[str, Mapping[str, object]], None]
 
 
 class OpenAlgoMarketDataError(RuntimeError):
@@ -56,6 +58,7 @@ class OpenAlgoMarketDataAdapter:
         wall_clock: Callable[[], datetime],
         monotonic_clock: Callable[[], float],
         sleep: Callable[[float], None],
+        diagnostic_sink: OpenAlgoMarketDataDiagnosticSink | None = None,
     ) -> None:
         expected = f"{subscription.exchange}:{subscription.symbol}"
         if str(instrument_id) != expected:
@@ -68,11 +71,13 @@ class OpenAlgoMarketDataAdapter:
         self._wall_clock = wall_clock
         self._monotonic_clock = monotonic_clock
         self._sleep = sleep
+        self._diagnostic_sink = diagnostic_sink
         self._connection: OpenAlgoWebSocketConnection | None = None
         self._state = MarketDataFeedState.STARTING
         self._baseline_volume: int | None = None
         self._last_timestamp_ms: int | None = None
         self._last_valid_monotonic: float | None = None
+        self._connection_generation = 0
 
     @property
     def state(self) -> MarketDataFeedState:
@@ -93,6 +98,7 @@ class OpenAlgoMarketDataAdapter:
                 timeout_seconds=self._md_config.connect_timeout_seconds,
             )
             self._authenticate_and_subscribe()
+            self._connection_generation += 1
             self._last_valid_monotonic = self._monotonic_clock()
         except (OpenAlgoWebSocketUnavailable, OpenAlgoMarketDataError):
             self._state = MarketDataFeedState.FAILED
@@ -123,10 +129,18 @@ class OpenAlgoMarketDataAdapter:
         try:
             payload = _decode_object(raw)
             return self._apply_market_data(payload)
-        except (OpenAlgoMarketDataProtocolError, OpenAlgoMarketDataContinuityError):
+        except (OpenAlgoMarketDataProtocolError, OpenAlgoMarketDataContinuityError) as exc:
             self._close_transport()
             self._reset_stream_baseline()
             self._state = MarketDataFeedState.FAILED
+            self._emit_diagnostic(
+                "openalgo_quote_rejected",
+                connection_generation=self._connection_generation,
+                instrument_id=str(self._instrument_id),
+                disposition="rejected",
+                reason=str(exc),
+                feed_state=self._state.value,
+            )
             raise
 
     def check_stale(self) -> MarketDataFeedState:
@@ -164,6 +178,7 @@ class OpenAlgoMarketDataAdapter:
                     timeout_seconds=self._md_config.connect_timeout_seconds,
                 )
                 self._authenticate_and_subscribe()
+                self._connection_generation += 1
                 self._last_valid_monotonic = self._monotonic_clock()
                 return
             except (OpenAlgoWebSocketUnavailable, OpenAlgoMarketDataError):
@@ -281,29 +296,101 @@ class OpenAlgoMarketDataAdapter:
         self._baseline_volume = volume
         self._last_timestamp_ms = timestamp_ms
         self._last_valid_monotonic = now_mono
+        exchange_timestamp = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
+            milliseconds=timestamp_ms
+        )
 
         if stale_interval_crossed:
             # The newly received quote cannot prove what happened during the
             # quote-free interval. Consume it only as a fresh provider baseline
             # and surface STALE so the live runtime can require reconciliation.
             self._state = MarketDataFeedState.STALE
+            self._emit_quote_diagnostic(
+                disposition="stale_rebaseline",
+                price=price,
+                volume=volume,
+                timestamp_ms=timestamp_ms,
+                exchange_timestamp=exchange_timestamp,
+                received_at=received_at,
+                emitted_quantity=None,
+            )
             return None
 
         self._state = MarketDataFeedState.HEALTHY
 
-        if prior_volume is None or volume == prior_volume:
+        if prior_volume is None:
+            self._emit_quote_diagnostic(
+                disposition="baseline",
+                price=price,
+                volume=volume,
+                timestamp_ms=timestamp_ms,
+                exchange_timestamp=exchange_timestamp,
+                received_at=received_at,
+                emitted_quantity=None,
+            )
+            return None
+        if volume == prior_volume:
+            self._emit_quote_diagnostic(
+                disposition="unchanged",
+                price=price,
+                volume=volume,
+                timestamp_ms=timestamp_ms,
+                exchange_timestamp=exchange_timestamp,
+                received_at=received_at,
+                emitted_quantity=None,
+            )
             return None
 
-        exchange_timestamp = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=timestamp_ms)
+        emitted_quantity = volume - prior_volume
+        self._emit_quote_diagnostic(
+            disposition="emitted_delta",
+            price=price,
+            volume=volume,
+            timestamp_ms=timestamp_ms,
+            exchange_timestamp=exchange_timestamp,
+            received_at=received_at,
+            emitted_quantity=emitted_quantity,
+        )
         return MarketEvent(
             instrument_id=self._instrument_id,
             exchange_timestamp=exchange_timestamp,
             received_timestamp=received_at,
             price=Price(price),
-            quantity=volume - prior_volume,
+            quantity=emitted_quantity,
             source=OPENALGO_MARKET_DATA_SOURCE,
             source_event_id=None,
         )
+
+    def _emit_quote_diagnostic(
+        self,
+        *,
+        disposition: str,
+        price: Decimal,
+        volume: int,
+        timestamp_ms: int,
+        exchange_timestamp: datetime,
+        received_at: datetime,
+        emitted_quantity: int | None,
+    ) -> None:
+        self._emit_diagnostic(
+            "openalgo_quote",
+            instrument_id=str(self._instrument_id),
+            symbol=self._subscription.symbol,
+            exchange=self._subscription.exchange,
+            connection_generation=self._connection_generation,
+            provider_timestamp_ms=timestamp_ms,
+            exchange_timestamp=exchange_timestamp.isoformat(),
+            received_timestamp=received_at.isoformat(),
+            ltp=str(price),
+            cumulative_volume=volume,
+            disposition=disposition,
+            emitted_quantity=emitted_quantity,
+            feed_state=self._state.value,
+        )
+
+    def _emit_diagnostic(self, event: str, **fields: object) -> None:
+        if self._diagnostic_sink is not None:
+            self._diagnostic_sink(event, fields)
 
     def _require_connection(self) -> OpenAlgoWebSocketConnection:
         if self._connection is None:
