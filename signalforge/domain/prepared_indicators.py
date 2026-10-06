@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 
 from signalforge.domain.ids import (
@@ -36,8 +36,8 @@ def prepared_checkpoint_id(
         str(instrument_id),
         indicator_requirements_hash(requirements),
         calculation_version,
-        boundary.start.isoformat(),
-        boundary.end.isoformat(),
+        boundary.start.astimezone(UTC).isoformat(),
+        boundary.end.astimezone(UTC).isoformat(),
     )
 
 
