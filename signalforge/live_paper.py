@@ -72,6 +72,7 @@ from signalforge.runtime.live_runtime import (
 from signalforge.runtime.prepared_indicators import (
     PreparationOutcome,
     PreparedStateError,
+    PreparedStateFailureCode,
     build_prepared_checkpoint,
     previous_session_final_interval,
     require_suitable_prepared_checkpoint,
@@ -417,6 +418,19 @@ class LivePaperRunner:
             )
             engine.dispose()
             raise
+        except ValueError as exc:
+            failure = PreparedStateError(
+                PreparedStateFailureCode.PREPARED_STATE_PROVENANCE_INVALID,
+                str(exc),
+            )
+            _emit(
+                self.logger,
+                "prepared_state_failure",
+                code=failure.code.value,
+                detail=self._safe_detail(failure),
+            )
+            engine.dispose()
+            raise failure from exc
 
         _emit(
             self.logger,
