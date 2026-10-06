@@ -552,8 +552,14 @@ class PreparedIndicatorCheckpointRecord(Base):
             "last_interval_end",
             name="uq_prepared_indicator_checkpoint_logical_identity",
         ),
-        CheckConstraint(\n            "completed_candle_count >= 0",\n            name="ck_prepared_indicator_count_nonnegative",\n        ),
-        CheckConstraint(\n            "accepted_candle_count > 0",\n            name="ck_prepared_indicator_accepted_positive",\n        ),
+        CheckConstraint(
+            "completed_candle_count >= 0",
+            name="ck_prepared_indicator_count_nonnegative",
+        ),
+        CheckConstraint(
+            "accepted_candle_count > 0",
+            name="ck_prepared_indicator_accepted_positive",
+        ),
         CheckConstraint(
             "continuity_state = 'healthy'",
             name="ck_prepared_indicator_continuity_healthy",
