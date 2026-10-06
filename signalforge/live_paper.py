@@ -41,6 +41,7 @@ from signalforge.config.strategy_registry import (
 )
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
+from signalforge.domain.indicators import IndicatorSnapshot, indicator_requirement_key
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.prepared_indicators import (
@@ -101,6 +102,8 @@ class LivePaperConfig(BaseModel):
     quantity: int = Field(gt=0)
     engine_calculation_version: str
     strategy: dict[str, object] = Field(default_factory=dict)
+    evidence_path: str | None = None
+    evidence_max_bytes: int = Field(default=50_000_000, gt=0, le=1_000_000_000)
 
     @field_validator("instrument_id")
     @classmethod
@@ -121,6 +124,15 @@ class LivePaperConfig(BaseModel):
     def validate_engine_version(cls, value: str) -> str:
         if not value.strip() or value != value.strip():
             raise ValueError("engine_calculation_version must be non-empty trimmed text")
+        return value
+
+    @field_validator("evidence_path")
+    @classmethod
+    def validate_evidence_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip() or value != value.strip():
+            raise ValueError("evidence_path must be non-empty trimmed text when provided")
         return value
 
 
@@ -214,6 +226,58 @@ def _emit(logger: logging.Logger, event: str, **fields: object) -> None:
     logger.info(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
 
 
+class LivePaperEvidenceError(RuntimeError):
+    """Raised when configured M9 validation evidence cannot be retained."""
+
+
+class _JsonlEvidenceSink:
+    """Bounded local JSONL sink for non-authoritative M9 validation evidence."""
+
+    def __init__(self, path: Path, *, max_bytes: int) -> None:
+        self.path = path
+        self.max_bytes = max_bytes
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._stream = path.open("x", encoding="utf-8")
+        except FileExistsError:
+            raise LivePaperEvidenceError(
+                f"Validation evidence path already exists: {path}"
+            ) from None
+        self._bytes_written = 0
+
+    def write(self, event: str, **fields: object) -> None:
+        payload = {
+            "evidence_schema": "signalforge.m9.live-paper.v1",
+            "event": event,
+            **fields,
+        }
+        encoded = (
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+            + "\n"
+        )
+        size = len(encoded.encode("utf-8"))
+        if self._bytes_written + size > self.max_bytes:
+            raise LivePaperEvidenceError(
+                f"Validation evidence exceeded configured {self.max_bytes}-byte limit"
+            )
+        try:
+            self._stream.write(encoded)
+            self._stream.flush()
+        except OSError as exc:
+            raise LivePaperEvidenceError(
+                f"Validation evidence write failed: {exc}"
+            ) from exc
+        self._bytes_written += size
+
+    def close(self) -> None:
+        try:
+            self._stream.close()
+        except OSError as exc:
+            raise LivePaperEvidenceError(
+                f"Validation evidence close failed: {exc}"
+            ) from exc
+
+
 def _read_config(path: Path) -> LivePaperConfig:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -295,6 +359,7 @@ class LivePaperRunner:
         self._session_feed: _SessionBoundedLiveFeed | None = None
         self._last_feed_state: MarketDataFeedState | None = None
         self._logged_transition_ids: set[str] = set()
+        self._evidence_sink: _JsonlEvidenceSink | None = None
 
     def request_shutdown(self) -> None:
         """Request cooperative shutdown between synchronous runtime steps."""
@@ -530,6 +595,13 @@ class LivePaperRunner:
         except LiveRuntimeReconciliationRequired as exc:
             _emit(self.logger, "reconciliation_required", detail=self._safe_detail(exc))
             return LivePaperExitCode.RECONCILIATION_REQUIRED
+        except LivePaperEvidenceError as exc:
+            _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
+            return (
+                LivePaperExitCode.RUNTIME_FAILED
+                if self._runtime is not None
+                else LivePaperExitCode.STARTUP_FAILED
+            )
         except LiveRuntimeError as exc:
             _emit(self.logger, "runtime_failure", detail=self._safe_detail(exc))
             return LivePaperExitCode.RUNTIME_FAILED
@@ -556,6 +628,34 @@ class LivePaperRunner:
 
     def _activate(self, prepared: LivePaperPrepared) -> None:
         facts = _RuntimeFactsProvider()
+        evidence_path = getattr(prepared.config, "evidence_path", None)
+        diagnostic_sink = None
+        if evidence_path is not None:
+            evidence = _JsonlEvidenceSink(
+                Path(evidence_path),
+                max_bytes=getattr(prepared.config, "evidence_max_bytes", 50_000_000),
+            )
+            self._evidence_sink = evidence
+            evidence.write(
+                "evidence_session",
+                run_id=str(prepared.run.run_id),
+                instrument_id=str(prepared.instrument_id),
+                mode="PAPER",
+                strategy_id=prepared.strategy.identity.strategy_id,
+                strategy_version=prepared.strategy.identity.strategy_version,
+                config_id=str(prepared.strategy.config_identity.config_id),
+                engine_calculation_version=prepared.config.engine_calculation_version,
+                prepared_checkpoint_id=str(prepared.prepared_checkpoint.checkpoint_id),
+            )
+
+            def diagnostic_sink(event: str, fields: Mapping[str, object]) -> None:
+                payload = {
+                    "run_id": str(prepared.run.run_id),
+                    "instrument_id": str(prepared.instrument_id),
+                    **dict(fields),
+                }
+                evidence.write(event, **payload)
+
         adapter = OpenAlgoMarketDataAdapter(
             config=prepared.openalgo,
             market_data_config=prepared.market_data,
@@ -564,6 +664,7 @@ class LivePaperRunner:
             wall_clock=self.now,
             monotonic_clock=self.monotonic,
             sleep=self.sleep,
+            diagnostic_sink=diagnostic_sink,
         )
         reference_at = prepared.reference.provenance.observed_at
         feed = _SessionBoundedLiveFeed(
@@ -615,6 +716,7 @@ class LivePaperRunner:
             # ARMED boundary must not be invalidated merely because delivery was
             # delayed until after the wall clock crossed that boundary.
             step = self._runtime.poll_once()
+            self._record_step_evidence(step)
             self._log_feed_state(step.feed_state)
             if step.completed_candle is not None:
                 _emit(
@@ -661,6 +763,75 @@ class LivePaperRunner:
             if phase is NseSessionPhase.POST_SESSION and step.market_event is None:
                 _emit(self.logger, "session_complete", reason="boundary_drain_complete")
                 return
+
+    def _record_step_evidence(self, step: Any) -> None:
+        evidence = self._evidence_sink
+        runtime = self._runtime
+        if evidence is None or runtime is None:
+            return
+
+        base = {
+            "run_id": str(runtime.run.run_id),
+            "instrument_id": str(runtime.instrument_id),
+        }
+        candle = step.completed_candle
+        if candle is not None:
+            evidence.write(
+                "completed_candle",
+                **base,
+                interval_start=candle.interval.start.isoformat(),
+                interval_end=candle.interval.end.isoformat(),
+                quality=candle.quality.value,
+                open=None if candle.open is None else str(candle.open.value),
+                high=None if candle.high is None else str(candle.high.value),
+                low=None if candle.low is None else str(candle.low.value),
+                close=None if candle.close is None else str(candle.close.value),
+                volume=candle.volume,
+                source=candle.source,
+                source_event_count=candle.source_event_count,
+            )
+
+        snapshot: IndicatorSnapshot | None = step.indicator_snapshot
+        if snapshot is not None:
+            readings = [
+                {
+                    "requirement": indicator_requirement_key(reading.requirement),
+                    "value": None if reading.value is None else str(reading.value),
+                    "signal": None if reading.signal is None else str(reading.signal),
+                    "histogram": (
+                        None
+                        if reading.histogram is None
+                        else str(reading.histogram)
+                    ),
+                    "ready": reading.ready,
+                }
+                for reading in snapshot.readings
+            ]
+            evidence.write(
+                "indicator_snapshot",
+                **base,
+                interval_start=snapshot.interval.start.isoformat(),
+                interval_end=snapshot.interval.end.isoformat(),
+                calculation_version=snapshot.calculation_version,
+                ready=snapshot.ready,
+                readings=readings,
+            )
+
+        if step.evaluation is not None:
+            fact = _decision_projector(runtime.strategy)(step.evaluation)
+            evidence.write(
+                "strategy_decision",
+                **base,
+                interval_start=fact.interval.start.isoformat(),
+                interval_end=fact.interval.end.isoformat(),
+                strategy_id=fact.strategy.strategy_id,
+                strategy_version=fact.strategy.strategy_version,
+                decision_kind=fact.decision_kind,
+                qualified=fact.qualified,
+                actionable=fact.actionable,
+                reasons=fact.reasons,
+                diagnostics=dict(fact.diagnostics),
+            )
 
     def _log_feed_state(self, state: MarketDataFeedState) -> None:
         if state is self._last_feed_state:
@@ -713,6 +884,12 @@ class LivePaperRunner:
             _emit(self.logger, "shutdown", lifecycle_state=None, continuity=None)
         if prepared is not None:
             prepared.engine.dispose()
+        evidence, self._evidence_sink = self._evidence_sink, None
+        if evidence is not None:
+            try:
+                evidence.close()
+            except LivePaperEvidenceError as exc:
+                _emit(self.logger, "evidence_failure", detail=self._safe_detail(exc))
 
 
 def install_shutdown_handlers(runner: LivePaperRunner) -> dict[int, Any]:
