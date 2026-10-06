@@ -32,6 +32,7 @@ from signalforge.live_paper import (
     LivePaperExitCode,
     LivePaperPrepared,
     LivePaperRunner,
+    _SessionBoundedLiveFeed,
     configure_json_logger,
     install_shutdown_handlers,
     live_paper_command,
@@ -419,9 +420,16 @@ def test_mid_session_fresh_start_fails_closed_without_activation(
 
 
 class _FakeLiveFeed:
-    def __init__(self) -> None:
+    def __init__(self, events: list[object] | None = None) -> None:
         self.state = MarketDataFeedState.HEALTHY
         self.closed = False
+        self.events = list(events or [])
+
+    def start(self) -> None:
+        return None
+
+    def receive_once(self) -> object | None:
+        return None if not self.events else self.events.pop(0)
 
     def close(self) -> None:
         self.closed = True
@@ -440,12 +448,15 @@ class _FakeOperatorRuntime:
         self.steps = list(steps or [])
         self.time_calls: list[datetime] = []
         self.poll_calls = 0
+        self.call_order: list[str] = []
 
     def process_time(self, at: datetime) -> object:
+        self.call_order.append("time")
         self.time_calls.append(at)
         return self.lifecycle
 
     def poll_once(self) -> object:
+        self.call_order.append("poll")
         self.poll_calls += 1
         if not self.steps:
             raise AssertionError("unexpected poll")
@@ -600,7 +611,9 @@ def test_activate_wires_only_paper_runtime_components(
     assert runner._runtime is fake_runtime
     assert adapter_kwargs["instrument_id"] == prepared.instrument_id
     assert adapter_kwargs["subscription"] == prepared.reference.subscription
-    assert bootstrap_kwargs["feed"] is feed
+    bounded_feed = bootstrap_kwargs["feed"]
+    assert isinstance(bounded_feed, _SessionBoundedLiveFeed)
+    assert bounded_feed.delegate is feed
     assert bootstrap_kwargs["quantity"] == Quantity(10)
     assert bootstrap_kwargs["strategy"] is prepared.strategy
 
@@ -655,6 +668,98 @@ def test_operator_loop_logs_material_step_and_feed_state_once(
     assert "strategy_decision" in events
     assert runtime.poll_calls == 1
     assert len(runtime.time_calls) == 1
+    assert runtime.call_order == ["poll", "time"]
+
+
+def test_session_bounded_feed_accepts_1530_and_rejects_later_event() -> None:
+    boundary = datetime(2026, 10, 5, 15, 30, tzinfo=IST)
+    accepted = SimpleNamespace(exchange_timestamp=boundary)
+    rejected = SimpleNamespace(
+        exchange_timestamp=datetime(2026, 10, 5, 15, 30, 0, 1, tzinfo=IST)
+    )
+    delegate = _FakeLiveFeed([accepted, rejected])
+    feed = _SessionBoundedLiveFeed(
+        delegate,  # type: ignore[arg-type]
+        session_open_at=datetime(2026, 10, 5, 9, 15, tzinfo=IST),
+        session_boundary_at=boundary,
+    )
+
+    assert feed.receive_once() is accepted
+    assert not feed.session_complete
+    assert feed.receive_once() is None
+    assert feed.session_complete
+
+
+def test_operator_loop_drains_boundary_event_then_stops_on_post_session_event(
+    tmp_path: Path,
+) -> None:
+    at = datetime(2026, 10, 5, 15, 30, tzinfo=IST)
+    accepted = SimpleNamespace(exchange_timestamp=at)
+    rejected = SimpleNamespace(
+        exchange_timestamp=datetime(2026, 10, 5, 15, 30, 1, tzinfo=IST)
+    )
+    delegate = _FakeLiveFeed([accepted, rejected])
+    bounded = _SessionBoundedLiveFeed(
+        delegate,  # type: ignore[arg-type]
+        session_open_at=datetime(2026, 10, 5, 9, 15, tzinfo=IST),
+        session_boundary_at=at,
+    )
+
+    class BoundaryRuntime(_FakeOperatorRuntime):
+        def poll_once(self) -> object:
+            self.call_order.append("poll")
+            self.poll_calls += 1
+            event = bounded.receive_once()
+            return SimpleNamespace(
+                market_event=event,
+                feed_state=MarketDataFeedState.HEALTHY,
+                completed_candle=None,
+                evaluation=None,
+            )
+
+    runtime = BoundaryRuntime()
+    runtime.feed = bounded
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-boundary-drain"),
+    )
+    runner._runtime = runtime  # type: ignore[assignment]
+    runner._session_feed = bounded
+
+    runner._operator_loop()
+
+    assert runtime.poll_calls == 2
+    assert runtime.time_calls == [at, at]
+    assert runtime.call_order == ["poll", "time", "poll", "time"]
+    assert bounded.session_complete
+
+
+def test_shutdown_requested_after_prepare_prevents_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    prepared = _prepared(at)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-cancel-before-activate"),
+    )
+
+    def prepare() -> LivePaperPrepared:
+        runner.request_shutdown()
+        return prepared
+
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "prepare", prepare)
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.OK
+    assert activated == []
 
 
 def test_operator_loop_stops_on_reconciliation_required(
@@ -729,6 +834,7 @@ def test_shutdown_closes_feed_disposes_engine_and_reports_final_state(
     record = json.loads(stream.getvalue().splitlines()[-1])
     assert record["event"] == "shutdown"
     assert record["continuity"] == LiveRuntimeContinuity.CONTINUOUS.value
+    assert record["feed_state"] == MarketDataFeedState.HEALTHY.value
 
 
 def test_shutdown_close_failure_is_redacted_and_does_not_skip_dispose(

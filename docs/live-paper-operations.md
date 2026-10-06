@@ -79,13 +79,17 @@ A fresh command started after the 09:15 IST activation boundary fails closed rat
 
 During the active session the runner:
 
-- advances accepted time-based ARMED lifecycle boundaries;
-- polls the SF-057 live runtime synchronously;
+- polls the SF-057 live runtime synchronously before dispatching wall-clock ARMED progression, so an already-buffered quote retains its authoritative exchange chronology;
+- advances accepted time-based ARMED lifecycle boundaries without requiring a quote at the exact boundary;
 - emits material feed/candle/decision/lifecycle changes as JSON lines;
 - stops when ADR-009 requires reconciliation or the runtime becomes terminal.
 
 OPEN compulsory exit still requires the first qualifying observed market price at/after the accepted
 forced-exit boundary. Wall-clock time alone never fabricates an exit price.
+
+The accepted market-input window is inclusive through **15:30:00 IST**. When the wall clock reaches
+the session boundary, the runner drains immediately buffered events whose exchange timestamps are
+still within that window and rejects later provider events from runtime processing.
 
 ## Structured logs
 

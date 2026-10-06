@@ -74,15 +74,21 @@ A fresh command started after 09:15 IST fails closed rather than guessing that t
 The operator loop is synchronous:
 
 ```text
-dispatch accepted ARMED time progression
-→ poll LiveRuntime once
+poll LiveRuntime once
+→ dispatch accepted ARMED time progression
 → log material feed/candle/decision/lifecycle events
 → repeat while the session is active
 ```
 
-ARMED time expiry/cutoff is driven through the existing lifecycle policy and persisted atomically.
+Polling precedes wall-clock dispatch so an already-buffered quote keeps its authoritative exchange
+chronology rather than being invalidated by delivery latency. ARMED time expiry/cutoff is driven
+through the existing lifecycle policy and persisted atomically.
 Wall-clock progression does not fabricate an OPEN exit price. OPEN compulsory session exit still
 requires the first qualifying observed market price at/after the accepted exit boundary.
+
+The accepted regular-session market-input window remains inclusive through 15:30:00 IST. At the
+wall-clock boundary the runner drains immediately buffered events still stamped within that window;
+events stamped later than 15:30:00 are not passed into LiveRuntime.
 
 A chronology-breaking feed gap causes `RECONCILIATION_REQUIRED` and stops same-run processing in
 accordance with ADR-009.

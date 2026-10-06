@@ -36,11 +36,12 @@ from signalforge.config.strategy_registry import (
 )
 from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
-from signalforge.domain.market import CompletedCandle
+from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.session import (
     NseSessionPhase,
+    nse_regular_session_boundary_at,
     nse_regular_session_open_at,
     nse_session_phase,
 )
@@ -129,6 +130,43 @@ class _RuntimeFactsProvider:
             continuity=self.runtime.indicator_engine.continuity,
             feed_state=None,
         )
+
+
+class _SessionBoundedLiveFeed:
+    """Filter normalized live events to the accepted inclusive NSE input window."""
+
+    def __init__(
+        self,
+        delegate: OpenAlgoMarketDataAdapter,
+        *,
+        session_open_at: datetime,
+        session_boundary_at: datetime,
+    ) -> None:
+        self.delegate = delegate
+        self.session_open_at = session_open_at
+        self.session_boundary_at = session_boundary_at
+        self.session_complete = False
+
+    @property
+    def state(self) -> MarketDataFeedState:
+        return self.delegate.state
+
+    def start(self) -> None:
+        self.delegate.start()
+
+    def receive_once(self) -> MarketEvent | None:
+        event = self.delegate.receive_once()
+        if event is None:
+            return None
+        if event.exchange_timestamp < self.session_open_at:
+            return None
+        if event.exchange_timestamp > self.session_boundary_at:
+            self.session_complete = True
+            return None
+        return event
+
+    def close(self) -> None:
+        self.delegate.close()
 
 
 def configure_json_logger(
@@ -223,6 +261,7 @@ class LivePaperRunner:
         self.logger = logger or configure_json_logger()
         self._shutdown_requested = False
         self._runtime: LiveRuntime | None = None
+        self._session_feed: _SessionBoundedLiveFeed | None = None
         self._last_feed_state: MarketDataFeedState | None = None
         self._logged_transition_ids: set[str] = set()
 
@@ -377,6 +416,8 @@ class LivePaperRunner:
                         "live-paper session became unsafe before activation"
                     )
 
+            if self._shutdown_requested:
+                return LivePaperExitCode.OK
             self._activate(prepared)
             if (
                 self._runtime is None
@@ -417,7 +458,7 @@ class LivePaperRunner:
 
     def _activate(self, prepared: LivePaperPrepared) -> None:
         facts = _RuntimeFactsProvider()
-        feed = OpenAlgoMarketDataAdapter(
+        adapter = OpenAlgoMarketDataAdapter(
             config=prepared.openalgo,
             market_data_config=prepared.market_data,
             instrument_id=prepared.instrument_id,
@@ -425,6 +466,12 @@ class LivePaperRunner:
             wall_clock=self.now,
             monotonic_clock=self.monotonic,
             sleep=self.sleep,
+        )
+        reference_at = prepared.reference.provenance.observed_at
+        feed = _SessionBoundedLiveFeed(
+            adapter,
+            session_open_at=nse_regular_session_open_at(reference_at),
+            session_boundary_at=nse_regular_session_boundary_at(reference_at),
         )
         runtime = LiveRuntime.bootstrap(
             feed=feed,
@@ -438,6 +485,7 @@ class LivePaperRunner:
             evaluation_context_factory=facts,
         )
         facts.runtime = runtime
+        self._session_feed = feed
         self._runtime = runtime
         _emit(
             self.logger,
@@ -454,10 +502,18 @@ class LivePaperRunner:
     def _operator_loop(self) -> None:
         assert self._runtime is not None
         while not self._shutdown_requested:
-            if nse_session_phase(self.now()) is not NseSessionPhase.ACTIVE:
+            phase = nse_session_phase(self.now())
+            if phase is NseSessionPhase.PRE_SESSION:
+                raise LiveRuntimeError(
+                    "Live runtime cannot process before the NSE regular session"
+                )
+            if phase is NseSessionPhase.POST_SESSION and self._session_feed is None:
                 return
-            self._runtime.process_time(self.now())
-            self._log_transitions()
+
+            # Poll before wall-clock dispatch so an already-buffered event keeps
+            # its authoritative exchange chronology. A quote observed before an
+            # ARMED boundary must not be invalidated merely because delivery was
+            # delayed until after the wall clock crossed that boundary.
             step = self._runtime.poll_once()
             self._log_feed_state(step.feed_state)
             if step.completed_candle is not None:
@@ -475,6 +531,8 @@ class LivePaperRunner:
                     actionable=step.evaluation.actionable,
                     reasons=tuple(str(reason) for reason in step.evaluation.reasons),
                 )
+
+            self._runtime.process_time(self.now())
             self._log_transitions()
             if self._runtime.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED:
                 raise LiveRuntimeReconciliationRequired(
@@ -482,6 +540,19 @@ class LivePaperRunner:
                 )
             if self._runtime.continuity is LiveRuntimeContinuity.TERMINAL:
                 raise LiveRuntimeError("Live runtime became terminal")
+
+            session_feed = self._session_feed
+            if session_feed is not None and session_feed.session_complete:
+                _emit(self.logger, "session_complete", reason="post_session_market_event")
+                return
+
+            # At/after 15:30, drain already-buffered events only while the feed
+            # continues to produce accepted <=15:30 exchange timestamps. A
+            # no-event poll proves there is nothing immediately available; the
+            # runner then stops without extending the accepted input window.
+            if phase is NseSessionPhase.POST_SESSION and step.market_event is None:
+                _emit(self.logger, "session_complete", reason="boundary_drain_complete")
+                return
 
     def _log_feed_state(self, state: MarketDataFeedState) -> None:
         if state is self._last_feed_state:
@@ -518,6 +589,7 @@ class LivePaperRunner:
     def _shutdown(self, prepared: LivePaperPrepared | None) -> None:
         runtime = self._runtime
         if runtime is not None:
+            final_feed_state = runtime.feed.state
             try:
                 runtime.feed.close()
             except Exception as exc:
@@ -527,7 +599,7 @@ class LivePaperRunner:
                 "shutdown",
                 lifecycle_state=runtime.lifecycle.state.value,
                 continuity=runtime.continuity.value,
-                feed_state=runtime.feed.state.value,
+                feed_state=final_feed_state.value,
             )
         elif prepared is not None:
             _emit(self.logger, "shutdown", lifecycle_state=None, continuity=None)
