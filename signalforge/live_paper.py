@@ -10,7 +10,7 @@ import sys
 import time as time_module
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
 from types import FrameType
@@ -23,6 +23,11 @@ from sqlalchemy.orm import Session
 
 from signalforge.adapters.openalgo.config import OpenAlgoConfig
 from signalforge.adapters.openalgo.health import OpenAlgoPreflightStatus, preflight
+from signalforge.adapters.openalgo.history import (
+    OpenAlgoHistoryAcquisitionError,
+    OpenAlgoHistoryValidationError,
+    fetch_openalgo_history,
+)
 from signalforge.adapters.openalgo.live_market_data import OpenAlgoMarketDataAdapter
 from signalforge.adapters.openalgo.market_data_config import OpenAlgoMarketDataConfig
 from signalforge.adapters.openalgo.reference import (
@@ -38,6 +43,10 @@ from signalforge.domain.decision_facts import StrategyDecisionFact
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Quantity
+from signalforge.domain.prepared_indicators import (
+    PreparedIndicatorCheckpoint,
+    indicator_requirements_hash,
+)
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.session import (
     NseSessionPhase,
@@ -46,6 +55,9 @@ from signalforge.domain.session import (
     nse_session_phase,
 )
 from signalforge.domain.time import to_ist
+from signalforge.domain.trading_calendar import NseEquityTradingCalendar
+from signalforge.persistence.errors import ContradictoryFactError
+from signalforge.persistence.repositories import PostgresPreparedIndicatorCheckpointRepository
 from signalforge.runtime.decision_audit import (
     project_rsi_mean_reversion_decision,
     project_v1_decision,
@@ -56,6 +68,13 @@ from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeError,
     LiveRuntimeReconciliationRequired,
+)
+from signalforge.runtime.prepared_indicators import (
+    PreparationOutcome,
+    PreparedStateError,
+    build_prepared_checkpoint,
+    previous_session_final_interval,
+    require_suitable_prepared_checkpoint,
 )
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.strategy import Strategy, StrategyDecision, StrategyRuntimeFacts
@@ -114,6 +133,7 @@ class LivePaperPrepared:
     openalgo: OpenAlgoConfig
     market_data: OpenAlgoMarketDataConfig
     engine: Engine
+    prepared_checkpoint: PreparedIndicatorCheckpoint
 
 
 @dataclass(slots=True)
@@ -363,6 +383,48 @@ class LivePaperRunner:
                 "Recovered live-paper run requires reconciliation before activation"
             )
 
+        calendar = NseEquityTradingCalendar()
+        expected_boundary = previous_session_final_interval(
+            trading_date,
+            calendar=calendar,
+        )
+        try:
+            with session_factory() as session:
+                checkpoint = PostgresPreparedIndicatorCheckpointRepository(
+                    session
+                ).find_for_boundary(
+                    instrument_id=instrument_id,
+                    requirements_hash=indicator_requirements_hash(
+                        strategy.indicator_requirements
+                    ),
+                    calculation_version=config.engine_calculation_version,
+                    interval=expected_boundary,
+                )
+            checkpoint = require_suitable_prepared_checkpoint(
+                checkpoint,
+                target_trading_date=trading_date,
+                instrument_id=instrument_id,
+                requirements=strategy.indicator_requirements,
+                calculation_version=config.engine_calculation_version,
+                calendar=calendar,
+            )
+        except PreparedStateError as exc:
+            _emit(
+                self.logger,
+                "prepared_state_failure",
+                code=exc.code.value,
+                detail=self._safe_detail(exc),
+            )
+            engine.dispose()
+            raise
+
+        _emit(
+            self.logger,
+            "prepared_state_ready",
+            checkpoint_id=str(checkpoint.checkpoint_id),
+            completed_candle_count=checkpoint.state.completed_candle_count,
+            boundary_end=checkpoint.final_accepted_interval.end.isoformat(),
+        )
         _emit(
             self.logger,
             "reference_ready",
@@ -379,6 +441,7 @@ class LivePaperRunner:
             openalgo=openalgo,
             market_data=market_data,
             engine=engine,
+            prepared_checkpoint=checkpoint,
         )
 
     def run(self) -> LivePaperExitCode:
@@ -483,6 +546,7 @@ class LivePaperRunner:
             session_factory=lambda: Session(prepared.engine),
             decision_projector=_decision_projector(prepared.strategy),
             evaluation_context_factory=facts,
+            initial_prepared_checkpoint=prepared.prepared_checkpoint,
         )
         facts.runtime = runtime
         self._session_feed = feed
@@ -497,6 +561,7 @@ class LivePaperRunner:
             strategy_version=prepared.strategy.identity.strategy_version,
             config_id=str(prepared.strategy.config_identity.config_id),
             continuity=runtime.continuity.value,
+            prepared_checkpoint_id=str(prepared.prepared_checkpoint.checkpoint_id),
         )
 
     def _operator_loop(self) -> None:
@@ -645,3 +710,200 @@ def live_paper_command(config_path: Path) -> int:
         return int(runner.run())
     finally:
         restore_shutdown_handlers(prior)
+
+
+def prepare_session_command(config_path: Path) -> int:
+    """Create or verify immutable pre-session indicator readiness for M8."""
+
+    env = os.environ
+    engine: Engine | None = None
+    try:
+        config = _read_config(config_path)
+        strategy = DEFAULT_STRATEGY_REGISTRY.resolve(
+            normalize_strategy_selection(config.strategy)
+        )
+        if (
+            strategy.identity.strategy_id != "intraday_momentum_v1"
+            or strategy.identity.strategy_version != "1.0.0"
+        ):
+            raise ValueError(
+                "M8 prepare-session supports only intraday_momentum_v1 / 1.0.0"
+            )
+        instrument_id = InstrumentId(config.instrument_id)
+        openalgo = OpenAlgoConfig.from_environment(env)
+        database_url = env.get("DATABASE_URL", "").strip()
+        if not database_url:
+            raise ValueError("DATABASE_URL must be configured")
+        engine = sa.create_engine(database_url)
+        with engine.connect() as connection:
+            connection.execute(sa.text("SELECT 1"))
+
+        result = preflight(openalgo)
+        if result.status is not OpenAlgoPreflightStatus.READY:
+            raise RuntimeError(
+                f"OpenAlgo preflight is not READY: {result.status.value}"
+            )
+
+        observed_at = datetime.now(UTC)
+        target_trading_date = to_ist(observed_at).date()
+        calendar = NseEquityTradingCalendar()
+        if not calendar.is_trading_day(target_trading_date):
+            raise ValueError(
+                "prepare-session target date is not an NSE equities trading session"
+            )
+        reference = resolve_nse_equity_reference(
+            config=openalgo,
+            instrument_id=instrument_id,
+            trading_date=target_trading_date,
+            observed_at=observed_at,
+        )
+        expected_boundary = previous_session_final_interval(
+            target_trading_date,
+            calendar=calendar,
+        )
+        requirements_hash = indicator_requirements_hash(
+            strategy.indicator_requirements
+        )
+
+        with Session(engine) as session:
+            existing = PostgresPreparedIndicatorCheckpointRepository(
+                session
+            ).find_for_boundary(
+                instrument_id=instrument_id,
+                requirements_hash=requirements_hash,
+                calculation_version=config.engine_calculation_version,
+                interval=expected_boundary,
+            )
+        if existing is not None:
+            checkpoint = require_suitable_prepared_checkpoint(
+                existing,
+                target_trading_date=target_trading_date,
+                instrument_id=instrument_id,
+                requirements=strategy.indicator_requirements,
+                calculation_version=config.engine_calculation_version,
+                calendar=calendar,
+            )
+            print(
+                json.dumps(
+                    {
+                        "outcome": PreparationOutcome.READY_EXISTING.value,
+                        "checkpoint_id": str(checkpoint.checkpoint_id),
+                        "instrument_id": str(checkpoint.instrument_id),
+                        "target_trading_date": target_trading_date.isoformat(),
+                        "completed_candle_count": checkpoint.state.completed_candle_count,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+            return 0
+
+        requested_to = expected_boundary.start.date()
+        requested_from = requested_to - timedelta(days=14)
+        candles = fetch_openalgo_history(
+            config=openalgo,
+            instrument_id=reference.instrument_id,
+            start_date=requested_from,
+            end_date=requested_to,
+        )
+        try:
+            checkpoint = build_prepared_checkpoint(
+                instrument_id=instrument_id,
+                requirements=strategy.indicator_requirements,
+                calculation_version=config.engine_calculation_version,
+                target_trading_date=target_trading_date,
+                requested_from=requested_from,
+                requested_to=requested_to,
+                candles=candles,
+                prepared_at=observed_at,
+                calendar=calendar,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            if "fewer than 250" in detail:
+                outcome = "FAILED_INSUFFICIENT_HISTORY"
+            elif "continuity" in detail:
+                outcome = "FAILED_INDICATOR_CONTINUITY"
+            else:
+                outcome = "FAILED_HISTORY_VALIDATION"
+            print(
+                json.dumps(
+                    {"outcome": outcome, "detail": detail},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                file=sys.stderr,
+            )
+            return 2
+
+        try:
+            with Session(engine) as session:
+                with session.begin():
+                    persisted = PostgresPreparedIndicatorCheckpointRepository(
+                        session
+                    ).add(checkpoint)
+            with Session(engine) as session:
+                verified = PostgresPreparedIndicatorCheckpointRepository(session).get(
+                    checkpoint.checkpoint_id
+                )
+            if verified != persisted or verified != checkpoint:
+                raise RuntimeError("persisted prepared checkpoint failed read-back verification")
+        except ContradictoryFactError as exc:
+            print(
+                json.dumps(
+                    {"outcome": "FAILED_CONTRADICTION", "detail": str(exc)},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                file=sys.stderr,
+            )
+            return 2
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {"outcome": "FAILED_PERSISTENCE", "detail": str(exc)},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                file=sys.stderr,
+            )
+            return 2
+
+        print(
+            json.dumps(
+                {
+                    "outcome": PreparationOutcome.PREPARED_NEW.value,
+                    "checkpoint_id": str(checkpoint.checkpoint_id),
+                    "instrument_id": str(checkpoint.instrument_id),
+                    "target_trading_date": target_trading_date.isoformat(),
+                    "completed_candle_count": checkpoint.state.completed_candle_count,
+                    "historical_digest": checkpoint.candle_sequence_digest,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    except OpenAlgoHistoryAcquisitionError as exc:
+        print(
+            json.dumps(
+                {"outcome": "FAILED_HISTORY_ACQUISITION", "detail": str(exc)},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    except OpenAlgoHistoryValidationError as exc:
+        print(
+            json.dumps(
+                {"outcome": "FAILED_HISTORY_VALIDATION", "detail": str(exc)},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    finally:
+        if engine is not None:
+            engine.dispose()
