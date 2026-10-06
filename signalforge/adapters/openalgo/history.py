@@ -25,7 +25,15 @@ class OpenAlgoHistoryError(RuntimeError):
     """Historical-data acquisition or validation failed."""
 
 
-class OpenAlgoHistoryContinuityUnproven(OpenAlgoHistoryError):
+class OpenAlgoHistoryAcquisitionError(OpenAlgoHistoryError):
+    """Historical provider request could not be completed successfully."""
+
+
+class OpenAlgoHistoryValidationError(OpenAlgoHistoryError):
+    """Historical provider response cannot be trusted as canonical completed bars."""
+
+
+class OpenAlgoHistoryContinuityUnproven(OpenAlgoHistoryValidationError):
     """Provider rows cannot prove a complete regular-session candle sequence."""
 
 
@@ -42,6 +50,18 @@ class HistoricalCompletedCandle:
     close: Price
     volume: int
     source: str
+
+    def __post_init__(self) -> None:
+        if self.quality is not CandleQuality.VALID:
+            raise ValueError("historical completed candle must be VALID")
+        if self.high.value < max(self.open.value, self.close.value, self.low.value):
+            raise ValueError("historical candle high violates OHLC invariants")
+        if self.low.value > min(self.open.value, self.close.value, self.high.value):
+            raise ValueError("historical candle low violates OHLC invariants")
+        if self.volume < 0:
+            raise ValueError("historical candle volume must not be negative")
+        if not self.source.strip():
+            raise ValueError("historical candle source must not be empty")
 
 
 def fetch_openalgo_history(
@@ -77,13 +97,17 @@ def fetch_openalgo_history(
             request_timeout_seconds=config.request_timeout_seconds,
         )
     except OpenAlgoTransportUnavailable:
-        raise OpenAlgoHistoryError("OpenAlgo historical-data request was unreachable") from None
+        raise OpenAlgoHistoryAcquisitionError(
+            "OpenAlgo historical-data request was unreachable"
+        ) from None
     payload = _decode(response)
     if response.status_code != 200 or payload.get("status") != "success":
-        raise OpenAlgoHistoryError("OpenAlgo historical-data request did not succeed")
+        raise OpenAlgoHistoryAcquisitionError(
+            "OpenAlgo historical-data request did not succeed"
+        )
     data = payload.get("data")
     if not isinstance(data, list):
-        raise OpenAlgoHistoryError("OpenAlgo history omitted an array data payload")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history omitted an array data payload")
 
     candles = tuple(_parse_row(item, instrument_id) for item in data)
     previous: HistoricalCompletedCandle | None = None
@@ -98,45 +122,45 @@ def fetch_openalgo_history(
 
 def _decode(response: OpenAlgoHttpResponse) -> dict[str, Any]:
     if response.content_type is not None and "application/json" not in response.content_type.lower():
-        raise OpenAlgoHistoryError("OpenAlgo history returned a non-JSON content type")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history returned a non-JSON content type")
     try:
         payload = json.loads(response.body.decode("utf-8"), parse_float=Decimal)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise OpenAlgoHistoryError("OpenAlgo history returned malformed JSON") from None
+        raise OpenAlgoHistoryValidationError("OpenAlgo history returned malformed JSON") from None
     if not isinstance(payload, dict):
-        raise OpenAlgoHistoryError("OpenAlgo history returned non-object JSON")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history returned non-object JSON")
     return payload
 
 
 def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedCandle:
     if not isinstance(raw, dict):
-        raise OpenAlgoHistoryError("OpenAlgo history contains a malformed row")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history contains a malformed row")
     timestamp = raw.get("timestamp")
     if isinstance(timestamp, bool):
-        raise OpenAlgoHistoryError("OpenAlgo history timestamp must be Unix epoch seconds")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp must be Unix epoch seconds")
     if isinstance(timestamp, Decimal):
         if timestamp != timestamp.to_integral_value():
-            raise OpenAlgoHistoryError("OpenAlgo history timestamp must be integral")
+            raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp must be integral")
         epoch = int(timestamp)
     elif isinstance(timestamp, int):
         epoch = timestamp
     else:
-        raise OpenAlgoHistoryError("OpenAlgo history timestamp must be Unix epoch seconds")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp must be Unix epoch seconds")
     start = datetime.fromtimestamp(epoch, tz=UTC).astimezone(IST)
     if start.second or start.microsecond or start.minute % 5:
-        raise OpenAlgoHistoryError("OpenAlgo history timestamp is not 5-minute aligned")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history timestamp is not 5-minute aligned")
     end = start + timedelta(minutes=5)
     local_time = start.timetz().replace(tzinfo=None)
     if local_time.hour < 9 or (local_time.hour == 9 and local_time.minute < 15):
-        raise OpenAlgoHistoryError("OpenAlgo history contains a pre-market row")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history contains a pre-market row")
     if start.hour > 15 or (start.hour == 15 and start.minute > 25):
-        raise OpenAlgoHistoryError("OpenAlgo history contains a post-market row")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history contains a post-market row")
     if end.hour > 15 or (end.hour == 15 and end.minute > 30):
-        raise OpenAlgoHistoryError("OpenAlgo history interval exceeds regular-session boundary")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history interval exceeds regular-session boundary")
 
     volume = raw.get("volume")
     if isinstance(volume, bool) or not isinstance(volume, int) or volume < 0:
-        raise OpenAlgoHistoryError("OpenAlgo history volume must be a non-negative integer")
+        raise OpenAlgoHistoryValidationError("OpenAlgo history volume must be a non-negative integer")
 
     return HistoricalCompletedCandle(
         instrument_id=instrument_id,
@@ -153,12 +177,14 @@ def _parse_row(raw: object, instrument_id: InstrumentId) -> HistoricalCompletedC
 
 def _price(value: object, field: str) -> Price:
     if isinstance(value, bool) or value is None or isinstance(value, float):
-        raise OpenAlgoHistoryError(f"OpenAlgo history {field} must be exact decimal-compatible")
+        raise OpenAlgoHistoryValidationError(
+            f"OpenAlgo history {field} must be exact decimal-compatible"
+        )
     try:
         decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, ValueError):
-        raise OpenAlgoHistoryError(f"OpenAlgo history {field} is invalid") from None
+        raise OpenAlgoHistoryValidationError(f"OpenAlgo history {field} is invalid") from None
     try:
         return Price(decimal_value)
     except (TypeError, ValueError) as exc:
-        raise OpenAlgoHistoryError(f"OpenAlgo history {field} is invalid") from exc
+        raise OpenAlgoHistoryValidationError(f"OpenAlgo history {field} is invalid") from exc
