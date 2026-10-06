@@ -111,7 +111,6 @@ def require_suitable_prepared_checkpoint(
         checkpoint.target_trading_date != target_trading_date
         or checkpoint.requested_to != expected.start.date()
         or checkpoint.first_accepted_interval.start >= checkpoint.final_accepted_interval.end
-        or checkpoint.accepted_candle_count != checkpoint.state.completed_candle_count
     ):
         raise PreparedStateError(
             PreparedStateFailureCode.PREPARED_STATE_PROVENANCE_INVALID,
