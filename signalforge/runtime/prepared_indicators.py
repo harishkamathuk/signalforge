@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from hashlib import sha256
-from typing import Iterable
 
 from signalforge.adapters.openalgo.history import HistoricalCompletedCandle
 from signalforge.domain.ids import InstrumentId
@@ -16,7 +16,7 @@ from signalforge.domain.prepared_indicators import (
     PreparedIndicatorCheckpoint,
     prepared_checkpoint_id,
 )
-from signalforge.domain.time import CandleInterval, IST, require_aware
+from signalforge.domain.time import IST, CandleInterval, require_aware
 from signalforge.domain.trading_calendar import NseEquityTradingCalendar
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 
