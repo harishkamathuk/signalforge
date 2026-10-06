@@ -142,6 +142,10 @@ def build_prepared_checkpoint(
     accepted = tuple(candles)
     if not accepted:
         raise ValueError("historical preparation returned no accepted candles")
+    if accepted[0].interval.start.astimezone(IST).date() < requested_from:
+        raise ValueError("historical provider returned data before the requested range")
+    if accepted[-1].interval.start.astimezone(IST).date() > requested_to:
+        raise ValueError("historical provider returned data after the requested range")
     if requested_to != expected_final.start.date():
         raise ValueError("historical request must end on the immediately preceding trading session")
     _validate_candle_sequence(
