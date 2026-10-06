@@ -634,6 +634,8 @@ class LivePaperRunner:
         except LiveRuntimeReconciliationRequired as exc:
             _emit(self.logger, "reconciliation_required", detail=self._safe_detail(exc))
             return LivePaperExitCode.RECONCILIATION_REQUIRED
+        except LivePaperEvidenceError:
+            raise
         except LiveRuntimeError as exc:
             _emit(self.logger, "runtime_failure", detail=self._safe_detail(exc))
             return LivePaperExitCode.RUNTIME_FAILED
