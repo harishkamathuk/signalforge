@@ -46,6 +46,8 @@ The JSON config contains no secrets:
   "instrument_id": "NSE:RELIANCE",
   "quantity": 10,
   "engine_calculation_version": "engine-v1",
+  "evidence_path": "/home/operator/signalforge-m9/evidence/validation-2026-10-07.jsonl",
+  "evidence_max_bytes": 50000000,
   "strategy": {
     "id": "intraday_momentum_v1",
     "version": "1.0.0",
@@ -122,6 +124,32 @@ shutdown
 API keys, database URLs, broker credentials, raw environment dumps and raw provider payloads are not
 intended to be logged. Known credential-bearing environment values are redacted from surfaced error
 details.
+
+
+## M9 validation evidence
+
+When `evidence_path` is configured, `live-paper` creates a separate bounded JSONL evidence file.
+It is diagnostic/audit evidence only and is never used as provider identity, replay sequencing,
+restart state, or ADR-009 reconciliation input.
+
+The evidence stream records:
+
+- safe observed OpenAlgo Quote facts needed to validate provider timestamp and cumulative-volume
+  handling, including connection generation and baseline/unchanged/emitted-delta disposition;
+- canonical completed-candle interval, OHLCV, quality, source, and source-event count;
+- the canonical per-candle `IndicatorSnapshot`, including calculation version and requirement
+  readings/readiness;
+- the strategy decision projected through the same `StrategyDecisionFact` audit projection used
+  for durable persistence.
+
+The evidence file is created exclusively: an existing path fails closed rather than appending a
+second run. `evidence_max_bytes` bounds local retention. Exceeding the bound or losing the evidence
+file is surfaced as `evidence_failure`; before activation this is a startup failure, and after
+activation it is a runtime failure. A session with evidence failure is not M9-qualifying.
+
+The evidence contains no API key, database URL, broker credential, raw environment dump, or
+credential-bearing raw provider payload. It deliberately does not invent `source_event_id` or a
+provider sequence.
 
 ## Shutdown
 
