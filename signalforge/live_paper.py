@@ -385,6 +385,11 @@ class LivePaperRunner:
             )
 
         calendar = NseEquityTradingCalendar()
+        if not calendar.is_trading_day(trading_date):
+            engine.dispose()
+            raise RuntimeError(
+                "live-paper target date is not an NSE equities trading session"
+            )
         expected_boundary = previous_session_final_interval(
             trading_date,
             calendar=calendar,
