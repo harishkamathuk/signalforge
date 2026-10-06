@@ -18,7 +18,7 @@ from signalforge.adapters.openalgo.transport import (
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
-from signalforge.domain.time import CandleInterval, IST
+from signalforge.domain.time import IST, CandleInterval
 
 
 class OpenAlgoHistoryError(RuntimeError):
