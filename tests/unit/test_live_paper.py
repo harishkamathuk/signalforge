@@ -671,6 +671,41 @@ def test_operator_loop_logs_material_step_and_feed_state_once(
     assert runtime.call_order == ["poll", "time"]
 
 
+def test_shutdown_requested_during_poll_skips_new_time_dispatch(
+    tmp_path: Path,
+) -> None:
+    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    step = SimpleNamespace(
+        market_event=SimpleNamespace(exchange_timestamp=at),
+        feed_state=MarketDataFeedState.HEALTHY,
+        completed_candle=None,
+        evaluation=None,
+    )
+    runtime = _FakeOperatorRuntime(steps=[step])
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf058-stop-after-poll"),
+    )
+    runner._runtime = runtime  # type: ignore[assignment]
+
+    original_poll = runtime.poll_once
+
+    def poll_and_stop() -> object:
+        result = original_poll()
+        runner.request_shutdown()
+        return result
+
+    runtime.poll_once = poll_and_stop  # type: ignore[method-assign]
+
+    runner._operator_loop()
+
+    assert runtime.poll_calls == 1
+    assert runtime.time_calls == []
+    assert runtime.call_order == ["poll"]
+
+
 def test_session_bounded_feed_accepts_1530_and_rejects_later_event() -> None:
     boundary = datetime(2026, 10, 5, 15, 30, tzinfo=IST)
     accepted = SimpleNamespace(exchange_timestamp=boundary)

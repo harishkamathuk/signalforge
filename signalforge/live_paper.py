@@ -532,6 +532,14 @@ class LivePaperRunner:
                     reasons=tuple(str(reason) for reason in step.evaluation.reasons),
                 )
 
+            # A signal may arrive while receive_once/process_event is in flight.
+            # That synchronous market-input unit is allowed to finish, but once
+            # shutdown has been requested the runner must not initiate a new
+            # wall-clock lifecycle transition.
+            if self._shutdown_requested:
+                self._log_transitions()
+                return
+
             self._runtime.process_time(self.now())
             self._log_transitions()
             if self._runtime.continuity is LiveRuntimeContinuity.RECONCILIATION_REQUIRED:
