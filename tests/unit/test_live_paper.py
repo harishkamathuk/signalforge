@@ -1322,6 +1322,7 @@ def test_step_evidence_records_candle_indicator_and_projected_decision(
 
     runner._record_step_evidence(
         SimpleNamespace(
+            market_event=None,
             completed_candle=candle,
             indicator_snapshot=snapshot,
             evaluation=evaluation,
@@ -1418,3 +1419,96 @@ def test_evidence_failure_after_activation_returns_runtime_failure(
     assert runner.run() is LivePaperExitCode.RUNTIME_FAILED
     records = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert records[-1]["event"] == "evidence_failure"
+
+
+def test_validation_evidence_sink_detects_deleted_path(tmp_path: Path) -> None:
+    path = tmp_path / "m9-evidence.jsonl"
+    sink = _JsonlEvidenceSink(path, max_bytes=100_000)
+    sink.write("first", value=1)
+    path.unlink()
+
+    with pytest.raises(LivePaperEvidenceError, match="no longer accessible"):
+        sink.write("second", value=2)
+
+
+def test_validation_evidence_sink_wraps_directory_open_failure(tmp_path: Path) -> None:
+    parent_file = tmp_path / "not-a-directory"
+    parent_file.write_text("occupied", encoding="utf-8")
+
+    with pytest.raises(LivePaperEvidenceError, match="could not be opened"):
+        _JsonlEvidenceSink(parent_file / "evidence.jsonl", max_bytes=100_000)
+
+
+def test_step_evidence_distinguishes_runtime_accepted_market_event(
+    tmp_path: Path,
+) -> None:
+    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    prepared = _prepared(at)
+    path = tmp_path / "m9-evidence.jsonl"
+    sink = _JsonlEvidenceSink(path, max_bytes=100_000)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        logger=configure_json_logger(stream=io.StringIO(), name="sf074-accepted-event"),
+    )
+    runner._evidence_sink = sink
+    runner._runtime = SimpleNamespace(
+        run=prepared.run,
+        instrument_id=prepared.instrument_id,
+        strategy=prepared.strategy,
+    )  # type: ignore[assignment]
+    event = SimpleNamespace(
+        exchange_timestamp=at,
+        received_timestamp=at + timedelta(milliseconds=20),
+        price=Price(Decimal("101.25")),
+        quantity=7,
+        source="openalgo:quote",
+        source_event_id=None,
+    )
+
+    runner._record_step_evidence(
+        SimpleNamespace(
+            market_event=event,
+            completed_candle=None,
+            indicator_snapshot=None,
+            evaluation=None,
+        )
+    )
+    sink.close()
+
+    record = json.loads(path.read_text(encoding="utf-8").strip())
+    assert record["event"] == "accepted_market_event"
+    assert record["price"] == "101.25"
+    assert record["quantity"] == 7
+    assert record["source_event_id"] is None
+
+
+def test_final_evidence_close_failure_changes_clean_run_to_runtime_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    prepared = _prepared(at)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=io.StringIO(), name="sf074-close-fail"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+
+    runtime = _FakeOperatorRuntime()
+
+    class FailingEvidence:
+        def close(self) -> None:
+            raise LivePaperEvidenceError("final evidence flush failed")
+
+    def activate(_prepared: LivePaperPrepared) -> None:
+        runner._runtime = runtime  # type: ignore[assignment]
+        runner._evidence_sink = FailingEvidence()  # type: ignore[assignment]
+
+    monkeypatch.setattr(runner, "_activate", activate)
+    monkeypatch.setattr(runner, "_operator_loop", lambda: None)
+
+    assert runner.run() is LivePaperExitCode.RUNTIME_FAILED
+    assert runtime.feed.closed
