@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,10 +24,15 @@ from signalforge.adapters.openalgo.reference import (
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.instruments import Instrument, TickSizeRule, TickSizeSchedule
+from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.prepared_indicators import (
+    PreparedIndicatorCheckpoint,
+    prepared_checkpoint_id,
+)
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.session import NseSessionPhase, nse_session_phase
-from signalforge.domain.time import IST
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.live_paper import (
     LivePaperExitCode,
     LivePaperPrepared,
@@ -39,6 +44,8 @@ from signalforge.live_paper import (
     restore_shutdown_handlers,
 )
 from signalforge.runtime.eligibility import MarketDataFeedState
+from signalforge.runtime.indicators import IndicatorEngine
+from signalforge.runtime.prepared_indicators import previous_session_final_interval
 from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeError,
@@ -134,6 +141,63 @@ def _reference(at: datetime) -> ResolvedOpenAlgoInstrument:
     )
 
 
+def _prepared_checkpoint(
+    at: datetime,
+    strategy: IntradayMomentumV1Strategy,
+) -> PreparedIndicatorCheckpoint:
+    instrument_id = InstrumentId("NSE:RELIANCE")
+    boundary = previous_session_final_interval(at.date())
+    indicator = IndicatorEngine(
+        instrument_id,
+        "engine-v1",
+        requirements=strategy.indicator_requirements,
+    )
+    first_interval: CandleInterval | None = None
+    start = boundary.start - timedelta(minutes=5 * 249)
+    for offset in range(250):
+        interval = CandleInterval(
+            start + timedelta(minutes=5 * offset),
+            start + timedelta(minutes=5 * (offset + 1)),
+        )
+        first_interval = first_interval or interval
+        close = Decimal("100") + Decimal(offset) / Decimal("100")
+        indicator.update(
+            CompletedCandle(
+                instrument_id=instrument_id,
+                interval=interval,
+                quality=CandleQuality.VALID,
+                open=Price(close),
+                high=Price(close + Decimal("1")),
+                low=Price(close - Decimal("1")),
+                close=Price(close),
+                volume=100,
+                source="sf073-test",
+                source_event_count=1,
+            )
+        )
+    assert first_interval is not None
+    state = indicator.state
+    return PreparedIndicatorCheckpoint(
+        checkpoint_id=prepared_checkpoint_id(
+            instrument_id=instrument_id,
+            requirements=strategy.indicator_requirements,
+            calculation_version="engine-v1",
+            boundary=boundary,
+        ),
+        state=state,
+        exchange="NSE",
+        target_trading_date=at.date(),
+        historical_source="openalgo:/api/v1/history",
+        requested_from=first_interval.start.date(),
+        requested_to=boundary.start.date(),
+        first_accepted_interval=first_interval,
+        final_accepted_interval=boundary,
+        accepted_candle_count=250,
+        candle_sequence_digest="a" * 64,
+        prepared_at=at,
+    )
+
+
 def _prepared(at: datetime, engine: FakeEngine | None = None) -> LivePaperPrepared:
     strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
     identity = strategy.config_identity
@@ -161,6 +225,7 @@ def _prepared(at: datetime, engine: FakeEngine | None = None) -> LivePaperPrepar
         ),
         market_data=OpenAlgoMarketDataConfig(ws_url="ws://127.0.0.1:8765"),
         engine=engine or FakeEngine(),  # type: ignore[arg-type]
+        prepared_checkpoint=_prepared_checkpoint(at, strategy),
     )
 
 
@@ -187,6 +252,12 @@ def _patch_prepare_dependencies(
     monkeypatch.setattr(
         "signalforge.live_paper.RecoveryBootstrap.inspect",
         lambda self, **_kwargs: SimpleNamespace(disposition=disposition),
+    )
+    prepared_strategy = IntradayMomentumV1Strategy(StrategyV1EvaluationConfig())
+    checkpoint = _prepared_checkpoint(at, prepared_strategy)
+    monkeypatch.setattr(
+        "signalforge.live_paper.PostgresPreparedIndicatorCheckpointRepository.find_for_boundary",
+        lambda self, **_kwargs: checkpoint,
     )
     return engine
 
@@ -215,6 +286,36 @@ def test_prepare_validates_dependencies_without_constructing_websocket(
     assert opened == []
     assert not engine.disposed
     prepared.engine.dispose()
+
+
+
+
+def test_missing_prepared_state_fails_before_live_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 0, tzinfo=IST)
+    engine = _patch_prepare_dependencies(monkeypatch, at=at)
+    monkeypatch.setattr(
+        "signalforge.live_paper.PostgresPreparedIndicatorCheckpointRepository.find_for_boundary",
+        lambda self, **_kwargs: None,
+    )
+    stream = io.StringIO()
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=stream, name="sf073-missing-prepared"),
+    )
+    activated: list[bool] = []
+    monkeypatch.setattr(runner, "_activate", lambda _prepared: activated.append(True))
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    assert activated == []
+    assert engine.disposed
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    failures = [item for item in records if item["event"] == "prepared_state_failure"]
+    assert failures[-1]["code"] == "PREPARED_STATE_MISSING"
 
 
 def test_non_ready_preflight_prevents_reference_and_activation(
