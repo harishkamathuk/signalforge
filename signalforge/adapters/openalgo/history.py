@@ -113,7 +113,7 @@ def fetch_openalgo_history(
     previous: HistoricalCompletedCandle | None = None
     for candle in candles:
         if previous is not None and candle.interval.start < previous.interval.end:
-            raise OpenAlgoHistoryError(
+            raise OpenAlgoHistoryValidationError(
                 "OpenAlgo history contains duplicate, overlapping, or out-of-order intervals"
             )
         previous = candle
