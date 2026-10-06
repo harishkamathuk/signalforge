@@ -24,6 +24,16 @@ MINIMUM_STRATEGY_V1_COMPLETED_CANDLES = 250
 NSE_FIVE_MINUTE_BARS_PER_REGULAR_SESSION = 75
 
 
+def required_strategy_v1_warmup(configured_minimum: int) -> int:
+    """Return configured Strategy V1 warm-up while preserving the canonical 250 floor."""
+
+    if isinstance(configured_minimum, bool) or not isinstance(configured_minimum, int):
+        raise TypeError("configured Strategy V1 warm-up must be an integer")
+    if configured_minimum < 0:
+        raise ValueError("configured Strategy V1 warm-up must not be negative")
+    return max(MINIMUM_STRATEGY_V1_COMPLETED_CANDLES, configured_minimum)
+
+
 class PreparedStateFailureCode(StrEnum):
     PREPARED_STATE_MISSING = "PREPARED_STATE_MISSING"
     PREPARED_STATE_STALE_SESSION = "PREPARED_STATE_STALE_SESSION"
@@ -72,6 +82,7 @@ def require_suitable_prepared_checkpoint(
     instrument_id: InstrumentId,
     requirements: IndicatorRequirements,
     calculation_version: str,
+    minimum_warmup_candles: int = MINIMUM_STRATEGY_V1_COMPLETED_CANDLES,
     calendar: NseEquityTradingCalendar | None = None,
 ) -> PreparedIndicatorCheckpoint:
     """Return a suitable checkpoint or raise one explicit readiness classification."""
@@ -96,10 +107,12 @@ def require_suitable_prepared_checkpoint(
             PreparedStateFailureCode.PREPARED_STATE_CONTINUITY_BROKEN,
             "prepared indicator checkpoint continuity is not HEALTHY",
         )
-    if checkpoint.state.completed_candle_count < MINIMUM_STRATEGY_V1_COMPLETED_CANDLES:
+    required_warmup = required_strategy_v1_warmup(minimum_warmup_candles)
+    if checkpoint.state.completed_candle_count < required_warmup:
         raise PreparedStateError(
             PreparedStateFailureCode.PREPARED_STATE_NOT_READY,
-            "prepared indicator checkpoint does not satisfy Strategy V1 readiness",
+            "prepared indicator checkpoint does not satisfy Strategy V1 warm-up "
+            f"requirement of {required_warmup} completed candles",
         )
     expected = previous_session_final_interval(target_trading_date, calendar=calendar)
     if checkpoint.final_accepted_interval != expected or checkpoint.state.last_interval != expected:
@@ -129,6 +142,7 @@ def build_prepared_checkpoint(
     requested_to: date,
     candles: Iterable[HistoricalCompletedCandle],
     prepared_at: datetime,
+    minimum_warmup_candles: int = MINIMUM_STRATEGY_V1_COMPLETED_CANDLES,
     calendar: NseEquityTradingCalendar | None = None,
 ) -> PreparedIndicatorCheckpoint:
     """Validate historical bars, run canonical indicators, and create one immutable fact."""
@@ -165,9 +179,11 @@ def build_prepared_checkpoint(
     state = engine.state
     if state.continuity is not IndicatorContinuity.HEALTHY:
         raise ValueError("historical preparation did not produce HEALTHY indicator continuity")
-    if state.completed_candle_count < MINIMUM_STRATEGY_V1_COMPLETED_CANDLES:
+    required_warmup = required_strategy_v1_warmup(minimum_warmup_candles)
+    if state.completed_candle_count < required_warmup:
         raise ValueError(
-            "historical preparation produced fewer than 250 completed regular-session candles"
+            "historical preparation produced fewer than "
+            f"{required_warmup} required completed regular-session candles"
         )
     digest = canonical_candle_sequence_digest(accepted)
     return PreparedIndicatorCheckpoint(
