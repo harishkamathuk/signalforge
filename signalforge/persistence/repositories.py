@@ -36,8 +36,8 @@ from signalforge.domain.ids import (
     TriggerEventId,
 )
 from signalforge.domain.position_outcomes import PositionOpenOutcome
-from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.positions import Position, PositionState
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
@@ -60,12 +60,12 @@ from signalforge.persistence.mappers import (
     indicator_checkpoint_state_from_record,
     market_input_checkpoint_from_record,
     market_input_checkpoint_record_from_domain,
-    prepared_indicator_checkpoint_from_record,
-    prepared_indicator_checkpoint_record_from_domain,
     position_from_record,
     position_open_outcome_from_record,
     position_open_outcome_record_from_domain,
     position_record_from_domain,
+    prepared_indicator_checkpoint_from_record,
+    prepared_indicator_checkpoint_record_from_domain,
     run_identity_from_records,
     run_record_from_domain,
     signal_from_record,
@@ -88,8 +88,8 @@ from signalforge.persistence.models import (
     IndicatorCheckpointRecord,
     MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
-    PreparedIndicatorCheckpointRecord,
     PositionRecord,
+    PreparedIndicatorCheckpointRecord,
     RunPreparedIndicatorCheckpointRecord,
     RunRecord,
     SignalRecord,
