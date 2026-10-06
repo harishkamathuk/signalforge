@@ -11,12 +11,19 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from signalforge.domain.ids import ConfigId, InstrumentId, RunId
+from signalforge.domain.ids import (
+    ConfigId,
+    InstrumentId,
+    PreparedIndicatorCheckpointId,
+    RunId,
+    deterministic_id,
+)
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.prepared_indicators import (
     PreparedIndicatorCheckpoint,
+    indicator_requirements_hash,
     prepared_checkpoint_id,
 )
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
@@ -220,11 +227,13 @@ def test_pre_sf059_ist_checkpoint_hydrates_after_postgres_timezone_round_trip(
 
     # This is exactly the durable SF-073 identity formula: hash the NSE
     # exchange-session interval in its original IST representation.
-    legacy_id = prepared_checkpoint_id(
-        instrument_id=instrument_id,
-        requirements=requirements,
-        calculation_version="engine-v1",
-        boundary=interval,
+    legacy_id = deterministic_id(
+        PreparedIndicatorCheckpointId,
+        str(instrument_id),
+        indicator_requirements_hash(requirements),
+        "engine-v1",
+        interval.start.isoformat(),
+        interval.end.isoformat(),
     )
     checkpoint = PreparedIndicatorCheckpoint(
         checkpoint_id=legacy_id,
