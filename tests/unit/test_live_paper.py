@@ -23,10 +23,10 @@ from signalforge.adapters.openalgo.reference import (
 )
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
+from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.instruments import Instrument, TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.prepared_indicators import (
     PreparedIndicatorCheckpoint,
     prepared_checkpoint_id,
