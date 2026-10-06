@@ -76,9 +76,11 @@ from signalforge.runtime.prepared_indicators import (
     build_prepared_checkpoint,
     previous_session_final_interval,
     require_suitable_prepared_checkpoint,
+    required_strategy_v1_warmup,
 )
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.strategy import Strategy, StrategyDecision, StrategyRuntimeFacts
+from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 
 class LivePaperExitCode(IntEnum):
@@ -230,6 +232,14 @@ def _decision_projector(
             project_rsi_mean_reversion_decision,
         )
     raise ValueError(f"No decision-audit projector registered for {key[0]} / {key[1]}")
+
+
+def _strategy_v1_required_warmup(strategy: Strategy) -> int:
+    """Return the live Strategy V1 warm-up contract with the canonical floor."""
+
+    if not isinstance(strategy, IntradayMomentumV1Strategy):
+        raise TypeError("M8 live PAPER requires IntradayMomentumV1Strategy")
+    return required_strategy_v1_warmup(strategy.config.minimum_warmup_candles)
 
 
 def _run_identity(
@@ -384,16 +394,21 @@ class LivePaperRunner:
                 "Recovered live-paper run requires reconciliation before activation"
             )
 
-        calendar = NseEquityTradingCalendar()
-        if not calendar.is_trading_day(trading_date):
-            engine.dispose()
-            raise RuntimeError(
-                "live-paper target date is not an NSE equities trading session"
+        try:
+            calendar = NseEquityTradingCalendar()
+            if not calendar.is_trading_day(trading_date):
+                raise RuntimeError(
+                    "live-paper target date is not an NSE equities trading session"
+                )
+            expected_boundary = previous_session_final_interval(
+                trading_date,
+                calendar=calendar,
             )
-        expected_boundary = previous_session_final_interval(
-            trading_date,
-            calendar=calendar,
-        )
+        except Exception:
+            engine.dispose()
+            raise
+
+        minimum_warmup_candles = _strategy_v1_required_warmup(strategy)
         try:
             with session_factory() as session:
                 checkpoint = PostgresPreparedIndicatorCheckpointRepository(
@@ -412,6 +427,7 @@ class LivePaperRunner:
                 instrument_id=instrument_id,
                 requirements=strategy.indicator_requirements,
                 calculation_version=config.engine_calculation_version,
+                minimum_warmup_candles=minimum_warmup_candles,
                 calendar=calendar,
             )
         except PreparedStateError as exc:
@@ -749,6 +765,7 @@ def prepare_session_command(config_path: Path) -> int:
                 "M8 prepare-session supports only intraday_momentum_v1 / 1.0.0"
             )
         instrument_id = InstrumentId(config.instrument_id)
+        minimum_warmup_candles = _strategy_v1_required_warmup(strategy)
         openalgo = OpenAlgoConfig.from_environment(env)
         database_url = env.get("DATABASE_URL", "").strip()
         if not database_url:
@@ -800,6 +817,7 @@ def prepare_session_command(config_path: Path) -> int:
                 instrument_id=instrument_id,
                 requirements=strategy.indicator_requirements,
                 calculation_version=config.engine_calculation_version,
+                minimum_warmup_candles=minimum_warmup_candles,
                 calendar=calendar,
             )
             print(
@@ -835,11 +853,12 @@ def prepare_session_command(config_path: Path) -> int:
                 requested_to=requested_to,
                 candles=candles,
                 prepared_at=observed_at,
+                minimum_warmup_candles=minimum_warmup_candles,
                 calendar=calendar,
             )
         except ValueError as exc:
             detail = str(exc)
-            if "fewer than 250" in detail:
+            if "required completed regular-session candles" in detail:
                 outcome = "FAILED_INSUFFICIENT_HISTORY"
             elif "continuity" in detail:
                 outcome = "FAILED_INDICATOR_CONTINUITY"
