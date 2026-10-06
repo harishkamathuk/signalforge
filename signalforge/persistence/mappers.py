@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import cast
 
 from signalforge.domain.armed import ArmedSetup, ArmedSetupState, ExpiryReason
 from signalforge.domain.audit import StateTransition, TransitionEntityType
@@ -18,6 +19,7 @@ from signalforge.domain.ids import (
     InstrumentId,
     PositionId,
     PositionOpenOutcomeId,
+    PreparedIndicatorCheckpointId,
     RunId,
     SignalId,
     StateTransitionId,
@@ -34,6 +36,7 @@ from signalforge.domain.indicators import (
 )
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
@@ -47,6 +50,7 @@ from signalforge.persistence.models import (
     IndicatorCheckpointRecord,
     MarketInputCheckpointRecord,
     PositionOpenOutcomeRecord,
+    PreparedIndicatorCheckpointRecord,
     PositionRecord,
     RunRecord,
     SignalRecord,
@@ -950,3 +954,68 @@ def indicator_checkpoint_state_from_record(
         macd,
     )
 
+
+
+def prepared_indicator_checkpoint_record_from_domain(
+    checkpoint: PreparedIndicatorCheckpoint,
+) -> PreparedIndicatorCheckpointRecord:
+    """Map one immutable run-independent prepared indicator fact to persistence."""
+
+    state = checkpoint.state
+    interval = state.last_interval
+    assert interval is not None
+    return PreparedIndicatorCheckpointRecord(
+        checkpoint_id=str(checkpoint.checkpoint_id),
+        instrument_id=str(state.instrument_id),
+        exchange=checkpoint.exchange,
+        requirements_hash=checkpoint.requirements_hash,
+        calculation_version=state.calculation_version,
+        target_trading_date=checkpoint.target_trading_date,
+        continuity_state=state.continuity.value,
+        last_interval_start=interval.start,
+        last_interval_end=interval.end,
+        completed_candle_count=state.completed_candle_count,
+        requirements_manifest=_requirement_manifest(state.requirements),
+        state_payload=_state_payload(state),
+        historical_source=checkpoint.historical_source,
+        requested_from=checkpoint.requested_from,
+        requested_to=checkpoint.requested_to,
+        first_accepted_interval_start=checkpoint.first_accepted_interval.start,
+        first_accepted_interval_end=checkpoint.first_accepted_interval.end,
+        final_accepted_interval_start=checkpoint.final_accepted_interval.start,
+        final_accepted_interval_end=checkpoint.final_accepted_interval.end,
+        accepted_candle_count=checkpoint.accepted_candle_count,
+        candle_sequence_digest=checkpoint.candle_sequence_digest,
+        prepared_at=checkpoint.prepared_at,
+    )
+
+
+def prepared_indicator_checkpoint_from_record(
+    record: PreparedIndicatorCheckpointRecord,
+) -> PreparedIndicatorCheckpoint:
+    """Restore one immutable prepared checkpoint using canonical state decoding."""
+
+    requirements = _requirements_from_manifest(record.requirements_manifest)
+    # Prepared and run-scoped checkpoint records intentionally share the exact
+    # state-bearing field names consumed by the canonical checkpoint decoder.
+    state = _state_from_payload(cast(IndicatorCheckpointRecord, record), requirements)
+    return PreparedIndicatorCheckpoint(
+        checkpoint_id=PreparedIndicatorCheckpointId(record.checkpoint_id),
+        state=state,
+        exchange=record.exchange,
+        target_trading_date=record.target_trading_date,
+        historical_source=record.historical_source,
+        requested_from=record.requested_from,
+        requested_to=record.requested_to,
+        first_accepted_interval=CandleInterval(
+            record.first_accepted_interval_start,
+            record.first_accepted_interval_end,
+        ),
+        final_accepted_interval=CandleInterval(
+            record.final_accepted_interval_start,
+            record.final_accepted_interval_end,
+        ),
+        accepted_candle_count=record.accepted_candle_count,
+        candle_sequence_digest=record.candle_sequence_digest,
+        prepared_at=record.prepared_at,
+    )
