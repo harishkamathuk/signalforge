@@ -26,17 +26,28 @@ from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.instruments import Instrument, TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.prepared_indicators import (
     PreparedIndicatorCheckpoint,
     prepared_checkpoint_id,
 )
 from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.strategy import (
+    DecisionReason,
+    MomentumResult,
+    SetupResult,
+    StrategyEvaluation,
+    TrendResult,
+)
 from signalforge.domain.session import NseSessionPhase, nse_session_phase
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.live_paper import (
+    LivePaperConfig,
+    LivePaperEvidenceError,
     LivePaperExitCode,
     LivePaperPrepared,
     LivePaperRunner,
+    _JsonlEvidenceSink,
     _SessionBoundedLiveFeed,
     configure_json_logger,
     install_shutdown_handlers,
@@ -1226,3 +1237,184 @@ def test_pre_session_wait_activates_on_first_active_scheduler_tick(
 
     assert runner.run() is LivePaperExitCode.OK
     assert activated == [True]
+
+
+def test_live_paper_config_accepts_bounded_validation_evidence_destination(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "m9-evidence.jsonl"
+    config = LivePaperConfig.model_validate(
+        {
+            "instrument_id": "NSE:RELIANCE",
+            "quantity": 10,
+            "engine_calculation_version": "engine-v1",
+            "strategy": {},
+            "evidence_path": str(evidence),
+            "evidence_max_bytes": 123456,
+        }
+    )
+
+    assert config.evidence_path == str(evidence)
+    assert config.evidence_max_bytes == 123456
+
+
+def test_validation_evidence_sink_is_bounded_and_refuses_overwrite(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "m9-evidence.jsonl"
+    sink = _JsonlEvidenceSink(path, max_bytes=10)
+
+    with pytest.raises(LivePaperEvidenceError, match="exceeded configured"):
+        sink.write("too_large", value="definitely-too-large")
+    sink.close()
+
+    with pytest.raises(LivePaperEvidenceError, match="already exists"):
+        _JsonlEvidenceSink(path, max_bytes=1000)
+
+
+def test_step_evidence_records_candle_indicator_and_projected_decision(
+    tmp_path: Path,
+) -> None:
+    at = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    prepared = _prepared(at)
+    interval = CandleInterval.five_minutes(at)
+    candle = CompletedCandle(
+        instrument_id=prepared.instrument_id,
+        interval=interval,
+        quality=CandleQuality.VALID,
+        open=Price(Decimal("100")),
+        high=Price(Decimal("103")),
+        low=Price(Decimal("99")),
+        close=Price(Decimal("102")),
+        volume=250,
+        source="openalgo:quote",
+        source_event_count=3,
+    )
+    indicator = IndicatorEngine(
+        prepared.instrument_id,
+        "engine-v1",
+        requirements=prepared.strategy.indicator_requirements,
+    )
+    snapshot: IndicatorSnapshot = indicator.update(candle)
+    evaluation = StrategyEvaluation(
+        instrument_id=prepared.instrument_id,
+        interval=interval,
+        trend=TrendResult(True),
+        momentum=MomentumResult(True, True, True, None),
+        setup=SetupResult(True),
+        qualified=True,
+        actionable=True,
+        reasons=(DecisionReason.QUALIFIED, DecisionReason.ACTIONABLE),
+    )
+    path = tmp_path / "m9-evidence.jsonl"
+    sink = _JsonlEvidenceSink(path, max_bytes=100_000)
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        logger=configure_json_logger(stream=io.StringIO(), name="sf074-step-evidence"),
+    )
+    runner._evidence_sink = sink
+    runner._runtime = SimpleNamespace(
+        run=prepared.run,
+        instrument_id=prepared.instrument_id,
+        strategy=prepared.strategy,
+    )  # type: ignore[assignment]
+
+    runner._record_step_evidence(
+        SimpleNamespace(
+            completed_candle=candle,
+            indicator_snapshot=snapshot,
+            evaluation=evaluation,
+        )
+    )
+    sink.close()
+
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    by_event = {record["event"]: record for record in records}
+    candle_record = by_event["completed_candle"]
+    assert candle_record["run_id"] == str(prepared.run.run_id)
+    assert candle_record["instrument_id"] == "NSE:RELIANCE"
+    assert candle_record["open"] == "100"
+    assert candle_record["high"] == "103"
+    assert candle_record["low"] == "99"
+    assert candle_record["close"] == "102"
+    assert candle_record["volume"] == 250
+    assert candle_record["quality"] == CandleQuality.VALID.value
+
+    indicator_record = by_event["indicator_snapshot"]
+    assert indicator_record["calculation_version"] == "engine-v1"
+    assert indicator_record["readings"]
+    assert {
+        "requirement",
+        "value",
+        "signal",
+        "histogram",
+        "ready",
+    } <= set(indicator_record["readings"][0])
+
+    decision_record = by_event["strategy_decision"]
+    assert decision_record["decision_kind"] == "intraday_momentum_v1.evaluation.v1"
+    assert decision_record["qualified"] is True
+    assert decision_record["actionable"] is True
+    assert decision_record["diagnostics"]["trend_passed"] is True
+
+
+def test_evidence_failure_is_explicit_and_nonqualifying_before_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    prepared = _prepared(at)
+    stream = io.StringIO()
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=stream, name="sf074-evidence-fail-start"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+    monkeypatch.setattr(
+        runner,
+        "_activate",
+        lambda _prepared: (_ for _ in ()).throw(
+            LivePaperEvidenceError("evidence unavailable")
+        ),
+    )
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.STARTUP_FAILED
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert records[-1]["event"] == "evidence_failure"
+
+
+def test_evidence_failure_after_activation_returns_runtime_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    at = datetime(2026, 10, 5, 9, 15, tzinfo=IST)
+    prepared = _prepared(at)
+    stream = io.StringIO()
+    runner = LivePaperRunner(
+        config_path=_write_config(tmp_path),
+        env=_env(),
+        now=lambda: at,
+        logger=configure_json_logger(stream=stream, name="sf074-evidence-fail-runtime"),
+    )
+    monkeypatch.setattr(runner, "prepare", lambda: prepared)
+
+    def activate(_prepared: LivePaperPrepared) -> None:
+        runner._runtime = SimpleNamespace(
+            continuity=LiveRuntimeContinuity.CONTINUOUS
+        )  # type: ignore[assignment]
+
+    monkeypatch.setattr(runner, "_activate", activate)
+    monkeypatch.setattr(
+        runner,
+        "_operator_loop",
+        lambda: (_ for _ in ()).throw(LivePaperEvidenceError("disk full")),
+    )
+    monkeypatch.setattr(runner, "_shutdown", lambda _prepared: None)
+
+    assert runner.run() is LivePaperExitCode.RUNTIME_FAILED
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert records[-1]["event"] == "evidence_failure"
