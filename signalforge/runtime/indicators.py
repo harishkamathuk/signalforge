@@ -38,16 +38,31 @@ V1_INDICATOR_REQUIREMENTS = IndicatorRequirements.of(
 
 
 class IndicatorCandle(Protocol):
-    """Minimum completed-candle surface required by canonical indicator math."""
+    """Read-only completed-candle surface required by canonical indicator math."""
 
-    instrument_id: InstrumentId
-    interval: CandleInterval
-    quality: CandleQuality
-    open: Price | None
-    high: Price | None
-    low: Price | None
-    close: Price | None
-    volume: int | None
+    @property
+    def instrument_id(self) -> InstrumentId: ...
+
+    @property
+    def interval(self) -> CandleInterval: ...
+
+    @property
+    def quality(self) -> CandleQuality: ...
+
+    @property
+    def open(self) -> Price | None: ...
+
+    @property
+    def high(self) -> Price | None: ...
+
+    @property
+    def low(self) -> Price | None: ...
+
+    @property
+    def close(self) -> Price | None: ...
+
+    @property
+    def volume(self) -> int | None: ...
 
 
 class IndicatorContinuity(StrEnum):
