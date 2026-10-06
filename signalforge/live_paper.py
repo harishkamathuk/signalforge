@@ -629,7 +629,7 @@ class LivePaperRunner:
     def _activate(self, prepared: LivePaperPrepared) -> None:
         facts = _RuntimeFactsProvider()
         evidence_path = getattr(prepared.config, "evidence_path", None)
-        diagnostic_sink = None
+        diagnostic_callback: Callable[[str, Mapping[str, object]], None] | None = None
         if evidence_path is not None:
             evidence = _JsonlEvidenceSink(
                 Path(evidence_path),
@@ -648,13 +648,15 @@ class LivePaperRunner:
                 prepared_checkpoint_id=str(prepared.prepared_checkpoint.checkpoint_id),
             )
 
-            def diagnostic_sink(event: str, fields: Mapping[str, object]) -> None:
+            def capture_diagnostic(event: str, fields: Mapping[str, object]) -> None:
                 payload = {
                     "run_id": str(prepared.run.run_id),
                     "instrument_id": str(prepared.instrument_id),
                     **dict(fields),
                 }
                 evidence.write(event, **payload)
+
+            diagnostic_callback = capture_diagnostic
 
         adapter = OpenAlgoMarketDataAdapter(
             config=prepared.openalgo,
@@ -664,7 +666,7 @@ class LivePaperRunner:
             wall_clock=self.now,
             monotonic_clock=self.monotonic,
             sleep=self.sleep,
-            diagnostic_sink=diagnostic_sink,
+            diagnostic_sink=diagnostic_callback,
         )
         reference_at = prepared.reference.provenance.observed_at
         feed = _SessionBoundedLiveFeed(
