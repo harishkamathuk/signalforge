@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -26,10 +26,10 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresStrategyDecisionRepository,
 )
+from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
-from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator
 from signalforge.runtime.live_runtime import (
     LiveRuntime,
