@@ -10,7 +10,7 @@ from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
-from signalforge.domain.time import CandleInterval, IST
+from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.prepared_indicators import (
     PreparedStateError,
