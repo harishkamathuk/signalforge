@@ -16,6 +16,7 @@ from signalforge.domain.ids import (
     InstrumentId,
     PositionId,
     PositionOpenOutcomeId,
+    PreparedIndicatorCheckpointId,
     RunId,
     SignalId,
     StateTransitionId,
@@ -24,6 +25,7 @@ from signalforge.domain.ids import (
 )
 from signalforge.domain.position_outcomes import PositionOpenOutcome
 from signalforge.domain.positions import Position
+from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
@@ -135,6 +137,37 @@ class ExitRepository(Protocol):
     def find_for_run_instrument(
         self, run_id: RunId, instrument_id: InstrumentId
     ) -> tuple[Exit, ...]: ...
+
+
+class PreparedIndicatorCheckpointRepository(Protocol):
+    """Persist immutable run-independent prepared indicator state."""
+
+    def add(self, checkpoint: PreparedIndicatorCheckpoint) -> PreparedIndicatorCheckpoint: ...
+
+    def get(
+        self, checkpoint_id: PreparedIndicatorCheckpointId
+    ) -> PreparedIndicatorCheckpoint | None: ...
+
+    def find_for_boundary(
+        self,
+        *,
+        instrument_id: InstrumentId,
+        requirements_hash: str,
+        calculation_version: str,
+        interval: CandleInterval,
+    ) -> PreparedIndicatorCheckpoint | None: ...
+
+
+class RunPreparedIndicatorCheckpointRepository(Protocol):
+    """Persist which prepared checkpoint initialized one live run."""
+
+    def add(
+        self,
+        run: RunIdentity,
+        checkpoint: PreparedIndicatorCheckpoint,
+    ) -> PreparedIndicatorCheckpoint: ...
+
+    def get_for_run(self, run_id: RunId) -> PreparedIndicatorCheckpoint | None: ...
 
 
 class IndicatorCheckpointRepository(Protocol):
