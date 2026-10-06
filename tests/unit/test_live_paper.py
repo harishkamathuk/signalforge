@@ -32,6 +32,7 @@ from signalforge.domain.prepared_indicators import (
     prepared_checkpoint_id,
 )
 from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.session import NseSessionPhase, nse_session_phase
 from signalforge.domain.strategy import (
     DecisionReason,
     MomentumResult,
@@ -39,7 +40,6 @@ from signalforge.domain.strategy import (
     StrategyEvaluation,
     TrendResult,
 )
-from signalforge.domain.session import NseSessionPhase, nse_session_phase
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.live_paper import (
     LivePaperConfig,
