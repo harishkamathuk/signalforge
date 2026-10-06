@@ -238,6 +238,11 @@ class _JsonlEvidenceSink:
         self.max_bytes = max_bytes
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise LivePaperEvidenceError(
+                f"Validation evidence directory could not be prepared: {exc}"
+            ) from exc
+        try:
             self._stream = path.open("x", encoding="utf-8")
         except FileExistsError:
             raise LivePaperEvidenceError(
