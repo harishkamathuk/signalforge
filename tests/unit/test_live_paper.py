@@ -1435,7 +1435,7 @@ def test_validation_evidence_sink_wraps_directory_open_failure(tmp_path: Path) -
     parent_file = tmp_path / "not-a-directory"
     parent_file.write_text("occupied", encoding="utf-8")
 
-    with pytest.raises(LivePaperEvidenceError, match="could not be opened"):
+    with pytest.raises(LivePaperEvidenceError, match="directory could not be prepared"):
         _JsonlEvidenceSink(parent_file / "evidence.jsonl", max_bytes=100_000)
 
 
