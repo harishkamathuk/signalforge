@@ -587,11 +587,56 @@ For both attempts:
 This is a transport/session-establishment failure, not an empty-market-data result and not evidence
 of differing historical content. Two scoped repeatability runs have now reproduced the same bootstrap
 TLS failure before any historical request. Repeatability therefore remains **INCONCLUSIVE** rather
-than failed, while bootstrap reliability itself is now an observed operational risk. The risk is specifically associated with the current nsemine-equivalent curl_cffi/BoringSSL path in the tested environment.
+than failed, while transport reliability itself is now an observed operational risk. The risk is specifically associated with the current nsemine-equivalent curl_cffi/BoringSSL path in the tested environment and is not confined to the initial bootstrap host.
 
 The planned canonical comparison format is deterministic SHA-256 over compact UTF-8 JSON arrays of
 `[timestamp, open, high, low, close, volume]`, preserving returned row order. That comparison can
 be reused when two successful acquisitions are available.
+
+### Runtime evidence — requests bootstrap cookie handoff probe
+
+A minimal workaround probe tested whether Python `requests` could establish the NSE bootstrap
+session and transfer its cookies into the nsemine-equivalent `curl_cffi` flow.
+
+The bootstrap request succeeded with HTTP 200 and returned cookie names:
+
+- `browse-url`;
+- `_abck`;
+- `bm_sz`.
+
+Cookie values were not logged or persisted. Source inspection confirmed that nsemine transfers
+bootstrap cookies as a simple name/value dictionary using `session.cookies.update(...)`; the probe
+reproduced that behavior in memory.
+
+The subsequent symbol-resolution request attempted:
+
+```text
+GET https://charting.nseindia.com/v1/exchanges/symbolsDynamic
+params: {"segment":"","symbol":"BAJAJ-AUTO"}
+```
+
+using the nsemine-equivalent Chrome 133a / HTTP/1.1 `curl_cffi` session.
+
+That request failed before any HTTP response with:
+
+```text
+curl (35): BoringSSL SSL_connect: Connection closed abruptly
+(SSL_ERROR_SYSCALL) connecting to charting.nseindia.com:443
+```
+
+Therefore:
+
+- requests-bootstrap cookie acquisition succeeded;
+- cookie handoff into `curl_cffi` succeeded mechanically;
+- exact BAJAJ-AUTO provider identity was not resolved;
+- no historical request was sent;
+- no authorization/session rejection was observed;
+- viability for retention testing was not established.
+
+This demonstrates that the current problem is broader than nsemine's bootstrap call itself: the
+nsemine-equivalent `curl_cffi`/BoringSSL path also fails TLS negotiation against
+`charting.nseindia.com` in the tested environment. A bootstrap-only transport substitution is
+therefore insufficient.
 
 Pending work still includes:
 
