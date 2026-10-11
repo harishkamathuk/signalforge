@@ -463,9 +463,70 @@ missing expected one-minute labels mean it cannot yet be described as complete. 
 whether those absent slots represent genuine no-trade/no-update intervals in the provider source or
 missing provider data.
 
+### Runtime evidence — deterministic one-minute to five-minute reconciliation
+
+No new provider requests were made. The previously captured BAJAJ-AUTO one-minute and five-minute
+datasets for 2026-10-09 were reconciled by fixed five-minute session buckets anchored at
+09:15, 09:20, 09:25, ..., 15:25.
+
+Each derived bucket was classified independently as:
+
+- **COMPLETE** when all five expected one-minute labels were present;
+- **INCOMPLETE** otherwise.
+
+No missing one-minute bars were synthesized.
+
+Provider five-minute rows were associated to intended session buckets using an explicit
+interpretation rule: mechanically decode each raw provider five-minute timestamp and floor the
+resulting clock time to its containing five-minute session bucket. Original provider/nsemine
+processed labels were preserved unchanged. This matching rule is evidence-processing only and
+does **not** establish the provider's intended timezone or bar-label semantics.
+
+Summary:
+
+| Measure | Count |
+| --- | ---: |
+| Expected five-minute buckets | 75 |
+| COMPLETE derived buckets | 73 |
+| INCOMPLETE derived buckets | 2 |
+| Exact OHLCV matches among COMPLETE buckets | 73 |
+| OHLC mismatches among COMPLETE buckets | 0 |
+| Volume mismatches among COMPLETE buckets | 0 |
+| Unmatched/ambiguous provider rows under the stated rule | 0 |
+| Canonical buckets without a provider counterpart | 0 |
+| Provider processed labels differing from assigned bucket | 1 |
+
+Therefore **all 73 COMPLETE buckets reproduced provider OHLCV exactly** from the observed
+one-minute rows.
+
+The two incomplete late-session buckets were:
+
+| Canonical bucket | Observed minute labels | Quality | Derived OHLCV | Provider processed label | Provider OHLCV |
+| --- | --- | --- | --- | --- | --- |
+| 15:15 | 15:15 only | INCOMPLETE | 9820 / 9820 / 9820 / 9820 / 8 | 15:11 | identical |
+| 15:25 | 15:25, 15:29 | INCOMPLETE | 9820 / 9820 / 9778 / 9778 / 245658 | 15:25 | identical |
+
+The seven missing one-minute labels account for exactly those two incomplete buckets:
+
+- 15:15 bucket: missing 15:16–15:19;
+- 15:25 bucket: missing 15:26–15:28.
+
+The numerical equality of those incomplete aggregates with provider five-minute OHLCV is
+consistent with the missing minute slots containing no additional provider-recorded activity, but
+it does **not** prove complete underlying minute coverage. SignalForge must continue to distinguish
+grid completeness from numerical OHLCV equality.
+
+The previously anomalous raw timestamp `1791558910000` maps by the stated reconciliation rule to
+the canonical 15:15 session bucket. Its original nsemine processed five-minute label remains
+`15:11`. No relabeling or repair was performed in the evidence.
+
+This result materially strengthens the case for using provider one-minute bars as the historical
+acquisition layer and deriving SignalForge-owned deterministic five-minute candles, rather than
+trusting nsemine's transformed five-minute labels directly. That remains a follow-up architecture
+decision; SF-075 itself does not change replay or strategy semantics.
+
 Pending work still includes:
 
-- deterministic 1-minute -> 5-minute aggregation and comparison with provider 5-minute bars;
 - repeat acquisition equality;
 - retention/window depth;
 - broader duplicate/missing interval analysis across additional sessions;
@@ -563,7 +624,7 @@ The current evidence supports:
 - **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
   requests returned empty data, and the public high-level equity path failed exact instrument
   resolution by substituting NIFTY 50 for BAJAJ-AUTO.
-- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity plus both 5-minute and 1-minute retrieval are proven. The 1-minute series is monotonic and on-grid for returned rows, with no duplicates, OHLC violations or negative volume, but seven expected minute labels were absent. The same raw row that became 15:11 at 5-minute resolution is labeled 15:15 at one-minute resolution, confirming interval-dependent timestamp transformation. Processed timestamps therefore cannot yet be treated as canonical.
+- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity plus both 5-minute and 1-minute retrieval are proven. The 1-minute series is monotonic and on-grid for returned rows, with no duplicates, OHLC violations or negative volume, but seven expected minute labels were absent. Deterministic 1-minute -> 5-minute aggregation reproduced provider OHLCV exactly for all 73 COMPLETE buckets in the tested session. The same raw row that became 15:11 at 5-minute resolution is labeled 15:15 at one-minute resolution, confirming interval-dependent timestamp transformation. Processed 5-minute labels therefore cannot be treated as canonical.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
 - **Execution semantics:** no change.
@@ -588,6 +649,6 @@ OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed pat
 has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
 explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
 logic into an off-grid processed label. Provider timezone/bar-label semantics, repeatability,
-retention and deterministic 1-minute -> 5-minute reconciliation remain open. nsepython 2.101 still needs
+retention remains open; deterministic 1-minute -> 5-minute reconciliation is now proven for all complete buckets in the tested session. nsepython 2.101 still needs
 the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
 pending.
