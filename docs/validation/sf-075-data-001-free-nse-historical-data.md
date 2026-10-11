@@ -841,6 +841,7 @@ execution model implicitly.
 
 - SF-075 / DATA-001: https://github.com/harishkamathuk/signalforge/issues/186
 - DATA-002 / nsemine transport remediation: https://github.com/harishkamathuk/signalforge/issues/188
+- DATA-003 / canonical historical OHLCV dataset and bar boundary: https://github.com/harishkamathuk/signalforge/issues/189
 - nsepython: https://github.com/aeron7/nsepython
 - nsepython historical-equity endpoint issue: https://github.com/aeron7/nsepython/issues/74
 - OpenChart: https://github.com/marketcalls/openchart
@@ -858,6 +859,4 @@ Final classifications:
 - SELECT — **none**.
 
 The tested free-source set is inadequate for the required reproducible canonical intraday
-acquisition path in its current observed form. DATA-002 (#188) tracks possible nsemine transport
-remediation. The next research-data work item should define the provider-neutral canonical
-historical-bar/dataset contract without changing strategy or replay semantics.
+acquisition path in its current observed form. DATA-002 (#188) tracks possible nsemine transport remediation. DATA-003 (#189) defines the provider-neutral canonical historical-bar/dataset contract without changing strategy or replay semantics.
