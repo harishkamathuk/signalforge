@@ -53,8 +53,7 @@ sessions. Runtime probing has therefore moved to a normal local developer enviro
 outbound NSE/charting access.
 
 OpenChart 0.2.0 has now been exercised empirically. nsemine 2.2.1 has passed the first bounded
-5-minute retrieval/identity gate, but raw/processed timestamp behaviour is now partially characterized; provider timezone semantics,
-repeatability, retention and 1-minute behaviour remain open. nsepython 2.101 still requires its intentional bounded confirmation probe
+5-minute retrieval/identity gate. Its 1-minute path has also returned a substantial BAJAJ-AUTO session with clean one-minute grid semantics for the rows received, although seven expected minute slots were absent. Provider timezone semantics, repeatability and retention remain open. nsepython 2.101 still requires its intentional bounded confirmation probe
 before DATA-001 can close.
 
 Source-inspection claims and runtime observations are kept distinct below.
@@ -67,13 +66,13 @@ Source-inspection claims and runtime observations are kept distinct below.
 | Licence | GPL-3.0 | MIT | MIT |
 | Historical equity representation | Aggregated historical records | OHLCV bars | OHLCV bars |
 | 5-minute historical API in inspected source | Not established | Advertised/implemented | Advertised/implemented |
-| 1-minute historical API in inspected source | Not established | Advertised/implemented | Advertised/implemented |
+| 1-minute historical API in inspected source | Not established | Advertised/implemented | Proven at runtime for BAJAJ-AUTO; 368 rows returned for one regular session |
 | Historical event/tick chronology | Not established | No — historical path is bars | No — historical path is bars |
 | Current-session tick API | Not material to historical requirement | Not established | Yes, current-session tick-by-tick API |
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
 | Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Pending |
-| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity + 75-row 5m retrieval proven; timestamp semantics unresolved |
+| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps and provider timestamp semantics unresolved |
 
 `PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
 records completed empirical evidence for the observed 0.2.0 path; the overall DATA-001 evaluation
@@ -402,14 +401,75 @@ one missing expected label (**15:15**) and one off-grid label (**15:11**).
 This establishes that nsemine's processed labels cannot be accepted as canonical bar timestamps
 without an independent timestamp interpretation/canonicalisation rule.
 
+### Runtime evidence — nsemine 2.2.1 one-minute probe
+
+The same BAJAJ-AUTO session was then requested at one-minute resolution using the exact same
+instrument identity and date range:
+
+```python
+get_stock_historical_data(
+    "BAJAJ-AUTO",
+    datetime(2026, 10, 9, 9, 15, tzinfo=ZoneInfo("Asia/Kolkata")),
+    datetime(2026, 10, 9, 15, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
+    interval=1,
+    raw=False,
+)
+```
+
+The provider again resolved exactly to `BAJAJ-AUTO-EQ / 16669 / Equity / NSE`. The historical
+request returned HTTP 200 with provider `status=true`.
+
+Observed one-minute quality:
+
+| Check | Result |
+| --- | --- |
+| Expected regular-session minute slots | 375 |
+| Raw rows | 368 |
+| Processed rows before / after deduplication | 368 / 368 |
+| Duplicate raw timestamps | 0 |
+| Duplicate processed timestamps before / after deduplication | 0 / 0 |
+| Processed ordering | Monotonic |
+| Off-grid processed timestamps | None |
+| OHLC invariant violations, raw / processed | 0 / 0 |
+| Negative-volume rows, raw / processed | 0 / 0 |
+
+The processed one-minute labels were regular for all returned rows, but seven expected session
+labels were absent:
+
+```text
+15:16, 15:17, 15:18, 15:19, 15:26, 15:27, 15:28
+```
+
+No missing bars were synthesized.
+
+The previously anomalous 5-minute raw row had an exact one-minute counterpart:
+
+```text
+raw timestamp: 1791558910000
+processed 1m label: 15:15
+OHLCV: 9820 / 9820 / 9820 / 9820 / 8
+```
+
+At five-minute resolution, the same raw timestamp and identical OHLCV had been transformed by
+nsemine into the off-grid label `15:11`. At one-minute resolution, nsemine labels the same raw row
+`15:15`.
+
+This is strong evidence that the nsemine transformation itself is interval-dependent and that its
+processed five-minute timestamps cannot be treated as authoritative even when the underlying raw
+row is the same.
+
+The 1-minute series is materially more regular than the processed 5-minute series, but the seven
+missing expected one-minute labels mean it cannot yet be described as complete. It remains unknown
+whether those absent slots represent genuine no-trade/no-update intervals in the provider source or
+missing provider data.
+
 Pending work still includes:
 
-- 1-minute retrieval;
+- deterministic 1-minute -> 5-minute aggregation and comparison with provider 5-minute bars;
 - repeat acquisition equality;
 - retention/window depth;
-- broader duplicate/missing interval analysis;
-- provider timezone/bar-label semantics;
-- bounded 1-minute -> 5-minute reconciliation.
+- broader duplicate/missing interval analysis across additional sessions;
+- provider timezone/bar-label semantics.
 
 No production adapter or replay-semantic change is justified yet.
 
@@ -503,10 +563,7 @@ The current evidence supports:
 - **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
   requests returned empty data, and the public high-level equity path failed exact instrument
   resolution by substituting NIFTY 50 for BAJAJ-AUTO.
-- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity and a non-empty 75-row 5-minute session
-  retrieval are proven. Raw/processed reconciliation shows the provider supplied an irregular raw
-  timestamp and nsemine transformed it into an off-grid 15:11 label; processed timestamps therefore
-  cannot yet be treated as canonical.
+- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity plus both 5-minute and 1-minute retrieval are proven. The 1-minute series is monotonic and on-grid for returned rows, with no duplicates, OHLC violations or negative volume, but seven expected minute labels were absent. The same raw row that became 15:11 at 5-minute resolution is labeled 15:15 at one-minute resolution, confirming interval-dependent timestamp transformation. Processed timestamps therefore cannot yet be treated as canonical.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
 - **Execution semantics:** no change.
@@ -531,6 +588,6 @@ OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed pat
 has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
 explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
 logic into an off-grid processed label. Provider timezone/bar-label semantics, repeatability,
-retention and 1-minute behaviour remain open. nsepython 2.101 still needs
+retention and deterministic 1-minute -> 5-minute reconciliation remain open. nsepython 2.101 still needs
 the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
 pending.
