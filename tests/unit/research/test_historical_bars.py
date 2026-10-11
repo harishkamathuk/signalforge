@@ -63,8 +63,8 @@ def _manifest(
     acquired_at: datetime | None = None,
     canonical_row_count: int | None = None,
 ) -> HistoricalDatasetManifest:
-    first = bars[0].interval.start
-    last = bars[-1].interval.end
+    first = min(bar.interval.start for bar in bars)
+    last = max(bar.interval.end for bar in bars)
     return HistoricalDatasetManifest(
         provider="fixture",
         acquisition_adapter="test-fixture",
