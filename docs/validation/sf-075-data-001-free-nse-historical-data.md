@@ -64,15 +64,15 @@ Source-inspection claims and runtime observations are kept distinct below.
 | --- | --- | --- | --- |
 | Published version inspected | 2.101 | 0.2.0 | 2.2.1 |
 | Licence | GPL-3.0 | MIT | MIT |
-| Historical equity representation | Aggregated historical records | OHLCV bars | OHLCV bars |
-| 5-minute historical API in inspected source | Not established | Advertised/implemented | Advertised/implemented |
-| 1-minute historical API in inspected source | Not established | Advertised/implemented | Proven at runtime for BAJAJ-AUTO; 368 rows returned for one regular session |
+| Historical equity representation | Daily/EOD historical records | OHLCV bars | OHLCV bars |
+| 5-minute historical API in inspected source | No historical intraday cash-equity path found | Advertised/implemented | Advertised/implemented |
+| 1-minute historical API in inspected source | No historical intraday cash-equity path found | Advertised/implemented | Proven at runtime for BAJAJ-AUTO; 368 rows returned for one regular session |
 | Historical event/tick chronology | Not established | No — historical path is bars | No — historical path is bars |
 | Current-session tick API | Not material to historical requirement | Not established | Yes, current-session tick-by-tick API |
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
 | Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Inconclusive — two fresh repeatability acquisitions failed during NSE TLS/session setup before symbol/history requests |
-| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps and provider timestamp semantics unresolved |
+| Preliminary disposition | DAILY_ONLY / INSUFFICIENT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps, provider timestamp semantics, and transport reliability unresolved |
 
 `PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
 records completed empirical evidence for the observed 0.2.0 path; the overall DATA-001 evaluation
@@ -89,20 +89,52 @@ NSE removed the underlying `/api/historical/cm/equity` endpoint and that the cal
 404. The current source inspection did not establish a replacement 1-minute or 5-minute
 historical equity path.
 
-### Preliminary assessment
+### Runtime confirmation — nsepython 2.101
 
-For DATA-001's mandatory intraday requirement, nsepython is a **provisional rejection** unless a
-runtime test of 2.101 demonstrates a newer working intraday mechanism not identified in the
-inspected source.
+Installed-source inspection confirmed:
 
-Required local confirmation:
+- `equity_history()` delegates to `equity_history_virgin()`;
+- the active cash-equity historical endpoint is `/api/historicalOR/cm/equity`;
+- the older `/api/historical/cm/equity` path remains only as commented legacy code;
+- `security_wise_archive()` uses `/api/historicalOR/generateSecurityWiseHistoricalData` for daily price/volume/deliverables;
+- `nse_mcp_get_stock_history()` explicitly supplies daily OHLCV;
+- no 1-minute or 5-minute historical cash-equity replacement/fallback was found in installed 2.101 source.
 
-- install exactly 2.101;
-- attempt the historical equity function on a bounded liquid-equity range;
-- identify any current intraday-equity API not found by source inspection;
-- capture response/failure classification without retaining credentials/cookies.
+The bounded public call was:
 
-Do not adopt nsepython merely because the package received a recent release.
+```python
+nsepython.equity_history(
+    "BAJAJ-AUTO", "EQ", "09-10-2026", "09-10-2026"
+)
+```
+
+It requested:
+
+```text
+https://www.nseindia.com/api/historicalOR/cm/equity?symbol=BAJAJ-AUTO&series=["EQ"]&from=09-10-2026&to=09-10-2026
+```
+
+and returned HTTP 200 with exact identity `CH_SYMBOL=BAJAJ-AUTO`, `CH_SERIES=EQ`.
+
+One daily record was returned for 2026-10-09:
+
+| Open | High | Low | Close | Traded quantity |
+| ---: | ---: | ---: | ---: | ---: |
+| 9663 | 9968 | 9645 | 9778 | 249546 |
+
+The returned schema is daily/EOD-oriented and includes fields such as opening price, trade high/low,
+closing price, total traded quantity/value and total trades. No intraday granularity was exposed.
+
+The homepage warm-up experienced a curl/TLS error, but the actual historical request succeeded.
+No retry was performed.
+
+### DATA-001 assessment
+
+nsepython 2.101 is classified **DAILY_ONLY / INSUFFICIENT** for DATA-001.
+
+The replacement `historicalOR` endpoint proves that current daily cash-equity history still works,
+but no 1-minute or 5-minute historical equity path was found in the installed package. This does
+not satisfy DATA-001's mandatory intraday requirement.
 
 ## OpenChart findings
 
@@ -732,8 +764,7 @@ Do not implement a production adapter yet.
 
 The current evidence supports:
 
-- **nsepython:** likely unsuitable for the required historical intraday path; confirm once with
-  current-version runtime evidence.
+- **nsepython:** **DAILY_ONLY / INSUFFICIENT**. Version 2.101 successfully retrieved bounded BAJAJ-AUTO daily history through the active `historicalOR` endpoint, but no 1-minute or 5-minute historical cash-equity path was found in installed source.
 - **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
   requests returned empty data, and the public high-level equity path failed exact instrument
   resolution by substituting NIFTY 50 for BAJAJ-AUTO.
@@ -763,6 +794,4 @@ has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 a
 explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
 logic into an off-grid processed label. Provider timezone/bar-label semantics and retention remain open; repeatability is currently
 inconclusive because both fresh comparison acquisitions failed during NSE TLS/session setup.
-Deterministic 1-minute -> 5-minute reconciliation is proven for all complete buckets in the tested session. nsepython 2.101 still needs
-the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
-pending.
+Deterministic 1-minute -> 5-minute reconciliation is proven for all complete buckets in the tested session. nsepython 2.101 runtime confirmation is complete and classified DAILY_ONLY / INSUFFICIENT. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions now depend primarily on the remaining nsemine retention/reliability evidence and the final cross-candidate assessment.
