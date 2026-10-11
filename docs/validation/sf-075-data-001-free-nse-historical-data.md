@@ -533,6 +533,17 @@ for BAJAJ-AUTO on 2026-10-09, 09:15–15:30 Asia/Kolkata, interval 1 minute.
 Both acquisitions failed before symbol resolution or historical retrieval while establishing the NSE
 session. The observed error was a TLS connection closure (`curl` error 35).
 
+A second fresh repeatability run reproduced the same failure mode on both attempts. The failing
+request was nsemine's session-bootstrap request to:
+
+```text
+https://www.nseindia.com/get-quote/equity/RELIANCE/Reliance-Industries-Limited
+```
+
+This bootstrap URL is library infrastructure used to establish the NSE session; it is not a
+historical request for RELIANCE and does not indicate instrument substitution in the BAJAJ-AUTO
+historical path.
+
 For both attempts:
 
 - no provider identity was resolved;
@@ -543,8 +554,9 @@ For both attempts:
 - logical equality could not be assessed.
 
 This is a transport/session-establishment failure, not an empty-market-data result and not evidence
-of differing historical content. No retry was performed during the scoped test, so repeatability
-remains **INCONCLUSIVE** rather than failed.
+of differing historical content. Two scoped repeatability runs have now reproduced the same bootstrap
+TLS failure before any historical request. Repeatability therefore remains **INCONCLUSIVE** rather
+than failed, while bootstrap reliability itself is now an observed operational risk.
 
 The planned canonical comparison format is deterministic SHA-256 over compact UTF-8 JSON arrays of
 `[timestamp, open, high, low, close, volume]`, preserving returned row order. That comparison can
