@@ -27,7 +27,6 @@ _ONE_MINUTE = timedelta(minutes=1)
 _FIVE_MINUTES = timedelta(minutes=5)
 _SESSION_OPEN = time(9, 15)
 _SESSION_END = time(15, 30)
-_EXPECTED_ONE_MINUTE_BARS = 375
 _EXPECTED_FIVE_MINUTE_BARS = 75
 
 
@@ -183,12 +182,24 @@ class HistoricalDatasetManifest:
         ):
             if not str(getattr(self, name)).strip():
                 raise ValueError(f"Historical dataset manifest {name} must not be empty")
-        for name in ("requested_start", "requested_end", "returned_start", "returned_end", "acquired_at"):
+        timestamp_fields = (
+            "requested_start",
+            "requested_end",
+            "returned_start",
+            "returned_end",
+            "acquired_at",
+        )
+        for name in timestamp_fields:
             require_aware(getattr(self, name))
         if self.requested_end <= self.requested_start:
             raise ValueError("Historical dataset requested range must be increasing")
         if self.returned_end <= self.returned_start:
             raise ValueError("Historical dataset returned range must be increasing")
+        if (
+            self.returned_start < self.requested_start
+            or self.returned_end > self.requested_end
+        ):
+            raise ValueError("Historical dataset returned range must be within requested range")
         if self.interval_minutes != 1:
             raise ValueError("DATA-004 historical source interval must be one minute")
         for name in (
@@ -204,7 +215,7 @@ class HistoricalDatasetManifest:
             if value < 0:
                 raise ValueError(f"Historical dataset manifest {name} must not be negative")
 
-        for name in ("requested_start", "requested_end", "returned_start", "returned_end", "acquired_at"):
+        for name in timestamp_fields:
             object.__setattr__(self, name, to_utc(getattr(self, name)))
 
     def semantic_mapping(self) -> dict[str, object]:
@@ -637,6 +648,11 @@ def _parse_datetime(value: object, field: str) -> datetime:
 def _string_list(value: object, field: str) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+    if not isinstance(value, list):
         raise ValueError(f"Historical fixture {field} must be a list of strings")
-    return list(value)
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"Historical fixture {field} must be a list of strings")
+        items.append(item)
+    return items
