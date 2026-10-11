@@ -11,7 +11,7 @@ from signalforge.config.strategy_registry import StrategySelection
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
-from signalforge.domain.time import CandleInterval, IST, to_utc
+from signalforge.domain.time import IST, CandleInterval, to_utc
 from signalforge.research.historical_bars import (
     CorporateActionPolicy,
     HistoricalBar,
