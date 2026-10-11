@@ -1,6 +1,6 @@
 # ADR-010 — Canonical Historical OHLCV Dataset & Bar Boundary
 
-**Status:** Proposed
+**Status:** Accepted
 **Work item:** #189 / DATA-003
 **Strategy semantics changed:** No
 **Runtime/execution semantics changed:** No
