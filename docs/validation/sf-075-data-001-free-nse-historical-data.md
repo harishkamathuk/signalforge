@@ -1,11 +1,11 @@
 # SF-075 / DATA-001 — Free NSE Historical Data Evaluation
 
-**Status:** Complete — no source selected; nsemine retained as fallback pending transport remediation  
-**Issue:** #186  
-**Research identifier:** DATA-001  
-**Date:** 2026-10-11  
-**Strategy semantics changed:** No  
-**Runtime/replay semantics changed:** No  
+**Status:** Complete — no source selected; nsemine retained as fallback pending transport remediation
+**Issue:** #186
+**Research identifier:** DATA-001
+**Date:** 2026-10-11
+**Strategy semantics changed:** No
+**Runtime/replay semantics changed:** No
 **Schema/migrations changed:** No
 
 ## Purpose
