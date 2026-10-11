@@ -29,6 +29,7 @@ nav:
       - ADR-007 — Paper Execution & Fill Model: architecture/decisions/ADR-007-paper-execution-fill-model.md
       - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
       - ADR-009 — Live Market-Data Continuity & Reconciliation Boundary: architecture/decisions/ADR-009-live-market-data-continuity-reconciliation-boundary.md
+      - ADR-010 — Canonical Historical OHLCV Dataset & Bar Boundary: architecture/decisions/ADR-010-canonical-historical-ohlcv-dataset-boundary.md
   - API:
       - Strategy Runtime: api/strategy-runtime.md
       - Strategy Registry: api/strategy-registry.md
