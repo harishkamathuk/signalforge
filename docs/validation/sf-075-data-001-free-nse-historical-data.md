@@ -544,6 +544,37 @@ This bootstrap URL is library infrastructure used to establish the NSE session; 
 historical request for RELIANCE and does not indicate instrument substitution in the BAJAJ-AUTO
 historical path.
 
+A focused client-stack diagnosis then compared three one-shot requests to the same bootstrap URL:
+
+| Client | Result |
+| --- | --- |
+| `curl_cffi` using nsemine-equivalent configuration | TLS failure: curl (35), BoringSSL connection closed abruptly |
+| Python `requests` with browser-like User-Agent | HTTP 200 |
+| command-line `curl` with browser-like User-Agent | HTTP 200, certificate verified |
+
+Installed runtime details for the failing path:
+
+- nsemine 2.2.1;
+- `curl_cffi` 0.16.3;
+- libcurl 8.21.0-IMPERSONATE;
+- BoringSSL;
+- Chrome 133a impersonation;
+- HTTP/1.1;
+- 15-second timeout;
+- cookie state cleared before bootstrap and repopulated from the response;
+- no certificate-verification override observed.
+
+Control paths used `requests` 2.34.2 / urllib3 2.8.0 / OpenSSL 3.0.13 and command-line
+curl 8.5.0 / OpenSSL 3.0.13.
+
+This strongly indicates that the observed bootstrap failure is specific to the nsemine-equivalent
+`curl_cffi`/BoringSSL client path or its network/TLS fingerprint rather than an environment-wide
+DNS/TCP/TLS outage. The precise root cause remains unresolved because the clients differ in TLS
+stack/fingerprint and may reach different resolved IP addresses.
+
+HTTP 200 from the control clients proves endpoint reachability but does not by itself prove that
+the returned cookie/session state would be sufficient for nsemine's subsequent API calls.
+
 For both attempts:
 
 - no provider identity was resolved;
@@ -556,7 +587,7 @@ For both attempts:
 This is a transport/session-establishment failure, not an empty-market-data result and not evidence
 of differing historical content. Two scoped repeatability runs have now reproduced the same bootstrap
 TLS failure before any historical request. Repeatability therefore remains **INCONCLUSIVE** rather
-than failed, while bootstrap reliability itself is now an observed operational risk.
+than failed, while bootstrap reliability itself is now an observed operational risk. The risk is specifically associated with the current nsemine-equivalent curl_cffi/BoringSSL path in the tested environment.
 
 The planned canonical comparison format is deterministic SHA-256 over compact UTF-8 JSON arrays of
 `[timestamp, open, high, low, close, volume]`, preserving returned row order. That comparison can
