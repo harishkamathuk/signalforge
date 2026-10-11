@@ -1,6 +1,6 @@
 # SF-075 / DATA-001 — Free NSE Historical Data Evaluation
 
-**Status:** In progress — source/API evidence captured; OpenChart complete; nsemine initial 5-minute retrieval proven; nsepython pending  
+**Status:** Complete — no source selected; nsemine retained as fallback pending transport remediation  
 **Issue:** #186  
 **Research identifier:** DATA-001  
 **Date:** 2026-10-11  
@@ -58,7 +58,7 @@ before DATA-001 can close.
 
 Source-inspection claims and runtime observations are kept distinct below.
 
-## Candidate comparison — preliminary
+## Candidate comparison — final
 
 | Dimension | nsepython | OpenChart | nsemine |
 | --- | --- | --- | --- |
@@ -72,11 +72,9 @@ Source-inspection claims and runtime observations are kept distinct below.
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
 | Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Inconclusive — fresh acquisitions are blocked by curl_cffi/BoringSSL TLS failures before symbol/history requests |
-| Preliminary disposition | DAILY_ONLY / INSUFFICIENT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps, provider timestamp semantics, and transport reliability unresolved |
+| Final disposition | REJECT — daily-only, insufficient for mandatory intraday requirement | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | RETAIN_AS_FALLBACK — promising captured 1m/5m data quality, but repeatability and retention cannot be established because released transport is unreliable |
 
-`PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
-records completed empirical evidence for the observed 0.2.0 path; the overall DATA-001 evaluation
-remains open until the remaining candidates are tested.
+These are the final DATA-001 dispositions for the versions tested. No candidate is `SELECT`.
 
 ## nsepython findings
 
@@ -384,10 +382,10 @@ Source inspection also established that nsemine 2.2.1:
 - returns naive datetimes;
 - drops duplicate datetime values internally and resets the index.
 
-### Current nsemine assessment
+### Final nsemine assessment
 
-nsemine 2.2.1 remains a **CANDIDATE** and has passed the initial identity/retrieval gate that
-OpenChart failed.
+nsemine 2.2.1 is **RETAIN_AS_FALLBACK** for DATA-001. It passed the identity/retrieval gate that
+OpenChart failed and produced the strongest intraday data-quality evidence of the tested candidates.
 
 A focused raw-to-processed reconciliation established the cause of the off-grid 15:11 label.
 
@@ -795,17 +793,15 @@ Run the following matrix from a normal developer environment with outbound acces
 
 No network-dependent test should be added to normal CI.
 
-## Preliminary recommendation
+## Final recommendation
 
-Do not implement a production adapter yet.
+Do not implement a production adapter from any of the tested libraries yet.
 
-The current evidence supports:
+The final DATA-001 classification is:
 
-- **nsepython:** **DAILY_ONLY / INSUFFICIENT**. Version 2.101 successfully retrieved bounded BAJAJ-AUTO daily history through the active `historicalOR` endpoint, but no 1-minute or 5-minute historical cash-equity path was found in installed source.
-- **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
-  requests returned empty data, and the public high-level equity path failed exact instrument
-  resolution by substituting NIFTY 50 for BAJAJ-AUTO.
-- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity plus both 5-minute and 1-minute retrieval are proven. The 1-minute series is monotonic and on-grid for returned rows, with no duplicates, OHLC violations or negative volume, but seven expected minute labels were absent. Deterministic 1-minute -> 5-minute aggregation reproduced provider OHLCV exactly for all 73 COMPLETE buckets in the tested session. The same raw row that became 15:11 at 5-minute resolution is labeled 15:15 at one-minute resolution, confirming interval-dependent timestamp transformation. Processed 5-minute labels therefore cannot be treated as canonical.
+- **nsepython 2.101 — REJECT.** Bounded BAJAJ-AUTO daily history works through the active `historicalOR` endpoint, but no 1-minute or 5-minute historical cash-equity path was found in installed source. It therefore fails the mandatory intraday requirement.
+- **OpenChart 0.2.0 — REJECT.** Direct historical requests returned empty data, and the public high-level equity path failed exact instrument resolution by substituting NIFTY 50 for BAJAJ-AUTO. That violates SignalForge identity/auditability requirements.
+- **nsemine 2.2.1 — RETAIN_AS_FALLBACK.** Exact BAJAJ-AUTO identity plus both 5-minute and 1-minute retrieval are proven. The captured 1-minute series was monotonic and on-grid for returned rows, with no duplicates, OHLC violations or negative volume. Deterministic 1-minute -> 5-minute aggregation reproduced provider OHLCV exactly for all 73 COMPLETE buckets in the tested session. However, processed 5-minute timestamps are not uniformly trustworthy, seven expected one-minute labels were absent, repeatability could not be established, and retention depth could not be measured because fresh acquisitions became blocked by repeatable `curl_cffi` / BoringSSL TLS failures. The released version is therefore not sufficiently reproducible to SELECT.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
 - **Execution semantics:** no change.
@@ -814,9 +810,37 @@ If OpenChart or nsemine proves adequate, DATA-001 should then recommend the smal
 engineering item for a canonical historical OHLCV research-source boundary and immutable dataset
 format. That follow-up must not fabricate event chronology.
 
+
+## DATA-001 closure decision
+
+DATA-001 closes under **exit condition B**.
+
+The tested free sources do not currently provide one path that is both:
+
+- demonstrably suitable for NSE intraday research at the required 1-minute / 5-minute granularity; and
+- sufficiently reproducible and operationally reliable for SignalForge to adopt as the canonical acquisition source.
+
+No source is selected.
+
+nsemine 2.2.1 is retained as a fallback because the captured market-data evidence is materially
+better than the other candidates and supports a plausible future path if its transport reliability
+is remediated. That remediation is tracked separately in **#188 / DATA-002** and does not change
+the DATA-001 verdict retroactively.
+
+For captured nsemine datasets, the evidence supports candle/indicator/signal validation and
+provider-bar reconciliation on the persisted data. It does **not** establish unambiguous
+intra-minute execution chronology, and no OHLCV source may be expanded into fabricated
+`MarketEvent` sequences.
+
+The smallest next research-data item is to define the provider-neutral canonical historical OHLCV
+boundary, timestamp/missing-bar quality contract, provenance manifest and immutable dataset format.
+That work should remain independent of any one acquisition library and must not implement a new
+execution model implicitly.
+
 ## References
 
 - SF-075 / DATA-001: https://github.com/harishkamathuk/signalforge/issues/186
+- DATA-002 / nsemine transport remediation: https://github.com/harishkamathuk/signalforge/issues/188
 - nsepython: https://github.com/aeron7/nsepython
 - nsepython historical-equity endpoint issue: https://github.com/aeron7/nsepython/issues/74
 - OpenChart: https://github.com/marketcalls/openchart
@@ -824,10 +848,16 @@ format. That follow-up must not fabricate event chronology.
 
 ## Completion status
 
-SF-075 is **not complete**.
+SF-075 / DATA-001 is **complete**.
 
-OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed path. nsemine 2.2.1
-has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
-explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
-logic into an off-grid processed label. Provider timezone/bar-label semantics remain open. Repeatability is inconclusive and retention is RETENTION_INCONCLUSIVE_DUE_TO_TRANSPORT because fresh acquisitions are blocked by the same curl_cffi/BoringSSL TLS failure before historical retrieval.
-Deterministic 1-minute -> 5-minute reconciliation is proven for all complete buckets in the tested session. nsepython 2.101 runtime confirmation is complete and classified DAILY_ONLY / INSUFFICIENT. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions now depend primarily on the remaining nsemine retention/reliability evidence and the final cross-candidate assessment.
+Final classifications:
+
+- nsepython 2.101 — **REJECT**;
+- OpenChart 0.2.0 — **REJECT**;
+- nsemine 2.2.1 — **RETAIN_AS_FALLBACK**;
+- SELECT — **none**.
+
+The tested free-source set is inadequate for the required reproducible canonical intraday
+acquisition path in its current observed form. DATA-002 (#188) tracks possible nsemine transport
+remediation. The next research-data work item should define the provider-neutral canonical
+historical-bar/dataset contract without changing strategy or replay semantics.
