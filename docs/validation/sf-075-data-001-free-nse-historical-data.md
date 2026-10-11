@@ -71,7 +71,7 @@ Source-inspection claims and runtime observations are kept distinct below.
 | Current-session tick API | Not material to historical requirement | Not established | Yes, current-session tick-by-tick API |
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
-| Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Inconclusive — two fresh repeatability acquisitions failed during NSE TLS/session setup before symbol/history requests |
+| Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Inconclusive — fresh acquisitions are blocked by curl_cffi/BoringSSL TLS failures before symbol/history requests |
 | Preliminary disposition | DAILY_ONLY / INSUFFICIENT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps, provider timestamp semantics, and transport reliability unresolved |
 
 `PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
@@ -670,10 +670,47 @@ nsemine-equivalent `curl_cffi`/BoringSSL path also fails TLS negotiation against
 `charting.nseindia.com` in the tested environment. A bootstrap-only transport substitution is
 therefore insufficient.
 
+### Runtime evidence — retention-depth attempt
+
+A bounded retention-depth probe was started with the already proven 2026-10-09 BAJAJ-AUTO
+one-minute session as the control, followed by progressively older dates.
+
+The control attempt failed during nsemine's NSE session bootstrap before instrument resolution or
+historical retrieval:
+
+```text
+SSLError, curl (35): BoringSSL SSL_connect:
+Connection closed abruptly (SSL_ERROR_SYSCALL)
+connecting to www.nseindia.com:443
+```
+
+Per the scoped stopping rule, no retries were made and no older dates were attempted.
+
+| Date | Classification |
+| --- | --- |
+| 2026-10-09 | TRANSPORT_BLOCKED |
+| 2026-09-11 | Not attempted |
+| 2026-07-10 | Not attempted |
+| 2026-04-10 | Not attempted |
+| 2026-01-09 | Not attempted |
+| 2025-10-10 | Not attempted |
+
+Therefore:
+
+- oldest date proven available **in this probe**: none;
+- prior scoped availability evidence remains 2026-10-09;
+- no provider-level unavailable date was observed;
+- no retention boundary can be inferred;
+- retention classification is **RETENTION_INCONCLUSIVE_DUE_TO_TRANSPORT**.
+
+This is not evidence that older data is unavailable. It is evidence that the current released
+nsemine transport path is not reliable enough in the tested environment to measure retention
+consistently.
+
 Pending work still includes:
 
 - successful repeat acquisition equality;
-- retention/window depth;
+- retention/window depth, if transport reliability is restored;
 - broader duplicate/missing interval analysis across additional sessions;
 - provider timezone/bar-label semantics.
 
@@ -792,6 +829,5 @@ SF-075 is **not complete**.
 OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed path. nsemine 2.2.1
 has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
 explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
-logic into an off-grid processed label. Provider timezone/bar-label semantics and retention remain open; repeatability is currently
-inconclusive because both fresh comparison acquisitions failed during NSE TLS/session setup.
+logic into an off-grid processed label. Provider timezone/bar-label semantics remain open. Repeatability is inconclusive and retention is RETENTION_INCONCLUSIVE_DUE_TO_TRANSPORT because fresh acquisitions are blocked by the same curl_cffi/BoringSSL TLS failure before historical retrieval.
 Deterministic 1-minute -> 5-minute reconciliation is proven for all complete buckets in the tested session. nsepython 2.101 runtime confirmation is complete and classified DAILY_ONLY / INSUFFICIENT. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions now depend primarily on the remaining nsemine retention/reliability evidence and the final cross-candidate assessment.
