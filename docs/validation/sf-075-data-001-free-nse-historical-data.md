@@ -1,6 +1,6 @@
 # SF-075 / DATA-001 — Free NSE Historical Data Evaluation
 
-**Status:** In progress — source/API evidence captured; OpenChart runtime evaluation complete; nsemine/nsepython runtime probes pending  
+**Status:** In progress — source/API evidence captured; OpenChart complete; nsemine initial 5-minute retrieval proven; nsepython pending  
 **Issue:** #186  
 **Research identifier:** DATA-001  
 **Date:** 2026-10-11  
@@ -52,8 +52,10 @@ The original implementation environment could not establish outbound package-ins
 sessions. Runtime probing has therefore moved to a normal local developer environment with
 outbound NSE/charting access.
 
-OpenChart 0.2.0 has now been exercised empirically. nsemine 2.2.1 and nsepython 2.101 still require
-their intentional bounded runtime probes before DATA-001 can close.
+OpenChart 0.2.0 has now been exercised empirically. nsemine 2.2.1 has passed the first bounded
+5-minute retrieval/identity gate, but timestamp semantics, repeatability, retention and 1-minute
+behaviour remain open. nsepython 2.101 still requires its intentional bounded confirmation probe
+before DATA-001 can close.
 
 Source-inspection claims and runtime observations are kept distinct below.
 
@@ -71,7 +73,7 @@ Source-inspection claims and runtime observations are kept distinct below.
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
 | Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Pending |
-| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE |
+| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity + 75-row 5m retrieval proven; timestamp semantics unresolved |
 
 `PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
 records completed empirical evidence for the observed 0.2.0 path; the overall DATA-001 evaluation
@@ -264,6 +266,112 @@ Its historical path is currently classified `BAR_ONLY`.
 Required runtime evidence is the same bounded test matrix used for OpenChart, with particular
 attention to timestamp alignment and any library-level timestamp adjustment.
 
+### Runtime evidence — nsemine 2.2.1 initial 5-minute probe
+
+The first bounded runtime probe used **BAJAJ-AUTO** and required exact instrument identity before
+historical retrieval was allowed.
+
+The public call was:
+
+```python
+get_stock_historical_data(
+    "BAJAJ-AUTO",
+    datetime(2026, 10, 9, 9, 15, tzinfo=ZoneInfo("Asia/Kolkata")),
+    datetime(2026, 10, 9, 15, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
+    interval=5,
+    raw=False,
+)
+```
+
+The resolved provider identity was:
+
+```text
+symbol:         BAJAJ-AUTO-EQ
+scripcode:      16669
+type:           Equity
+exchange:       NSE
+description:    BAJAJ AUTO LIMITED
+fullname:       NSE:BAJAJ-AUTO-EQ
+instrumentType: 1
+```
+
+The historical request used:
+
+```text
+GET https://charting.nseindia.com/v1/charts/symbolHistoricalData
+```
+
+with parameters:
+
+```json
+{
+  "chartType": "I",
+  "fromDate": 1791537300,
+  "symbol": "BAJAJ-AUTO",
+  "symbolType": "Equity",
+  "timeInterval": 5,
+  "toDate": 1791559800,
+  "token": "16669"
+}
+```
+
+Both the symbol lookup and historical request returned HTTP 200 with provider `status=true`.
+The raw and processed historical counts were both **75 rows**.
+
+The returned schema was:
+
+```text
+datetime, open, high, low, close, volume
+```
+
+with `datetime64[us]` naive datetimes, integer OHLCV columns and a `RangeIndex`.
+
+Representative processed rows included:
+
+```text
+09:15  O=9662 H=9706 L=9645 C=9663 V=7909
+09:20  O=9662 H=9670 L=9654 C=9658 V=3595
+09:25  O=9658 H=9715 L=9654 C=9690 V=5080
+...
+15:10  O=9815 H=9823 L=9801 C=9803 V=6426
+15:11  O=9820 H=9820 L=9820 C=9820 V=8
+15:20  O=9820 H=9820 L=9820 C=9820 V=821
+15:25  O=9820 H=9820 L=9778 C=9778 V=245658
+```
+
+The 75-row count is consistent with a complete 375-minute regular NSE session at five-minute
+resolution, but the processed timestamp **15:11** is off the expected five-minute grid. Retrieval
+success therefore does not establish timestamp correctness or bar-label semantics.
+
+Source inspection also established that nsemine 2.2.1:
+
+- resolves symbols through `symbolsDynamic`, strips the final hyphen suffix and attempts exact
+  matching before fallback behaviour;
+- adds 19,800 seconds (+05:30) to intraday input epochs;
+- filters returned timestamps to regular-session clock times;
+- subtracts 299 seconds for five-minute bars and rounds to minute boundaries;
+- returns naive datetimes;
+- drops duplicate datetime values internally and resets the index.
+
+### Current nsemine assessment
+
+nsemine 2.2.1 remains a **CANDIDATE** and has passed the initial identity/retrieval gate that
+OpenChart failed.
+
+The next evidence must establish whether the off-grid 15:11 label originates in provider raw data
+or in nsemine's transformation logic before broader quality claims are made. Pending work still
+includes:
+
+- raw-to-processed timestamp reconciliation around the anomalous bar;
+- 1-minute retrieval;
+- repeat acquisition equality;
+- retention/window depth;
+- duplicate/missing interval analysis;
+- provider timezone/bar-label semantics;
+- bounded 1-minute → 5-minute reconciliation.
+
+No production adapter or replay-semantic change is justified yet.
+
 ## Replay compatibility conclusion
 
 Based on source inspection:
@@ -354,7 +462,9 @@ The current evidence supports:
 - **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
   requests returned empty data, and the public high-level equity path failed exact instrument
   resolution by substituting NIFTY 50 for BAJAJ-AUTO.
-- **nsemine:** runtime-test candidate.
+- **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity and a non-empty 75-row 5-minute session
+  retrieval are proven. Timestamp/bar-label correctness remains unresolved because one processed
+  timestamp appeared at 15:11 rather than on the five-minute grid.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
 - **Execution semantics:** no change.
@@ -375,7 +485,8 @@ format. That follow-up must not fabricate event chronology.
 
 SF-075 is **not complete**.
 
-OpenChart 0.2.0 runtime evaluation is now complete and rejected for the observed path. Outstanding
-work is the intentional bounded runtime evaluation of nsemine 2.2.1 and the required confirmation
-probe for nsepython 2.101, followed by the final cross-candidate SELECT / RETAIN_AS_FALLBACK /
-REJECT conclusion.
+OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed path. nsemine 2.2.1
+has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval, but its raw/processed timestamp
+semantics, repeatability, retention and 1-minute behaviour remain open. nsepython 2.101 still needs
+the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
+pending.
