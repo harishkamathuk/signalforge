@@ -71,7 +71,7 @@ Source-inspection claims and runtime observations are kept distinct below.
 | Current-session tick API | Not material to historical requirement | Not established | Yes, current-session tick-by-tick API |
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
-| Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Pending |
+| Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Inconclusive — two fresh repeatability acquisitions failed during NSE TLS/session setup before symbol/history requests |
 | Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE — exact BAJAJ-AUTO identity; 5m and 1m retrieval proven; 1m gaps and provider timestamp semantics unresolved |
 
 `PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
@@ -525,9 +525,34 @@ acquisition layer and deriving SignalForge-owned deterministic five-minute candl
 trusting nsemine's transformed five-minute labels directly. That remains a follow-up architecture
 decision; SF-075 itself does not change replay or strategy semantics.
 
+### Runtime evidence — repeatability attempt
+
+A bounded repeatability test was attempted using two fresh, identical nsemine 2.2.1 acquisitions
+for BAJAJ-AUTO on 2026-10-09, 09:15–15:30 Asia/Kolkata, interval 1 minute.
+
+Both acquisitions failed before symbol resolution or historical retrieval while establishing the NSE
+session. The observed error was a TLS connection closure (`curl` error 35).
+
+For both attempts:
+
+- no provider identity was resolved;
+- no historical request was sent;
+- no HTTP/provider historical status was available;
+- no raw or processed market rows were acquired;
+- no content digests could be generated;
+- logical equality could not be assessed.
+
+This is a transport/session-establishment failure, not an empty-market-data result and not evidence
+of differing historical content. No retry was performed during the scoped test, so repeatability
+remains **INCONCLUSIVE** rather than failed.
+
+The planned canonical comparison format is deterministic SHA-256 over compact UTF-8 JSON arrays of
+`[timestamp, open, high, low, close, volume]`, preserving returned row order. That comparison can
+be reused when two successful acquisitions are available.
+
 Pending work still includes:
 
-- repeat acquisition equality;
+- successful repeat acquisition equality;
 - retention/window depth;
 - broader duplicate/missing interval analysis across additional sessions;
 - provider timezone/bar-label semantics.
@@ -648,7 +673,8 @@ SF-075 is **not complete**.
 OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed path. nsemine 2.2.1
 has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
 explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
-logic into an off-grid processed label. Provider timezone/bar-label semantics, repeatability,
-retention remains open; deterministic 1-minute -> 5-minute reconciliation is now proven for all complete buckets in the tested session. nsepython 2.101 still needs
+logic into an off-grid processed label. Provider timezone/bar-label semantics and retention remain open; repeatability is currently
+inconclusive because both fresh comparison acquisitions failed during NSE TLS/session setup.
+Deterministic 1-minute -> 5-minute reconciliation is proven for all complete buckets in the tested session. nsepython 2.101 still needs
 the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
 pending.
