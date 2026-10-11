@@ -1,6 +1,6 @@
 # SF-075 / DATA-001 — Free NSE Historical Data Evaluation
 
-**Status:** In progress — source/API evidence captured; live runtime probes pending  
+**Status:** In progress — source/API evidence captured; OpenChart runtime evaluation complete; nsemine/nsepython runtime probes pending  
 **Issue:** #186  
 **Research identifier:** DATA-001  
 **Date:** 2026-10-11  
@@ -48,12 +48,14 @@ authoritative and are reused unchanged by this work item.
 Repository/package source was inspected for all three initial candidates. Published PyPI metadata
 was also checked for current versions and licences.
 
-The current implementation environment cannot establish outbound package-install/provider
-sessions, so the required bounded live retrieval tests have **not** yet been executed here.
-Those checks remain acceptance criteria and must be run in a normal developer environment before
-a final SELECT/REJECT decision is recorded.
+The original implementation environment could not establish outbound package-install/provider
+sessions. Runtime probing has therefore moved to a normal local developer environment with
+outbound NSE/charting access.
 
-No source-level claim below is presented as successful runtime proof.
+OpenChart 0.2.0 has now been exercised empirically. nsemine 2.2.1 and nsepython 2.101 still require
+their intentional bounded runtime probes before DATA-001 can close.
+
+Source-inspection claims and runtime observations are kept distinct below.
 
 ## Candidate comparison — preliminary
 
@@ -68,10 +70,12 @@ No source-level claim below is presented as successful runtime proof.
 | Current-session tick API | Not material to historical requirement | Not established | Yes, current-session tick-by-tick API |
 | ReplaySource compatibility | INSUFFICIENT / BAR-LEVEL only if history works | BAR_ONLY | BAR_ONLY |
 | Timestamp/timezone risk | Runtime evidence required | High-priority runtime check | High-priority runtime check |
-| Runtime repeatability | Pending | Pending | Pending |
-| Preliminary disposition | PROVISIONAL REJECT | CANDIDATE | CANDIDATE |
+| Runtime repeatability | Pending | Not reached — valid instrument-specific bars were not obtained | Pending |
+| Preliminary disposition | PROVISIONAL REJECT | REJECT — observed 0.2.0 runtime path failed retrieval/identity requirements | CANDIDATE |
 
-`PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts.
+`PROVISIONAL REJECT` and `CANDIDATE` are not final DATA-001 verdicts. OpenChart's current `REJECT`
+records completed empirical evidence for the observed 0.2.0 path; the overall DATA-001 evaluation
+remains open until the remaining candidates are tested.
 
 ## nsepython findings
 
@@ -124,7 +128,7 @@ OpenChart is a serious free candidate for **historical OHLCV acquisition**, but 
 path is `BAR_ONLY`; it cannot legitimately enter the existing event-level `ReplaySource` by
 inventing intra-bar chronology.
 
-Required runtime evidence:
+Required runtime evidence was originally:
 
 - RELIANCE or the configured Strategy V1 instrument;
 - 1-minute and 5-minute bounded recent range;
@@ -133,6 +137,101 @@ Required runtime evidence:
 - duplicate/missing intervals;
 - same-range repeat retrieval;
 - bounded 1-minute → 5-minute aggregation reconciliation.
+
+### Runtime evidence — OpenChart 0.2.0
+
+Runtime probing used **BAJAJ-AUTO** as the explicit NSE cash-equity proof instrument.
+
+The direct historical path reached:
+
+```text
+POST https://charting.nseindia.com/v1/charts/symbolHistoricalData
+```
+
+with HTTP 200 but returned:
+
+```json
+{"status": true, "data": []}
+```
+
+for a bounded 5-minute request using token `16669`. The initial request used
+`symbol="BAJAJ-AUTO"`; a controlled correction using the exchange-style
+`symbol="BAJAJ-AUTO-EQ"` produced the same empty result.
+
+The corrected payload was:
+
+```json
+{
+  "token": "16669",
+  "symbol": "BAJAJ-AUTO-EQ",
+  "symbolType": "Equity",
+  "fromDate": 1791517500,
+  "toDate": 1791521100,
+  "chartType": "I",
+  "timeInterval": 5
+}
+```
+
+Those epochs corresponded to:
+
+- `fromDate`: 2026-10-09 03:45:00 UTC / 2026-10-09 09:15:00 Asia/Kolkata;
+- `toDate`: 2026-10-09 04:45:00 UTC / 2026-10-09 10:15:00 Asia/Kolkata.
+
+A controlled HTTP-method comparison changed only the transport from POST-with-JSON to
+GET-with-query-parameters. The endpoint again returned HTTP 200 with `status=true` and zero
+data entries. The failure therefore cannot be attributed to POST alone.
+
+A final high-level library probe used:
+
+```python
+NSEData().historical(
+    symbol="BAJAJ-AUTO-EQ",
+    segment="EQ",
+    start=datetime(2026, 10, 5, 9, 15),
+    end=datetime(2026, 10, 9, 15, 30),
+    interval="5m",
+)
+```
+
+The symbol-search step returned 20 index results with **no BAJAJ-AUTO match**. OpenChart then
+silently selected the first result:
+
+```text
+symbol:     NIFTY 50
+scripcode:  26000
+type:       Index
+```
+
+and issued the historical request for NIFTY 50 rather than BAJAJ-AUTO. That request also returned
+HTTP 200 with `status=true` and an empty data array.
+
+The high-level probe used naive datetimes, which Python converted using the host
+`Europe/London` timezone. No timezone correction was attempted because the more fundamental
+instrument-identity and retrieval requirements had already failed.
+
+### Runtime assessment
+
+OpenChart 0.2.0 is **REJECTED for DATA-001 in its observed form**.
+
+The decisive failure is not merely that historical requests returned zero bars. The public
+high-level equity path failed to preserve the requested instrument identity and silently fell back
+from BAJAJ-AUTO to NIFTY 50. That is incompatible with SignalForge's reproducibility and
+auditability requirements because downstream research could otherwise operate on the wrong
+security without an explicit failure.
+
+Because no trustworthy BAJAJ-AUTO historical bars were obtained, the following checks were not
+meaningful and remain unproven for OpenChart:
+
+- 1-minute depth;
+- larger retention/window limits;
+- provider timestamp semantics;
+- missing/duplicate intervals;
+- repeat-download equality;
+- 1-minute → 5-minute reconciliation.
+
+No additional payload, epoch, timezone or HTTP-method permutations are justified for SF-075
+without new evidence that the current OpenChart path can first preserve instrument identity and
+return instrument-specific historical bars.
 
 ## nsemine findings
 
@@ -252,7 +351,9 @@ The current evidence supports:
 
 - **nsepython:** likely unsuitable for the required historical intraday path; confirm once with
   current-version runtime evidence.
-- **OpenChart:** runtime-test candidate.
+- **OpenChart:** **REJECT** for DATA-001 in the observed 0.2.0 runtime path. Direct historical
+  requests returned empty data, and the public high-level equity path failed exact instrument
+  resolution by substituting NIFTY 50 for BAJAJ-AUTO.
 - **nsemine:** runtime-test candidate.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
@@ -272,7 +373,9 @@ format. That follow-up must not fabricate event chronology.
 
 ## Completion status
 
-SF-075 is **not complete** from source inspection alone.
+SF-075 is **not complete**.
 
-Outstanding blocker: empirical candidate retrieval/repeatability/timestamp/retention evidence
-must be captured from an environment able to reach the public NSE/charting endpoints.
+OpenChart 0.2.0 runtime evaluation is now complete and rejected for the observed path. Outstanding
+work is the intentional bounded runtime evaluation of nsemine 2.2.1 and the required confirmation
+probe for nsepython 2.101, followed by the final cross-candidate SELECT / RETAIN_AS_FALLBACK /
+REJECT conclusion.
