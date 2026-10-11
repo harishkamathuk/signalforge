@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import Mapping
 
 from signalforge.config.identity import config_hash
 from signalforge.config.strategy_registry import (
@@ -19,7 +19,7 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.ids import DatasetId, InstrumentId
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
-from signalforge.domain.time import CandleInterval, IST, require_aware, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, require_aware, to_ist, to_utc
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 from signalforge.runtime.strategy import CompletedCandleStrategyContext, StrategyDecision
 
