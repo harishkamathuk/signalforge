@@ -53,8 +53,8 @@ sessions. Runtime probing has therefore moved to a normal local developer enviro
 outbound NSE/charting access.
 
 OpenChart 0.2.0 has now been exercised empirically. nsemine 2.2.1 has passed the first bounded
-5-minute retrieval/identity gate, but timestamp semantics, repeatability, retention and 1-minute
-behaviour remain open. nsepython 2.101 still requires its intentional bounded confirmation probe
+5-minute retrieval/identity gate, but raw/processed timestamp behaviour is now partially characterized; provider timezone semantics,
+repeatability, retention and 1-minute behaviour remain open. nsepython 2.101 still requires its intentional bounded confirmation probe
 before DATA-001 can close.
 
 Source-inspection claims and runtime observations are kept distinct below.
@@ -358,17 +358,58 @@ Source inspection also established that nsemine 2.2.1:
 nsemine 2.2.1 remains a **CANDIDATE** and has passed the initial identity/retrieval gate that
 OpenChart failed.
 
-The next evidence must establish whether the off-grid 15:11 label originates in provider raw data
-or in nsemine's transformation logic before broader quality claims are made. Pending work still
-includes:
+A focused raw-to-processed reconciliation established the cause of the off-grid 15:11 label.
 
-- raw-to-processed timestamp reconciliation around the anomalous bar;
+For the same BAJAJ-AUTO 5-minute session:
+
+- raw rows: **75**;
+- processed rows before/after deduplication: **75 / 75**;
+- duplicate raw timestamps: **0**;
+- duplicate processed timestamps before/after deduplication: **0 / 0**.
+
+Around the anomalous interval, raw provider timestamps (interpreted mechanically as Unix
+milliseconds for inspection only) mapped as follows:
+
+| Raw timestamp (ms) | UTC rendering | Asia/Kolkata rendering | Processed label | OHLCV |
+| --- | --- | --- | --- | --- |
+| 1791558597000 | 15:09:57 | 20:39:57 | 15:05 | 9823 / 9827 / 9799 / 9817 / 7276 |
+| 1791558897000 | 15:14:57 | 20:44:57 | 15:10 | 9815 / 9823 / 9801 / 9803 / 6426 |
+| **1791558910000** | **15:15:10** | **20:45:10** | **15:11** | **9820 / 9820 / 9820 / 9820 / 8** |
+| 1791559496000 | 15:24:56 | 20:54:56 | 15:20 | 9820 / 9820 / 9820 / 9820 / 821 |
+| 1791559783000 | 15:29:43 | 20:59:43 | 15:25 | 9820 / 9820 / 9778 / 9778 / 245658 |
+
+These UTC/Asia-Kolkata renderings do **not** establish the provider's intended timezone
+convention; they are only mechanical interpretations of the raw integer timestamps.
+
+For the anomalous raw value, nsemine's installed transformation is:
+
+```text
+1791558910000 - 299000 = 1791558611000
+naive datetime conversion -> 2026-10-09 15:10:11
+seconds 11 > 1:
+  truncate seconds -> 15:10:00
+  add one minute   -> 15:11:00
+```
+
+The raw value itself is already irregular relative to neighbouring five-minute endpoint patterns:
+it is only 13 seconds after the preceding raw row. nsemine's fixed `-299 seconds` adjustment and
+rounding then converts that irregular raw timestamp into the specific off-grid `15:11` label.
+
+Session filtering retained the row. Duplicate handling removed nothing and did not contribute to
+the anomaly. On the expected 15:05 / 15:10 / 15:15 / 15:20 / 15:25 grid, the processed output has
+one missing expected label (**15:15**) and one off-grid label (**15:11**).
+
+This establishes that nsemine's processed labels cannot be accepted as canonical bar timestamps
+without an independent timestamp interpretation/canonicalisation rule.
+
+Pending work still includes:
+
 - 1-minute retrieval;
 - repeat acquisition equality;
 - retention/window depth;
-- duplicate/missing interval analysis;
+- broader duplicate/missing interval analysis;
 - provider timezone/bar-label semantics;
-- bounded 1-minute → 5-minute reconciliation.
+- bounded 1-minute -> 5-minute reconciliation.
 
 No production adapter or replay-semantic change is justified yet.
 
@@ -463,8 +504,9 @@ The current evidence supports:
   requests returned empty data, and the public high-level equity path failed exact instrument
   resolution by substituting NIFTY 50 for BAJAJ-AUTO.
 - **nsemine:** **CANDIDATE**; exact BAJAJ-AUTO identity and a non-empty 75-row 5-minute session
-  retrieval are proven. Timestamp/bar-label correctness remains unresolved because one processed
-  timestamp appeared at 15:11 rather than on the five-minute grid.
+  retrieval are proven. Raw/processed reconciliation shows the provider supplied an irregular raw
+  timestamp and nsemine transformed it into an off-grid 15:11 label; processed timestamps therefore
+  cannot yet be treated as canonical.
 - **ReplaySource:** no change in SF-075.
 - **Strategy V1:** no change.
 - **Execution semantics:** no change.
@@ -486,7 +528,9 @@ format. That follow-up must not fabricate event chronology.
 SF-075 is **not complete**.
 
 OpenChart 0.2.0 runtime evaluation is complete and rejected for the observed path. nsemine 2.2.1
-has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval, but its raw/processed timestamp
-semantics, repeatability, retention and 1-minute behaviour remain open. nsepython 2.101 still needs
+has proven exact BAJAJ-AUTO identity and initial 5-minute retrieval. The 15:11 anomaly is now
+explained: an irregular raw provider timestamp was transformed by nsemine's fixed offset/rounding
+logic into an off-grid processed label. Provider timezone/bar-label semantics, repeatability,
+retention and 1-minute behaviour remain open. nsepython 2.101 still needs
 the required confirmation probe. Final SELECT / RETAIN_AS_FALLBACK / REJECT conclusions remain
 pending.
