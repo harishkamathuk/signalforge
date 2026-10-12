@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal
@@ -16,7 +17,7 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.armed import ArmedSetupState
 from signalforge.domain.ids import RunId, deterministic_id
 from signalforge.domain.instruments import TickSizeSchedule
-from signalforge.domain.market import CandleQuality
+from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
@@ -343,7 +344,7 @@ def _arm(
     dataset: HistoricalBarDataset,
     strategy: Strategy,
     run: RunIdentity,
-    candle,
+    candle: CompletedCandle,
     decision: StrategyDecision,
     tick_schedule: TickSizeSchedule,
 ) -> _Active:
@@ -774,7 +775,7 @@ def _blocked(
     )
 
 
-def _expected_minute_starts(dataset: HistoricalBarDataset):
+def _expected_minute_starts(dataset: HistoricalBarDataset) -> Iterator[datetime]:
     for session_date in dataset.manifest.expected_session_dates:
         current = to_utc(datetime.combine(session_date, _SESSION_OPEN, tzinfo=IST))
         end = to_utc(datetime.combine(session_date, _SESSION_END, tzinfo=IST))
@@ -788,7 +789,14 @@ def _forced_exit_at(at: datetime) -> datetime:
     return datetime.combine(local.date(), _FORCED_EXIT, tzinfo=IST)
 
 
-def _result(dataset, strategy, engine_version, profile, outcomes, terminated):
+def _result(
+    dataset: HistoricalBarDataset,
+    strategy: Strategy,
+    engine_version: str,
+    profile: HistoricalExecutionAssumptionProfile,
+    outcomes: list[HistoricalExecutionOutcome],
+    terminated: bool,
+) -> HistoricalExecutionRunResult:
     return HistoricalExecutionRunResult(
         str(dataset.dataset_id),
         strategy.identity.strategy_id,
