@@ -18,6 +18,7 @@ nav:
   - Validation:
       - SF-075 Free NSE Historical Data Evaluation: validation/sf-075-data-001-free-nse-historical-data.md
       - Cross-Strategy Proof: validation/cross-strategy-proof.md
+      - SF-078 Historical Execution Proof: validation/sf-078-historical-execution-proof.md
       - M7 Recovery Golden: validation/m7-recovery-golden.md
   - Architecture:
       - ADR-001 — Single-Security MVP Runtime Architecture: architecture/decisions/ADR-001-single-security-mvp-runtime-architecture.md
