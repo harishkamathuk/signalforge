@@ -161,6 +161,32 @@ Shared compulsory session safety remains separate from strategy-specific cutoff 
 Live and historical paths must consume the same accepted intent so the historical simulator does not
 become a second implementation of strategy semantics.
 
+## Strategy-facing fill economics boundary
+
+The existing `domain.execution.Fill` is an authoritative execution fact whose current modes are
+PAPER and LIVE. A historical simulator must not manufacture a PAPER/LIVE Fill merely to reuse
+`Strategy.post_fill_economics(...)`.
+
+SF-078 must therefore introduce the smallest strategy-facing fill view required by post-fill
+economics, or an equivalent typed boundary, so that:
+
+- live/PAPER passes values originating from the authoritative real/PAPER Fill;
+- historical research passes a modeled historical fill carrying explicit execution-assumption
+  provenance;
+- strategy code receives the same economic inputs in both modes;
+- historical modeled fills are never misidentified as broker/PAPER execution facts.
+
+The current registered strategies only require the accepted entry fill price to derive their
+post-fill economics. The new view must not expose broader execution state without evidence that a
+strategy needs it.
+
+Adding `HISTORICAL` to `ExecutionMode` solely to force research through the authoritative Fill
+entity is not the preferred design, because execution mode and research evidence are different
+concepts.
+
+Historical exits likewise require research evidence types rather than fabricated PAPER/LIVE Exit
+facts.
+
 ## One-minute bar evidence rules
 
 The canonical one-minute bar is the finest historical observation used by the first simulator.
@@ -254,10 +280,11 @@ opening observation and the accepted shared priority rules do not resolve them, 
 
 ## Post-fill economics
 
-The historical simulator must construct a modeled Fill first.
+The historical simulator must construct a modeled historical fill first.
 
-Strategy post-fill economics are then derived from that modeled Fill using the same Strategy-owned
-post-fill contract used by runtime execution.
+Strategy post-fill economics are then derived through the shared strategy-facing fill-economics
+boundary using that modeled fill. The authoritative PAPER/LIVE Fill entity itself must not be
+fabricated for historical research.
 
 Therefore:
 
@@ -539,7 +566,8 @@ At minimum SF-078 must:
 3. define versioned execution-assumption profile types;
 4. define bar reachability and ambiguity result types;
 5. simulate one active opportunity at a time over canonical one-minute bars;
-6. use modeled Fill before calling Strategy post-fill economics;
+6. introduce/use the shared strategy-facing fill view so modeled historical fills can drive
+   Strategy post-fill economics without fabricating PAPER/LIVE Fill facts;
 7. reuse canonical tick normalization/session safety;
 8. emit determinate/bounded/unresolved evidence;
 9. exclude ambiguous outcomes from ordinary point-estimate metrics;
