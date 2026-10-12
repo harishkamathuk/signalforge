@@ -211,6 +211,25 @@ class Strategy(Protocol):
     ) -> PositionEconomics: ...
 
 
+def validate_armed_policy(
+    policy: ArmedPolicyIntent,
+    setup: ArmedSetupView,
+) -> None:
+    """Validate the currently supported long-entry declarative policy family."""
+
+    invalidation = policy.pre_entry_invalidation
+    if invalidation is None:
+        return
+    if invalidation.direction is not PriceBarrierDirection.AT_OR_BELOW:
+        raise ValueError(
+            "Current long-entry ARMED policy supports only AT_OR_BELOW invalidation"
+        )
+    if invalidation.price.value >= setup.tradable_trigger.value:
+        raise ValueError(
+            "Pre-entry invalidation must be strictly below the tradable trigger"
+        )
+
+
 def evaluate_armed_market_event(
     policy: ArmedPolicyIntent,
     setup: ArmedSetupView,
@@ -218,6 +237,7 @@ def evaluate_armed_market_event(
 ) -> ArmedEventDecision:
     """Evaluate one ordered live/PAPER event against declarative ARMED policy."""
 
+    validate_armed_policy(policy, setup)
     observed_at = event.exchange_timestamp
     cutoff = policy.strategy_entry_cutoff_at
     if cutoff is not None and observed_at >= cutoff:
@@ -259,6 +279,7 @@ def evaluate_armed_time(
 ) -> ArmedEventDecision:
     """Evaluate known time boundaries against declarative ARMED policy."""
 
+    validate_armed_policy(policy, setup)
     cutoff = policy.strategy_entry_cutoff_at
     if cutoff is not None and cutoff <= setup.valid_until and at >= cutoff:
         return ArmedEventDecision(
@@ -282,6 +303,7 @@ def evaluate_armed_completed_candle(
 ) -> ArmedEventDecision:
     """Expire one active setup at its accepted completed-candle boundary."""
 
+    validate_armed_policy(policy, setup)
     if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
         raise ValueError("CompletedCandle must be the active setup's following candle")
     cutoff = policy.strategy_entry_cutoff_at
