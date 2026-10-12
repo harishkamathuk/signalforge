@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -14,7 +15,6 @@ from signalforge.config.strategy_registry import (
     StrategyRegistry,
     StrategySelection,
 )
-from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements
@@ -177,7 +177,7 @@ class _CloseAboveEmaTestStrategy:
     def arm_intent(
         self,
         candle: CompletedCandle,
-        decision: _CloseAboveEmaDecision,
+        decision: StrategyDecision,
     ) -> ArmIntent:
         raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
 
@@ -214,7 +214,7 @@ class _CloseAboveEmaTestStrategy:
 
 
 def _build_close_above_ema_test_strategy(
-    parameters: object,
+    parameters: Mapping[str, object],
 ) -> _CloseAboveEmaTestStrategy:
     del parameters
     return _CloseAboveEmaTestStrategy()
