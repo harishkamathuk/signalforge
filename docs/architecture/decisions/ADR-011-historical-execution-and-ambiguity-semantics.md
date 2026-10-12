@@ -457,6 +457,9 @@ Important constraints:
 
 - `HistoricalArmedPolicyIntent` is strategy-owned policy expressed through a known typed lifecycle
   contract, not a generic rule language.
+- for the current long-only family, price-based pre-entry invalidation is a downward
+  `AT_OR_BELOW` barrier strictly below the tradable entry trigger; overlapping/conflicting barrier
+  priority is unsupported until a real strategy requires an explicit policy extension.
 - `StrategyEntryFillView` is a strategy-facing economic view, not an authoritative execution fact.
 - slippage fields above are placeholders for known versioned model types; SF-078 must not use
   arbitrary callables/executable config.
