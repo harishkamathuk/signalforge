@@ -111,8 +111,10 @@ class HistoricalExecutionAssumptionProfile:
             value = getattr(self, name)
             if not isinstance(value, Decimal):
                 raise TypeError(f"{name} must be a Decimal")
-            if not value.is_finite() or value < 0:
-                raise ValueError(f"{name} must be finite and non-negative")
+            if not value.is_finite() or value < 0 or value >= _BPS:
+                raise ValueError(
+                    f"{name} must be finite, non-negative, and below 10000 bps"
+                )
 
     @classmethod
     def zero(cls) -> HistoricalExecutionAssumptionProfile:
@@ -417,6 +419,15 @@ class HistoricalBarExecutionRunner:
                 )
                 if terminal is not None:
                     outcomes.append(terminal)
+                    if _requires_run_termination(terminal):
+                        return _result(
+                            dataset,
+                            strategy,
+                            engine_calculation_version,
+                            execution_profile,
+                            outcomes,
+                            True,
+                        )
                     active = None
 
             completed_candle = candle_by_end.get(bar.interval.end)
@@ -978,6 +989,17 @@ def _expected_minute_starts(dataset: HistoricalBarDataset) -> Iterator[datetime]
 def _forced_exit_at(at: datetime) -> datetime:
     local = to_ist(at)
     return datetime.combine(local.date(), _FORCED_EXIT, tzinfo=IST)
+
+
+def _requires_run_termination(outcome: HistoricalExecutionOutcome) -> bool:
+    if outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED:
+        return True
+    if outcome.certainty is not HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS:
+        return False
+    return any(
+        branch.terminal_state is HistoricalTerminalState.OPEN_POSSIBLE
+        for branch in outcome.possible_outcomes
+    )
 
 
 def _result(
