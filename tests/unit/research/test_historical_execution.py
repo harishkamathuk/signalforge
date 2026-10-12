@@ -460,6 +460,7 @@ def test_intrabar_trigger_and_invalidation_are_bounded() -> None:
         HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,
     )
     assert result.summary.determinate_coverage_rate == Decimal("0")
+    assert result.terminated_early is True
 
 
 def test_gap_entry_at_open_precedes_later_same_bar_invalidation_and_stop() -> None:
@@ -586,8 +587,10 @@ def test_entry_at_1515_boundary_is_blocked_by_compulsory_session_cutoff() -> Non
 
 
 def test_stop_and_target_same_minute_is_bounded_not_ordered() -> None:
-    outcome = _run(_dataset(ambiguity=True)).outcomes[0]
+    result = _run(_dataset(ambiguity=True))
+    outcome = result.outcomes[0]
 
+    assert result.terminated_early is False
     assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
     assert HistoricalAmbiguityReason.STOP_VS_TARGET in outcome.ambiguity_reasons
     assert len(outcome.possible_outcomes) == 2
@@ -624,8 +627,10 @@ def test_missing_active_minute_is_unresolved_and_terminates_run() -> None:
 
 def test_unsupported_post_fill_policy_is_unresolved_not_silently_reinterpreted() -> None:
     strategy = _UnsupportedPostFillStopStrategy()
-    outcome = _run(_dataset(), strategy=strategy).outcomes[0]
+    result = _run(_dataset(), strategy=strategy)
+    outcome = result.outcomes[0]
 
+    assert result.terminated_early is True
     assert outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED
     assert outcome.ambiguity_reasons == (
         HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,
