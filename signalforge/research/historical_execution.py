@@ -150,12 +150,29 @@ class HistoricalModeledFill:
     timing: HistoricalFillTiming
     slippage_bps: Decimal
 
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "base_price": self.base_price.value,
+            "fill_price": self.fill_price.value,
+            "bucket_start": self.bucket.start.isoformat(),
+            "bucket_end": self.bucket.end.isoformat(),
+            "timing": self.timing.value,
+            "slippage_bps": self.slippage_bps,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class HistoricalPossibleOutcome:
     terminal_state: HistoricalTerminalState
     exit_reason: HistoricalExitReason | None
     realised_r: Decimal | None
+
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "terminal_state": self.terminal_state.value,
+            "exit_reason": None if self.exit_reason is None else self.exit_reason.value,
+            "realised_r": self.realised_r,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +182,11 @@ class HistoricalExecutionOutcome:
     certainty: HistoricalOutcomeCertainty
     terminal_state: HistoricalTerminalState
     decision_reasons: tuple[str, ...]
+    raw_trigger: Price | None = None
+    tradable_trigger: Price | None = None
+    stop_price: Price | None = None
+    raw_target_price: Price | None = None
+    tradable_target_price: Price | None = None
     entry_fill: HistoricalModeledFill | None = None
     exit_fill: HistoricalModeledFill | None = None
     exit_reason: HistoricalExitReason | None = None
@@ -173,6 +195,47 @@ class HistoricalExecutionOutcome:
     possible_outcomes: tuple[HistoricalPossibleOutcome, ...] = ()
     affected_quality_buckets: tuple[CandleInterval, ...] = ()
     detail: str | None = None
+
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "opportunity_id": self.opportunity_id,
+            "signal_interval_start": self.signal_interval.start.isoformat(),
+            "signal_interval_end": self.signal_interval.end.isoformat(),
+            "certainty": self.certainty.value,
+            "terminal_state": self.terminal_state.value,
+            "decision_reasons": list(self.decision_reasons),
+            "raw_trigger": None if self.raw_trigger is None else self.raw_trigger.value,
+            "tradable_trigger": (
+                None if self.tradable_trigger is None else self.tradable_trigger.value
+            ),
+            "stop_price": None if self.stop_price is None else self.stop_price.value,
+            "raw_target_price": (
+                None if self.raw_target_price is None else self.raw_target_price.value
+            ),
+            "tradable_target_price": (
+                None
+                if self.tradable_target_price is None
+                else self.tradable_target_price.value
+            ),
+            "entry_fill": (
+                None if self.entry_fill is None else self.entry_fill.semantic_mapping()
+            ),
+            "exit_fill": None if self.exit_fill is None else self.exit_fill.semantic_mapping(),
+            "exit_reason": None if self.exit_reason is None else self.exit_reason.value,
+            "realised_r": self.realised_r,
+            "ambiguity_reasons": [item.value for item in self.ambiguity_reasons],
+            "possible_outcomes": [
+                item.semantic_mapping() for item in self.possible_outcomes
+            ],
+            "affected_quality_buckets": [
+                {
+                    "start": item.start.isoformat(),
+                    "end": item.end.isoformat(),
+                }
+                for item in self.affected_quality_buckets
+            ],
+            "detail": self.detail,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +251,20 @@ class HistoricalExecutionSummary:
     determinate_subset_profit_factor_r: Decimal | None
     determinate_subset_max_drawdown_r: Decimal
 
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "total_actionable_opportunities": self.total_actionable_opportunities,
+            "determinate_opportunities": self.determinate_opportunities,
+            "bounded_ambiguous_opportunities": self.bounded_ambiguous_opportunities,
+            "unresolved_opportunities": self.unresolved_opportunities,
+            "determinate_coverage_rate": self.determinate_coverage_rate,
+            "determinate_closed_trades": self.determinate_closed_trades,
+            "determinate_subset_win_rate": self.determinate_subset_win_rate,
+            "determinate_subset_expectancy_r": self.determinate_subset_expectancy_r,
+            "determinate_subset_profit_factor_r": self.determinate_subset_profit_factor_r,
+            "determinate_subset_max_drawdown_r": self.determinate_subset_max_drawdown_r,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class HistoricalExecutionRunResult:
@@ -200,6 +277,23 @@ class HistoricalExecutionRunResult:
     outcomes: tuple[HistoricalExecutionOutcome, ...]
     summary: HistoricalExecutionSummary
     terminated_early: bool
+
+    @property
+    def result_id(self) -> str:
+        return config_hash(self.semantic_mapping())
+
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "dataset_id": self.dataset_id,
+            "strategy_id": self.strategy_id,
+            "strategy_version": self.strategy_version,
+            "config_hash": self.config_hash,
+            "engine_calculation_version": self.engine_calculation_version,
+            "execution_profile_semantic_id": self.execution_profile_semantic_id,
+            "outcomes": [item.semantic_mapping() for item in self.outcomes],
+            "summary": self.summary.semantic_mapping(),
+            "terminated_early": self.terminated_early,
+        }
 
 
 @dataclass(slots=True)
@@ -676,6 +770,11 @@ def _closed(
         HistoricalOutcomeCertainty.DETERMINATE,
         HistoricalTerminalState.CLOSED,
         active.reasons,
+        raw_trigger=active.view.raw_trigger,
+        tradable_trigger=active.view.tradable_trigger,
+        stop_price=active.view.stop_price,
+        raw_target_price=active.raw_target,
+        tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
         exit_fill=fill,
         exit_reason=reason,
@@ -690,6 +789,11 @@ def _expired(active: _Active, detail: str) -> HistoricalExecutionOutcome:
         HistoricalOutcomeCertainty.DETERMINATE,
         HistoricalTerminalState.EXPIRED,
         active.reasons,
+        raw_trigger=active.view.raw_trigger,
+        tradable_trigger=active.view.tradable_trigger,
+        stop_price=active.view.stop_price,
+        raw_target_price=active.raw_target,
+        tradable_target_price=active.tradable_target,
         detail=detail,
     )
 
@@ -701,6 +805,11 @@ def _rejected(active: _Active, detail: str) -> HistoricalExecutionOutcome:
         HistoricalOutcomeCertainty.DETERMINATE,
         HistoricalTerminalState.REJECTED,
         active.reasons,
+        raw_trigger=active.view.raw_trigger,
+        tradable_trigger=active.view.tradable_trigger,
+        stop_price=active.view.stop_price,
+        raw_target_price=active.raw_target,
+        tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
         detail=detail,
     )
@@ -718,6 +827,11 @@ def _bounded(
         HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS,
         HistoricalTerminalState.UNRESOLVED,
         active.reasons,
+        raw_trigger=active.view.raw_trigger,
+        tradable_trigger=active.view.tradable_trigger,
+        stop_price=active.view.stop_price,
+        raw_target_price=active.raw_target,
+        tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
         ambiguity_reasons=reasons,
         possible_outcomes=possible,
@@ -736,6 +850,11 @@ def _unresolved(
         HistoricalOutcomeCertainty.UNRESOLVED,
         HistoricalTerminalState.UNRESOLVED,
         active.reasons,
+        raw_trigger=active.view.raw_trigger,
+        tradable_trigger=active.view.tradable_trigger,
+        stop_price=active.view.stop_price,
+        raw_target_price=active.raw_target,
+        tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
         ambiguity_reasons=reasons,
         detail=detail,
