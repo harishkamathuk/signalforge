@@ -255,11 +255,8 @@ class HistoricalDatasetManifest:
             "expected_session_dates": [
                 session_date.isoformat() for session_date in self.expected_session_dates
             ],
-            "raw_row_count": self.raw_row_count,
             "canonical_row_count": self.canonical_row_count,
             "missing_interval_count": self.missing_interval_count,
-            "duplicate_observation_count": self.duplicate_observation_count,
-            "corrupt_rejected_count": self.corrupt_rejected_count,
             "corporate_action_policy": self.corporate_action_policy.value,
             "limitations": list(self.limitations),
         }
