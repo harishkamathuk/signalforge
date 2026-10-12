@@ -520,13 +520,14 @@ def _process_armed_bar(
     trigger = bar.high.value >= active.view.tradable_trigger.value
     invalidation = active.policy.pre_entry_invalidation
     invalidated = invalidation is not None and bar.low.value <= invalidation.price.value
+    gap = bar.open.value >= active.view.tradable_trigger.value
 
     for boundary, reason in (
         (cutoff, HistoricalAmbiguityReason.ENTRY_VS_STRATEGY_CUTOFF),
         (active.view.valid_until, HistoricalAmbiguityReason.ENTRY_VS_EXPIRY),
         (forced, HistoricalAmbiguityReason.ENTRY_VS_SESSION_CUTOFF),
     ):
-        if boundary is not None and start < boundary < end and trigger:
+        if boundary is not None and start < boundary < end and trigger and not gap:
             return _bounded(
                 active,
                 (reason,),
@@ -537,7 +538,7 @@ def _process_armed_bar(
                 "price reach and time-boundary order unknown",
             )
 
-    if trigger and invalidated:
+    if not gap and trigger and invalidated:
         return _bounded(
             active,
             (HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,),
@@ -547,12 +548,11 @@ def _process_armed_bar(
             ),
             "trigger and invalidation both reachable in one minute",
         )
-    if invalidated:
+    if not gap and invalidated:
         return _expired(active, "pre_entry_invalidation")
     if not trigger:
         return None
 
-    gap = bar.open.value >= active.view.tradable_trigger.value
     base = bar.open if gap else active.view.tradable_trigger
     entry = _buy_fill(
         base,
