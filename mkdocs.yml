@@ -38,6 +38,7 @@ nav:
       - Market-Input Recovery: api/market-input-recovery.md
       - Research Identity Contracts: api/research-contracts.md
       - Historical Bar Research Boundary: api/historical-bar-research.md
+      - Historical Bar Execution: api/historical-execution.md
       - Per-Instrument Backtest Runner: api/backtest-runner.md
       - Research Orchestration & Analytics: api/research-orchestration.md
       - RSI Mean-Reversion Reference: api/rsi-mean-reversion-v1.md
