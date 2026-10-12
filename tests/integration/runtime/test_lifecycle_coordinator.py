@@ -278,6 +278,10 @@ class _NonPositiveRiskStrategy(IntradayMomentumV1Strategy):
             valid_until=candle.interval.end + timedelta(minutes=5),
         )
 
+    def armed_policy(self, signal, setup):
+        del signal, setup
+        return ArmedPolicyIntent()
+
     def post_fill_economics(self, fill, setup):
         raise AssertionError("post-fill target economics must not run for non-positive risk")
 
