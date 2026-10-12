@@ -1,17 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import replace
+import inspect
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from signalforge.config.strategy_registry import StrategySelection
+from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
+from signalforge.config.strategy_registry import (
+    StrategyRegistration,
+    StrategyRegistry,
+    StrategySelection,
+)
+from signalforge.domain.armed import ExpiryReason
+from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
+from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements
 from signalforge.domain.market import CandleQuality
+from signalforge.domain.market import CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
+from signalforge.domain.provenance import StrategyIdentity
+from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval, to_utc
+import signalforge.research.historical_bars as historical_bars_module
 from signalforge.research.historical_bars import (
     CorporateActionPolicy,
     HistoricalBar,
@@ -113,6 +126,164 @@ def _manifest(
 
 def _dataset(bars: tuple[HistoricalBar, ...]) -> HistoricalBarDataset:
     return HistoricalBarDataset(manifest=_manifest(bars), bars=bars)
+
+
+@dataclass(frozen=True, slots=True)
+class _CloseAboveEmaDecision:
+    instrument_id: InstrumentId
+    interval: CandleInterval
+    qualified: bool
+    actionable: bool
+    reasons: tuple[str, ...]
+
+
+class _CloseAboveEmaTestStrategy:
+    """Test-only third strategy shape for shared-boundary pressure."""
+
+    _identity = StrategyIdentity("test_close_above_ema", "1.0.0")
+    _config_identity = identify_config(
+        {"strategy": "test_close_above_ema", "ema_period": 3},
+        status=ConfigStatus.EXPERIMENTAL,
+    )
+    _requirements = IndicatorRequirements.of(EmaRequirement(3))
+
+    @property
+    def identity(self) -> StrategyIdentity:
+        return self._identity
+
+    @property
+    def config_identity(self) -> ConfigIdentity:
+        return self._config_identity
+
+    @property
+    def indicator_requirements(self) -> IndicatorRequirements:
+        return self._requirements
+
+    def evaluate_completed_candle(
+        self,
+        context: CompletedCandleStrategyContext,
+    ) -> _CloseAboveEmaDecision:
+        ema = context.indicators.ema(3)
+        close = context.candle.close
+        actionable = ema is not None and close is not None and close.value > ema
+        return _CloseAboveEmaDecision(
+            instrument_id=context.candle.instrument_id,
+            interval=context.candle.interval,
+            qualified=actionable,
+            actionable=actionable,
+            reasons=("close_above_ema3",) if actionable else ("not_ready_or_not_above",),
+        )
+
+    def arm_intent(
+        self,
+        candle: CompletedCandle,
+        decision: _CloseAboveEmaDecision,
+    ) -> ArmIntent:
+        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
+
+    def evaluate_armed_market_event(
+        self,
+        signal: Signal,
+        setup: ArmedSetupView,
+        event: MarketEvent,
+    ) -> ArmedEventDecision:
+        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
+
+    def evaluate_armed_completed_candle(
+        self,
+        signal: Signal,
+        setup: ArmedSetupView,
+        candle: CompletedCandle,
+    ) -> ArmedEventDecision:
+        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
+
+    def evaluate_armed_time(
+        self,
+        signal: Signal,
+        setup: ArmedSetupView,
+        at: datetime,
+    ) -> ArmedEventDecision:
+        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
+
+    def post_fill_economics(
+        self,
+        fill: Fill,
+        setup: ArmedSetupView,
+    ) -> PositionEconomics:
+        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
+
+
+def _build_close_above_ema_test_strategy(
+    parameters: object,
+) -> _CloseAboveEmaTestStrategy:
+    del parameters
+    return _CloseAboveEmaTestStrategy()
+
+
+def test_historical_bar_runner_has_no_real_strategy_dispatch() -> None:
+    source = inspect.getsource(historical_bars_module)
+    forbidden = (
+        "intraday_momentum_v1",
+        "rsi_mean_reversion_v1",
+        "IntradayMomentumV1Strategy",
+        "RsiMeanReversionV1Strategy",
+    )
+    for token in forbidden:
+        assert token not in source
+
+
+def test_historical_bar_runner_supports_both_registered_strategies() -> None:
+    root = Path(__file__).parents[3]
+    dataset = load_historical_bar_fixture(
+        root / "examples/research/historical-bars-one-session.json"
+    )
+    runner = HistoricalBarResearchRunner()
+
+    momentum = runner.run(
+        dataset,
+        strategy_selection=StrategySelection("intraday_momentum_v1", "1.0.0", {}),
+        engine_calculation_version="engine-v1",
+    )
+    mean_reversion = runner.run(
+        dataset,
+        strategy_selection=StrategySelection("rsi_mean_reversion_v1", "1.0.0", {}),
+        engine_calculation_version="engine-v1",
+    )
+
+    assert momentum.strategy_id == "intraday_momentum_v1"
+    assert mean_reversion.strategy_id == "rsi_mean_reversion_v1"
+    assert momentum.config_hash != mean_reversion.config_hash
+    assert len(momentum.decisions) == 75
+    assert len(mean_reversion.decisions) == 75
+    assert any(item.indicator_ready for item in momentum.decisions)
+    assert any(item.indicator_ready for item in mean_reversion.decisions)
+
+
+def test_historical_bar_runner_supports_third_test_only_strategy_shape() -> None:
+    root = Path(__file__).parents[3]
+    dataset = load_historical_bar_fixture(
+        root / "examples/research/historical-bars-one-session.json"
+    )
+    registry = StrategyRegistry(
+        (
+            StrategyRegistration(
+                "test_close_above_ema",
+                "1.0.0",
+                _build_close_above_ema_test_strategy,
+            ),
+        )
+    )
+    result = HistoricalBarResearchRunner(registry=registry).run(
+        dataset,
+        strategy_selection=StrategySelection("test_close_above_ema", "1.0.0", {}),
+        engine_calculation_version="engine-v1",
+    )
+
+    assert result.strategy_id == "test_close_above_ema"
+    assert len(result.decisions) == 75
+    assert result.decisions[0].indicator_ready is False
+    assert any(item.indicator_ready for item in result.decisions)
+    assert any(item.actionable for item in result.decisions)
 
 
 def test_historical_bar_requires_exact_valid_one_minute_observation() -> None:
