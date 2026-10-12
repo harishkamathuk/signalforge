@@ -242,7 +242,7 @@ def test_entire_declared_session_with_no_rows_is_explicitly_missing() -> None:
     assert candles[75].quality is CandleQuality.VALID
 
 
-def test_dataset_identity_ignores_acquisition_wall_clock_but_changes_with_content() -> None:
+def test_dataset_identity_ignores_operational_provenance_but_changes_with_content() -> None:
     bars = _bars(15, 5)
     first = HistoricalBarDataset(
         manifest=_manifest(
@@ -259,6 +259,15 @@ def test_dataset_identity_ignores_acquisition_wall_clock_but_changes_with_conten
         bars=bars,
     )
     assert first.dataset_id == second.dataset_id
+
+    operationally_different = HistoricalBarDataset(
+        manifest=_manifest(
+            bars,
+            corrupt_rejected_count=1,
+        ),
+        bars=bars,
+    )
+    assert operationally_different.dataset_id == first.dataset_id
 
     changed_bars = (*bars[:-1], replace(bars[-1], volume=bars[-1].volume + 1))
     changed = HistoricalBarDataset(
