@@ -28,6 +28,10 @@ from signalforge.runtime.strategy import (
     PositionEconomics,
     Strategy,
     StrategyDecision,
+    StrategyEntryFillView,
+    evaluate_armed_completed_candle,
+    evaluate_armed_market_event,
+    evaluate_armed_time,
 )
 
 
@@ -240,9 +244,10 @@ class LifecycleCoordinator:
                 expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
             )
         else:
-            policy = self.strategy.evaluate_armed_market_event(
-                arming.signal,
-                self._setup_view(arming),
+            setup_view = self._setup_view(arming)
+            policy = evaluate_armed_market_event(
+                self.strategy.armed_policy(arming.signal, setup_view),
+                setup_view,
                 event,
             )
         trigger = self.signal_lifecycle.process_market_event(event, policy)
@@ -260,7 +265,7 @@ class LifecycleCoordinator:
             )
         else:
             economics = self.strategy.post_fill_economics(
-                fill,
+                StrategyEntryFillView(fill.fill_price),
                 self._setup_view(arming),
             )
         self._open_result = self.position_manager.open_from_fill(
@@ -296,9 +301,10 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        policy = self.strategy.evaluate_armed_completed_candle(
-            arming.signal,
-            self._setup_view(arming),
+        setup_view = self._setup_view(arming)
+        policy = evaluate_armed_completed_candle(
+            self.strategy.armed_policy(arming.signal, setup_view),
+            setup_view,
             candle,
         )
         self.signal_lifecycle.process_completed_candle(candle, policy)
@@ -319,9 +325,10 @@ class LifecycleCoordinator:
                 expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
             )
         else:
-            policy = self.strategy.evaluate_armed_time(
-                arming.signal,
-                self._setup_view(arming),
+            setup_view = self._setup_view(arming)
+            policy = evaluate_armed_time(
+                self.strategy.armed_policy(arming.signal, setup_view),
+                setup_view,
                 at,
             )
         self.signal_lifecycle.process_time(at, policy)
