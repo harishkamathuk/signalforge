@@ -174,6 +174,15 @@ def test_dataset_rejects_noncanonical_input_order() -> None:
         HistoricalBarDataset(manifest=_manifest(bars), bars=bars)
 
 
+def test_dataset_rejects_bar_from_undeclared_session() -> None:
+    declared_bar = _bar(15)
+    undeclared_bar = _bar(15, session_date=date(2026, 10, 8))
+    manifest = _manifest((declared_bar,))
+
+    with pytest.raises(ValueError, match="session date is not declared"):
+        HistoricalBarDataset(manifest=manifest, bars=(undeclared_bar,))
+
+
 def test_manifest_identity_counts_must_match_canonical_content() -> None:
     bars = _bars(15, 5)
     manifest = _manifest(bars)
