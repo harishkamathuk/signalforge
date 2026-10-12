@@ -4,10 +4,9 @@ from decimal import Decimal
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ArmedSetupState, ExpiryReason
-from signalforge.domain.execution import ExecutionMode, Fill
-from signalforge.domain.ids import EntryIntentId, InstrumentId, RunId, TriggerEventId
+from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
-from signalforge.domain.money import Price, Quantity
+from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import (
@@ -22,7 +21,13 @@ from signalforge.runtime.rsi_mean_reversion_v1 import (
     RsiMeanReversionDecision,
     RsiMeanReversionV1Strategy,
 )
-from signalforge.runtime.strategy import ArmedEventAction, ArmedSetupView
+from signalforge.runtime.strategy import (
+    ArmedEventAction,
+    ArmedSetupView,
+    StrategyEntryFillView,
+    evaluate_armed_market_event,
+    evaluate_armed_time,
+)
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:SF066SEM")
@@ -73,19 +78,8 @@ def _signal(strategy, candle: CompletedCandle) -> Signal:
 
 
 
-def _fill(strategy, signal: Signal, view: ArmedSetupView, price: Decimal) -> Fill:
-    return Fill.create(
-        entry_intent_id=EntryIntentId(f"sf066-intent-{strategy.identity.strategy_id}"),
-        trigger_event_id=TriggerEventId(f"sf066-trigger-{strategy.identity.strategy_id}"),
-        signal_id=signal.signal_id,
-        instrument_id=signal.instrument_id,
-        reference_price=view.tradable_trigger,
-        fill_price=Price(price),
-        quantity=Quantity(10),
-        execution_mode=ExecutionMode.PAPER,
-        filled_at=view.armed_at + timedelta(seconds=1),
-        run=signal.run,
-    )
+def _fill(price: Decimal) -> StrategyEntryFillView:
+    return StrategyEntryFillView(Price(price))
 
 
 def test_v1_semantic_matrix_remains_exact() -> None:
@@ -126,11 +120,15 @@ def test_v1_semantic_matrix_remains_exact() -> None:
         quantity=1,
         source="sf066",
     )
-    invalidation = strategy.evaluate_armed_market_event(signal, view, breach)
+    invalidation = evaluate_armed_market_event(
+        strategy.armed_policy(signal, view),
+        view,
+        breach,
+    )
     assert invalidation.action is ArmedEventAction.EXPIRE
     assert invalidation.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
 
-    fill = _fill(strategy, signal, view, Decimal("100.50"))
+    fill = _fill(Decimal("100.50"))
     economics = strategy.post_fill_economics(fill, view)
     assert economics.stop_price == Price(Decimal("99"))
     assert economics.raw_target_price == Price(Decimal("102.75"))
@@ -150,8 +148,8 @@ def test_v1_retains_1505_strategy_cutoff() -> None:
         state=ArmedSetupState.ARMED,
     )
 
-    decision = strategy.evaluate_armed_time(
-        signal,
+    decision = evaluate_armed_time(
+        strategy.armed_policy(signal, view),
         view,
         datetime(2026, 10, 3, 15, 5, tzinfo=IST),
     )
@@ -196,10 +194,14 @@ def test_reference_semantic_matrix_remains_independent_of_v1() -> None:
         source="sf066",
     )
     assert (
-        strategy.evaluate_armed_market_event(signal, view, low_event).action
+        evaluate_armed_market_event(
+            strategy.armed_policy(signal, view),
+            view,
+            low_event,
+        ).action
         is ArmedEventAction.NO_ACTION
     )
 
-    fill = _fill(strategy, signal, view, Decimal("100.50"))
+    fill = _fill(Decimal("100.50"))
     economics = strategy.post_fill_economics(fill, view)
     assert economics.raw_target_price == Price(Decimal("102.00"))
