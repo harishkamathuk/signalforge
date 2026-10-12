@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,4 +45,15 @@ def ceil_to_tick(price: Price, tick_size: Price) -> Price:
         raise ValueError("Tick size must be strictly positive")
 
     ticks = (price.value / tick_size.value).to_integral_value(rounding=ROUND_CEILING)
+    return Price(ticks * tick_size.value)
+
+
+
+def floor_to_tick(price: Price, tick_size: Price) -> Price:
+    """Return the largest valid tick-aligned price less than or equal to *price*."""
+
+    if tick_size.value <= 0:
+        raise ValueError("Tick size must be strictly positive")
+
+    ticks = (price.value / tick_size.value).to_integral_value(rounding=ROUND_FLOOR)
     return Price(ticks * tick_size.value)
