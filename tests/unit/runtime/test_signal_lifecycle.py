@@ -15,7 +15,13 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.signal_lifecycle import SignalLifecycleManager
-from signalforge.runtime.strategy import ArmedSetupView, ArmIntent
+from signalforge.runtime.strategy import (
+    ArmedSetupView,
+    ArmIntent,
+    evaluate_armed_completed_candle,
+    evaluate_armed_market_event,
+    evaluate_armed_time,
+)
 from signalforge.runtime.strategy_evaluator import (
     StrategyEvaluationContext,
     StrategyEvaluator,
@@ -118,9 +124,11 @@ def _setup_view(manager: SignalLifecycleManager) -> ArmedSetupView:
 def _process_event(manager: SignalLifecycleManager, event: MarketEvent):
     active = manager.active
     assert active is not None
-    policy = _strategy().evaluate_armed_market_event(
-        active.signal,
-        _setup_view(manager),
+    strategy = _strategy()
+    view = _setup_view(manager)
+    policy = evaluate_armed_market_event(
+        strategy.armed_policy(active.signal, view),
+        view,
         event,
     )
     return manager.process_market_event(event, policy)
@@ -129,9 +137,11 @@ def _process_event(manager: SignalLifecycleManager, event: MarketEvent):
 def _process_completed(manager: SignalLifecycleManager, candle: CompletedCandle) -> None:
     active = manager.active
     assert active is not None
-    policy = _strategy().evaluate_armed_completed_candle(
-        active.signal,
-        _setup_view(manager),
+    strategy = _strategy()
+    view = _setup_view(manager)
+    policy = evaluate_armed_completed_candle(
+        strategy.armed_policy(active.signal, view),
+        view,
         candle,
     )
     manager.process_completed_candle(candle, policy)
@@ -140,7 +150,13 @@ def _process_completed(manager: SignalLifecycleManager, candle: CompletedCandle)
 def _process_time(manager: SignalLifecycleManager, at: datetime) -> None:
     active = manager.active
     assert active is not None
-    policy = _strategy().evaluate_armed_time(active.signal, _setup_view(manager), at)
+    strategy = _strategy()
+    view = _setup_view(manager)
+    policy = evaluate_armed_time(
+        strategy.armed_policy(active.signal, view),
+        view,
+        at,
+    )
     manager.process_time(at, policy)
 
 
@@ -451,9 +467,11 @@ def test_wrong_instrument_market_event_is_rejected() -> None:
     )
     active = manager.active
     assert active is not None
-    policy = _strategy().evaluate_armed_market_event(
-        active.signal,
-        active.armed_setup,
+    strategy = _strategy()
+    view = _setup_view(manager)
+    policy = evaluate_armed_market_event(
+        strategy.armed_policy(active.signal, view),
+        view,
         foreign_event,
     )
     try:
