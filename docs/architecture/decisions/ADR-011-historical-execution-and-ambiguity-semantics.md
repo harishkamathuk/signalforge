@@ -126,26 +126,37 @@ The historical simulator may consume:
 - typed entry/arming intent;
 - strategy validity/expiry intent;
 - typed pre-entry invalidation intent;
+- typed strategy-specific entry-cutoff intent, when present;
 - accepted post-fill economics derived from the modeled Fill;
 - shared session-safety rules.
 
 ### Required implementation clarification for SF-078
 
-The current `ArmIntent` exposes trigger, stop and validity but does not declaratively expose
-strategy-specific pre-entry invalidation. Live/PAPER currently obtains that behavior from
-`Strategy.evaluate_armed_market_event(...)`.
+The current `ArmIntent` exposes trigger, stop and validity but does not declaratively expose two
+strategy-owned ARMED policies that matter to historical execution:
 
-SF-078 must **not** solve this by creating synthetic MarketEvent objects from OHLCV.
+- strategy-specific pre-entry invalidation;
+- strategy-specific earlier entry cutoff.
 
-Instead, SF-078 must first introduce the smallest typed declarative pre-entry policy needed by the
+Live/PAPER currently obtains those behaviors from `Strategy.evaluate_armed_market_event(...)` and
+`Strategy.evaluate_armed_time(...)`.
+
+SF-078 must **not** solve this by creating synthetic MarketEvent objects from OHLCV or by duplicating
+the same policy in a historical-only code path.
+
+Instead, SF-078 must first introduce the smallest typed declarative ARMED policy needed by the
 existing strategies and make that policy authoritative for both live/PAPER and historical mechanics.
 
 The implementation should remain a known typed lifecycle contract, not a strategy DSL.
 
 For the currently registered strategies this must be able to express at least:
 
-- momentum V1: price trigger plus signal-low pre-entry invalidation;
-- RSI mean-reversion V1: price trigger with no price-based pre-entry invalidation.
+- momentum V1: price trigger, signal-low pre-entry invalidation, one-following-candle validity and
+  the strategy-specific 15:05 IST entry cutoff;
+- RSI mean-reversion V1: price trigger, no price-based pre-entry invalidation, one-following-candle
+  validity and no strategy-specific earlier entry cutoff.
+
+Shared compulsory session safety remains separate from strategy-specific cutoff intent.
 
 Live and historical paths must consume the same accepted intent so the historical simulator does not
 become a second implementation of strategy semantics.
@@ -344,6 +355,7 @@ SF-078 must support at least the following classifications:
 
 - `ENTRY_VS_INVALIDATION`
 - `ENTRY_VS_EXPIRY`
+- `ENTRY_VS_STRATEGY_CUTOFF`
 - `ENTRY_VS_SESSION_CUTOFF`
 - `ENTRY_VS_POST_FILL_STOP`
 - `ENTRY_VS_POST_FILL_TARGET`
@@ -410,6 +422,7 @@ Minimum evidence:
 - strategy decision/reasons;
 - raw and tradable entry trigger intent;
 - pre-entry invalidation intent, if any;
+- strategy-specific entry cutoff, if any;
 - validity/expiry boundary;
 - stop intent;
 - execution-assumption profile ID/version;
@@ -439,12 +452,14 @@ Exercises:
 - upward price trigger offset from signal close;
 - price-based pre-entry invalidation at signal low;
 - one-following-candle validity;
+- strategy-specific 15:05 entry cutoff;
 - stop at signal low;
 - post-fill 1.5R target.
 
 Pressure exposed:
 
-- historical simulation requires declarative pre-entry invalidation shared with live semantics.
+- historical simulation requires declarative pre-entry invalidation and strategy-specific cutoff
+  intent shared with live semantics.
 
 ### Shape 2 — rsi_mean_reversion_v1
 
@@ -453,6 +468,7 @@ Exercises:
 - different indicator composition;
 - trigger at signal close rather than offset;
 - no price-based pre-entry invalidation;
+- no strategy-specific earlier entry cutoff;
 - same generic ARMED lifecycle family;
 - post-fill 1.0R target.
 
@@ -517,7 +533,8 @@ historical execution vertical.
 
 At minimum SF-078 must:
 
-1. introduce the typed shared pre-entry invalidation intent needed to avoid synthetic MarketEvents;
+1. introduce typed shared pre-entry invalidation and strategy-specific entry-cutoff intent needed
+   to avoid synthetic MarketEvents;
 2. migrate both registered strategies/live lifecycle to that shared intent without semantic change;
 3. define versioned execution-assumption profile types;
 4. define bar reachability and ambiguity result types;
