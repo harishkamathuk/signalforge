@@ -40,15 +40,19 @@ fabricated flat rows.
 
 The dataset identity is derived from semantic canonical content and interpretation
 provenance. Operational acquisition time and local file location are not dataset
-identity. Contradictory duplicates fail explicitly; exact duplicate observations are
-deduplicated only when the manifest records them consistently.
+identity. The manifest explicitly declares the expected regular NSE session dates;
+the requested range must span those complete sessions from 09:15 through 15:30 IST.
+This keeps holidays/non-trading dates out of the thin vertical without inferring an
+exchange calendar. Contradictory duplicates fail explicitly; exact duplicates and all
+identity-material row/missing counts must reconcile with canonical content.
 
 ## Deterministic aggregation
 
 ::: signalforge.research.historical_bars.aggregate_one_minute_to_five_minute
 
-The aggregator builds the regular NSE 09:15–15:30 five-minute grid using half-open
-intervals. A bucket is:
+The aggregator builds the regular NSE 09:15–15:30 five-minute grid for every
+explicitly declared expected session date, including a declared session for which the
+provider returned no rows. It uses half-open intervals. A bucket is:
 
 - `VALID` with all five expected valid one-minute constituents;
 - `INCOMPLETE` with at least one but fewer than five constituents;
@@ -62,9 +66,10 @@ Only `VALID` derived candles may advance research indicators.
 
 ::: signalforge.research.historical_bars.HistoricalBarResearchResult
 
-A non-VALID derived candle breaks historical indicator continuity for the thin vertical.
-Later valid bars remain quality evidence but are not used to resume indicator state
-silently. Re-establishing continuity across gaps requires a separate explicit contract.
+A non-VALID derived candle raises `HistoricalContinuityError` and fails the research
+run explicitly. The thin vertical does not silently resume indicators after a gap and
+does not silently discard all later valid data. Re-establishing continuity or re-seeding
+across gaps requires a separate explicit contract.
 
 The runner resolves strategies through the existing registry, constructs the existing
 `IndicatorEngine` from the strategy's declared requirements, and invokes the existing
