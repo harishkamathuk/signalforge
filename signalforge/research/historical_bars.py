@@ -27,6 +27,7 @@ _ONE_MINUTE = timedelta(minutes=1)
 _FIVE_MINUTES = timedelta(minutes=5)
 _SESSION_OPEN = time(9, 15)
 _SESSION_END = time(15, 30)
+_EXPECTED_ONE_MINUTE_BARS = 375
 _EXPECTED_FIVE_MINUTE_BARS = 75
 
 
@@ -161,6 +162,7 @@ class HistoricalDatasetManifest:
     provider_timestamp_representation: str
     timezone_interpretation: str
     canonicalisation_version: str
+    expected_session_dates: tuple[date, ...]
     raw_row_count: int
     canonical_row_count: int
     missing_interval_count: int
@@ -193,6 +195,20 @@ class HistoricalDatasetManifest:
             require_aware(getattr(self, name))
         if self.requested_end <= self.requested_start:
             raise ValueError("Historical dataset requested range must be increasing")
+        if not self.expected_session_dates:
+            raise ValueError("Historical dataset requires at least one expected session date")
+        if self.expected_session_dates != tuple(sorted(set(self.expected_session_dates))):
+            raise ValueError("Historical expected session dates must be unique and ordered")
+        requested_start_ist = to_ist(self.requested_start)
+        requested_end_ist = to_ist(self.requested_end)
+        first_session = self.expected_session_dates[0]
+        last_session = self.expected_session_dates[-1]
+        expected_request_start = datetime.combine(first_session, _SESSION_OPEN, tzinfo=IST)
+        expected_request_end = datetime.combine(last_session, _SESSION_END, tzinfo=IST)
+        if requested_start_ist != expected_request_start or requested_end_ist != expected_request_end:
+            raise ValueError(
+                "DATA-004 requested range must span complete declared regular NSE sessions"
+            )
         if self.returned_end <= self.returned_start:
             raise ValueError("Historical dataset returned range must be increasing")
         if (
@@ -236,6 +252,9 @@ class HistoricalDatasetManifest:
             "provider_timestamp_representation": self.provider_timestamp_representation,
             "timezone_interpretation": self.timezone_interpretation,
             "canonicalisation_version": self.canonicalisation_version,
+            "expected_session_dates": [
+                session_date.isoformat() for session_date in self.expected_session_dates
+            ],
             "raw_row_count": self.raw_row_count,
             "canonical_row_count": self.canonical_row_count,
             "missing_interval_count": self.missing_interval_count,
@@ -268,6 +287,9 @@ class HistoricalBarDataset:
                 raise ValueError("Historical bar provider contradicts dataset manifest")
             if bar.canonicalisation_version != self.manifest.canonicalisation_version:
                 raise ValueError("Historical bar canonicalisation version contradicts manifest")
+            session_date = to_ist(bar.interval.start).date()
+            if session_date not in self.manifest.expected_session_dates:
+                raise ValueError("Historical bar session date is not declared by dataset manifest")
             start = bar.interval.start
             existing = by_start.get(start)
             if existing is not None:
@@ -285,6 +307,19 @@ class HistoricalBarDataset:
             raise ValueError("Historical duplicate count contradicts dataset manifest")
         if len(canonical) != self.manifest.canonical_row_count:
             raise ValueError("Historical canonical row count contradicts dataset manifest")
+        expected_raw_rows = (
+            len(canonical)
+            + duplicate_count
+            + self.manifest.corrupt_rejected_count
+        )
+        if self.manifest.raw_row_count != expected_raw_rows:
+            raise ValueError("Historical raw row count contradicts canonical dataset content")
+        expected_missing = (
+            len(self.manifest.expected_session_dates) * _EXPECTED_ONE_MINUTE_BARS
+            - len(canonical)
+        )
+        if self.manifest.missing_interval_count != expected_missing:
+            raise ValueError("Historical missing interval count contradicts expected session grid")
         first = canonical[0].interval.start
         last = canonical[-1].interval.end
         if first != self.manifest.returned_start or last != self.manifest.returned_end:
@@ -308,11 +343,15 @@ class HistoricalBarDataset:
 
         return DatasetId(self.content_hash)
 
-    @property
-    def session_dates(self) -> tuple[date, ...]:
-        """Return covered NSE local session dates in deterministic order."""
+class HistoricalContinuityError(RuntimeError):
+    """Raised when a non-valid derived bucket prevents deterministic continuation."""
 
-        return tuple(sorted({to_ist(bar.interval.start).date() for bar in self.bars}))
+    def __init__(self, candle: CompletedCandle) -> None:
+        self.candle = candle
+        super().__init__(
+            "Historical research continuity is unresolved at "
+            f"{candle.interval.start.isoformat()} with quality={candle.quality.value}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,7 +380,6 @@ class HistoricalBarResearchResult:
     valid_candles: int
     incomplete_candles: int
     missing_candles: int
-    skipped_after_continuity_break: int
     decisions: tuple[HistoricalDecisionEvidence, ...]
 
     def semantic_mapping(self) -> dict[str, object]:
@@ -357,7 +395,6 @@ class HistoricalBarResearchResult:
             "valid_candles": self.valid_candles,
             "incomplete_candles": self.incomplete_candles,
             "missing_candles": self.missing_candles,
-            "skipped_after_continuity_break": self.skipped_after_continuity_break,
             "decisions": [
                 {
                     "interval_start": item.interval_start.isoformat(),
@@ -381,7 +418,7 @@ def aggregate_one_minute_to_five_minute(
     by_start = {bar.interval.start: bar for bar in dataset.bars}
     output: list[CompletedCandle] = []
 
-    for session_date in dataset.session_dates:
+    for session_date in dataset.manifest.expected_session_dates:
         session_start = datetime.combine(session_date, _SESSION_OPEN, tzinfo=IST)
         for index in range(_EXPECTED_FIVE_MINUTE_BARS):
             bucket_start_ist = session_start + index * _FIVE_MINUTES
@@ -467,28 +504,21 @@ class HistoricalBarResearchRunner:
         valid = 0
         incomplete = 0
         missing = 0
-        skipped_after_break = 0
         completed_count = 0
-        continuity_broken = False
 
         derived = aggregate_one_minute_to_five_minute(dataset)
         for candle in derived:
             if candle.quality is CandleQuality.INCOMPLETE:
                 incomplete += 1
-                continuity_broken = True
                 engine.break_continuity()
-                continue
+                raise HistoricalContinuityError(candle)
             if candle.quality is CandleQuality.MISSING:
                 missing += 1
-                continuity_broken = True
                 engine.break_continuity()
-                continue
+                raise HistoricalContinuityError(candle)
             if candle.quality is not CandleQuality.VALID:
                 raise ValueError("Unexpected historical derived candle quality")
             valid += 1
-            if continuity_broken:
-                skipped_after_break += 1
-                continue
 
             snapshot = engine.update(candle)
             completed_count += 1
@@ -523,7 +553,6 @@ class HistoricalBarResearchRunner:
             valid_candles=valid,
             incomplete_candles=incomplete,
             missing_candles=missing,
-            skipped_after_continuity_break=skipped_after_break,
             decisions=tuple(decisions),
         )
 
@@ -558,6 +587,9 @@ def load_historical_bar_fixture(path: Path) -> HistoricalBarDataset:
         ),
         timezone_interpretation=_string(manifest_raw, "timezone_interpretation"),
         canonicalisation_version=_string(manifest_raw, "canonicalisation_version"),
+        expected_session_dates=tuple(
+            _date_list(manifest_raw.get("expected_session_dates"), "expected_session_dates")
+        ),
         raw_row_count=_integer(manifest_raw, "raw_row_count"),
         canonical_row_count=_integer(manifest_raw, "canonical_row_count"),
         missing_interval_count=_integer(manifest_raw, "missing_interval_count"),
@@ -655,4 +687,15 @@ def _string_list(value: object, field: str) -> list[str]:
         if not isinstance(item, str):
             raise ValueError(f"Historical fixture {field} must be a list of strings")
         items.append(item)
+    return items
+
+
+def _date_list(value: object, field: str) -> list[date]:
+    if not isinstance(value, list):
+        raise ValueError(f"Historical fixture {field} must be a list of ISO dates")
+    items: list[date] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"Historical fixture {field} must be a list of ISO dates")
+        items.append(date.fromisoformat(item))
     return items
