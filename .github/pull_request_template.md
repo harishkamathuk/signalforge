@@ -34,6 +34,22 @@ State relevant work deliberately not included.
 
 If an item is not applicable, explain why below rather than silently ignoring it.
 
+## Strategy-abstraction proof
+
+Reusable strategy-facing abstraction introduced/materially changed: **No / Yes**
+
+If **Yes**:
+
+- Strategy shape 1:
+- Strategy shape 2:
+- Strategy shape 3:
+- Shared contract exercised:
+- Hidden strategy assumptions challenged:
+
+If fewer than three materially different shapes are used, explain why three are impracticable
+and record the residual coupling risk. Do not add a speculative production strategy merely to
+satisfy the count.
+
 ## Boundary & determinism review
 
 Applicable: **No / Yes**

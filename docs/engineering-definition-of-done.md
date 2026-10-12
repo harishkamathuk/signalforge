@@ -22,6 +22,27 @@ Issue-specific acceptance criteria remain authoritative for the work item. This 
 - Keep code, domain validation and persistence constraints mutually consistent.
 - Add or update tests for changed contracts, including negative/contradictory cases where relevant.
 
+## Strategy-abstraction proof
+
+When a change introduces or materially changes a reusable strategy-facing abstraction, apply
+ADR-008's cross-strategy proof discipline before merge.
+
+Default evidence is at least three materially different strategy shapes where practicable. The
+three shapes may be production, experimental/reference, or test-only implementations; do not
+invent a production strategy merely to satisfy the count.
+
+The PR must state:
+
+- whether the change introduces or materially changes a reusable strategy-facing abstraction;
+- which materially different strategy shapes exercise the same shared contract;
+- what hidden strategy assumptions the proof is intended to expose;
+- if fewer than three shapes are used, why three are impracticable and what residual coupling
+  risk remains.
+
+This requirement is about architectural decoupling evidence. It is not a profitability test and
+does not apply mechanically to ordinary bug fixes, provider adapters, persistence/schema work, or
+strategy-local changes that do not alter a reusable strategy-facing contract.
+
 ## Adversarial review before merge
 
 Every implementation PR must receive a cross-cutting adversarial review in addition to normal acceptance testing.

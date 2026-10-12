@@ -98,6 +98,34 @@ Do not introduce:
 - a generic expression/DAG workflow engine;
 - a mandatory EntryPolicy/StopPolicy/TargetPolicy hierarchy.
 
+## Strategy abstraction proof discipline
+
+Before accepting a new reusable strategy-facing abstraction, demonstrate it against at least
+three materially different strategy shapes where practicable.
+
+This is an architectural pressure test, not a requirement to create speculative production
+strategies or duplicate equivalent tests merely to satisfy a number.
+
+The proof should:
+
+- exercise the same shared/public abstraction through materially different strategy shapes;
+- include production, experimental/reference, or test-only strategy implementations as
+  appropriate;
+- prefer a test-only third strategy shape when adding a third production strategy would be
+  artificial or premature;
+- demonstrate that indicator requirements, decisions/intents and strategy-owned policy remain
+  supplied through the Strategy contract rather than strategy-ID/class dispatch in shared code;
+- focus on exposing hidden strategy assumptions, not on profitability or strategy validity.
+
+Fewer than three shapes are acceptable only when three are genuinely impracticable. In that
+case, the implementing PR must state why, describe the residual coupling risk, and avoid claiming
+stronger genericity than the evidence supports.
+
+This rule applies when introducing or materially changing a reusable strategy-facing abstraction.
+It does not require three-strategy proof for ordinary bug fixes, provider adapters, persistence
+changes, strategy-local implementation work, or other changes that do not alter a reusable
+strategy-facing contract.
+
 ## Persistence and recovery
 
 Existing run provenance and Signal/Fill/Trade/Position/Exit relationships remain substantially valid.
