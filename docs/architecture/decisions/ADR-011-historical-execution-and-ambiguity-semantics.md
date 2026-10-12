@@ -204,23 +204,27 @@ The simulator must use half-open bucket time semantics consistently with canonic
 
 ## Entry eligibility
 
-For an active long entry trigger:
+For an active long entry, all historical trigger reachability is evaluated against the accepted
+**tradable trigger** after canonical tick normalization. The raw trigger remains strategy intent and
+provenance only; it must not be used to decide whether historical market evidence would have
+triggered an entry.
 
 ### No trigger reach
 
-If `high < trigger`, the trigger was not reached during that bar.
+If `high < tradable_trigger`, the entry trigger was not reached during that bar.
 
 ### Gap-through at bar open
 
-If `open >= trigger`, trigger eligibility is determinate at the bar opening observation unless a
-higher-priority shared time/session rule has already expired the opportunity at that exact boundary.
+If `open >= tradable_trigger`, trigger eligibility is determinate at the bar opening observation
+unless a higher-priority shared time/session rule has already expired the opportunity at that exact
+boundary.
 
-The modeled entry base price is the observed `open`, not the trigger.
+The modeled entry base price is the observed `open`, not the tradable trigger.
 
 ### Intrabar trigger reach
 
-If `open < trigger <= high`, the bar proves that the trigger condition became reachable, but the
-exact triggering trade price/time is unobserved.
+If `open < tradable_trigger <= high`, the bar proves that the tradable trigger condition became
+reachable, but the exact triggering trade price/time is unobserved.
 
 If no competing strategy invalidation, expiry/session boundary, or post-fill exit can materially
 change the lifecycle result within the same bar, entry occurrence is determinate and the execution
@@ -266,7 +270,7 @@ Gap-through cases are distinguishable because bar open is an observed price.
 
 For long entry:
 
-- `open >= trigger` uses open as the modeled execution base.
+- `open >= tradable_trigger` uses open as the modeled execution base.
 
 For an already-open long position:
 
@@ -376,6 +380,37 @@ profile/provenance.
 
 The simulator must not allow strategy policy to extend beyond the shared compulsory safety boundary.
 
+## Missing, incomplete and corrupt execution evidence
+
+Historical execution requires continuous trustworthy one-minute evidence while an opportunity is
+ARMED or a position is OPEN.
+
+A required canonical one-minute bucket with quality `MISSING`, `INCOMPLETE` or `CORRUPT` does
+not prove that no market action occurred. The unobserved/invalid interval could contain an entry
+trigger, strategy invalidation, stop, target or compulsory-exit event.
+
+Therefore:
+
+- if such a bucket intersects an ARMED opportunity's active interval, that opportunity becomes
+  `UNRESOLVED` from the first affected bucket unless it had already reached a determinate terminal
+  state before the gap;
+- if such a bucket intersects an OPEN position's lifetime, that trade outcome becomes
+  `UNRESOLVED` from the first affected bucket unless it had already closed determinately before
+  the gap;
+- later valid bars must not retroactively restore determinacy for that same opportunity/trade;
+- the evidence must record every affected canonical bucket identity and quality value;
+- unresolved data-gap outcomes are excluded from ordinary determinate-subset point estimates;
+- a runner may either continue with later independent opportunities after the unresolved lifecycle
+  is terminated for research purposes or fail the broader run, but that behavior must be an explicit,
+  versioned runner policy rather than implicit control flow.
+
+The initial SF-078 implementation should use a dedicated ambiguity/data-quality classification such
+as `MISSING_EXECUTION_EVIDENCE` so data-quality uncertainty is distinguishable from valid-bar
+intra-bar ordering ambiguity.
+
+This policy extends ADR-010's fail-closed treatment of missing evidence into historical execution
+semantics; absence must never be interpreted as "no trigger/no exit."
+
 ## Conceptual typed contract
 
 The following shapes are normative at the responsibility level but illustrative at the exact Python
@@ -450,6 +485,7 @@ class HistoricalPossibleOutcome:
 class HistoricalExecutionOutcome:
     certainty: HistoricalOutcomeCertainty
     ambiguity_reasons: tuple[str, ...]
+    affected_quality_buckets: tuple[object, ...]
     possible_outcomes: tuple[HistoricalPossibleOutcome, ...]
 ```
 
@@ -480,6 +516,7 @@ SF-078 must support at least the following classifications:
 - `ENTRY_VS_POST_FILL_TARGET`
 - `STOP_VS_TARGET`
 - `MULTIPLE_COMPETING_ACTIONS`
+- `MISSING_EXECUTION_EVIDENCE`
 - `UNSUPPORTED_STRATEGY_POLICY`
 
 Additional classifications may be added only when they represent a real distinguishable ambiguity,
@@ -509,22 +546,45 @@ Examples may include:
 
 ### Research statistics rule
 
-Only DETERMINATE trades may enter ordinary point-estimate statistics such as:
+Only DETERMINATE trades may enter point-estimate calculations such as:
 
 - win rate;
 - average R / expectancy;
 - profit factor;
-- deterministic equity curve;
-- deterministic drawdown.
+- equity curve;
+- drawdown.
 
-Ambiguous opportunities must be reported separately.
+However, when any actionable opportunities are BOUNDED_AMBIGUOUS or UNRESOLVED, those calculations
+are **conditional on the determinate subset** and must not be presented as whole-strategy metrics.
 
-A research report may additionally publish explicit lower/upper sensitivity bounds that include
-ambiguous cases, but those must be labeled as bounded sensitivity results and must never be mixed
-silently into the deterministic point estimate.
+Required labels in that case include wording such as:
 
-Rejecting ambiguous trades from point statistics is not equivalent to deleting them: their count,
-rate, possible outcomes and concentration must remain visible.
+- determinate-subset win rate;
+- determinate-subset expectancy / average R;
+- determinate-subset profit factor;
+- determinate-subset equity curve / drawdown.
+
+Every research report containing outcome statistics must publish coverage diagnostics at minimum:
+
+- total actionable opportunities;
+- determinate opportunities/trades;
+- bounded-ambiguous opportunities;
+- unresolved opportunities;
+- determinate coverage rate = determinate actionable opportunities / total actionable opportunities.
+
+If ambiguity/unresolved count is zero, the determinate subset equals the full observed actionable
+sample and whole-sample labels may be used.
+
+No automatic "acceptable ambiguity threshold" is defined by this ADR. Introducing such a threshold
+would itself be a research-governance decision because ambiguity may be systematically associated
+with volatility or adverse outcomes rather than missing at random.
+
+A research report may additionally publish explicit lower/upper bounded sensitivity results that
+incorporate supported ambiguous branches. Those must remain separately labeled and must never be
+mixed silently into the determinate-subset point estimate.
+
+Excluding ambiguous/unresolved outcomes from point estimates is not equivalent to deleting them:
+their count, rate, possible outcomes, data-quality causes and concentration must remain visible.
 
 ## Evidence and provenance
 
@@ -546,6 +606,7 @@ Minimum evidence:
 - stop intent;
 - execution-assumption profile ID/version;
 - relevant one-minute bar identities/OHLCV;
+- relevant one-minute bar quality values, including missing/incomplete/corrupt bucket identities;
 - reachability facts used;
 - modeled fill base, slippage and normalized fill;
 - post-fill strategy economics;
@@ -669,12 +730,18 @@ At minimum SF-078 must:
 6. introduce/use the shared strategy-facing fill view so modeled historical fills can drive
    Strategy post-fill economics without fabricating PAPER/LIVE Fill facts;
 7. reuse canonical tick normalization/session safety;
-8. emit determinate/bounded/unresolved evidence;
-9. exclude ambiguous outcomes from ordinary point-estimate metrics;
-10. prove the reusable abstraction against three materially different strategy shapes;
-11. add golden tests for gap-through, same-bar trigger/invalidation, entry/stop, entry/target,
+8. emit determinate/bounded/unresolved evidence, including explicit missing/incomplete/corrupt
+   execution-evidence classification;
+9. calculate trigger reachability against the canonical tradable trigger, never the raw trigger;
+10. label point estimates as determinate-subset metrics whenever ambiguity/unresolved outcomes exist
+    and emit mandatory outcome-coverage diagnostics;
+11. define an explicit versioned runner policy for whether later independent opportunities continue
+    after one lifecycle becomes unresolved due to missing execution evidence;
+12. prove the reusable abstraction against three materially different strategy shapes;
+13. add golden tests for tick-boundary raw-vs-tradable trigger reachability, missing/incomplete
+    evidence while ARMED/OPEN, gap-through, same-bar trigger/invalidation, entry/stop, entry/target,
     stop/target and compulsory exit boundaries;
-12. never construct MarketEvent objects from OHLCV.
+14. never construct MarketEvent objects from OHLCV.
 
 ## Consequences
 
