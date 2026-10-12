@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import signalforge.research.historical_bars as historical_bars_module
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
 from signalforge.config.strategy_registry import (
     StrategyRegistration,
@@ -18,13 +19,11 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements
-from signalforge.domain.market import CandleQuality
-from signalforge.domain.market import CompletedCandle, MarketEvent
+from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval, to_utc
-import signalforge.research.historical_bars as historical_bars_module
 from signalforge.research.historical_bars import (
     CorporateActionPolicy,
     HistoricalBar,
@@ -34,6 +33,14 @@ from signalforge.research.historical_bars import (
     HistoricalDatasetManifest,
     aggregate_one_minute_to_five_minute,
     load_historical_bar_fixture,
+)
+from signalforge.runtime.strategy import (
+    ArmedEventDecision,
+    ArmedSetupView,
+    ArmIntent,
+    CompletedCandleStrategyContext,
+    PositionEconomics,
+    StrategyDecision,
 )
 
 INSTRUMENT = InstrumentId("NSE:TEST")
