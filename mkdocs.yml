@@ -30,6 +30,7 @@ nav:
       - ADR-008 — Strategy Runtime Boundary: architecture/decisions/ADR-008-strategy-runtime-boundary.md
       - ADR-009 — Live Market-Data Continuity & Reconciliation Boundary: architecture/decisions/ADR-009-live-market-data-continuity-reconciliation-boundary.md
       - ADR-010 — Canonical Historical OHLCV Dataset & Bar Boundary: architecture/decisions/ADR-010-canonical-historical-ohlcv-dataset-boundary.md
+      - ADR-011 — Historical Execution & Ambiguity Semantics: architecture/decisions/ADR-011-historical-execution-and-ambiguity-semantics.md
   - API:
       - Strategy Runtime: api/strategy-runtime.md
       - Strategy Registry: api/strategy-registry.md
