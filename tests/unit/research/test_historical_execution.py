@@ -180,6 +180,8 @@ def _bar(
 def _dataset(
     *,
     ambiguity: bool = False,
+    entry_invalidation_ambiguity: bool = False,
+    gap_entry_with_later_stop: bool = False,
     missing_active_minute: bool = False,
 ) -> HistoricalBarDataset:
     start = datetime(2026, 10, 9, 9, 15, tzinfo=IST)
@@ -204,9 +206,15 @@ def _dataset(
             }
         elif offset == 6:
             kwargs = {
-                "open_": "100.20",
-                "high": "100.25",
-                "low": "100.00",
+                "open_": "100.30" if gap_entry_with_later_stop else "100.20",
+                "high": "100.35" if gap_entry_with_later_stop else "100.25",
+                "low": (
+                    "99.90"
+                    if gap_entry_with_later_stop
+                    else "99.94"
+                    if entry_invalidation_ambiguity
+                    else "100.00"
+                ),
                 "close": "100.20",
             }
         elif offset == 7:
@@ -275,7 +283,9 @@ def test_third_strategy_shape_runs_deterministically_without_signal_candle_looka
     second = _run(dataset)
 
     assert first == second
+    assert first.result_id == second.result_id
     assert first.summary.total_actionable_opportunities == 1
+    assert first.summary.determinate_coverage_rate == Decimal("1")
     outcome = first.outcomes[0]
     assert outcome.certainty is HistoricalOutcomeCertainty.DETERMINATE
     assert outcome.terminal_state is HistoricalTerminalState.CLOSED
@@ -300,6 +310,27 @@ def test_raw_trigger_reach_does_not_trigger_until_tradable_trigger_is_reached() 
     assert to_ist(outcome.entry_fill.bucket.start) == datetime(
         2026, 10, 9, 9, 21, tzinfo=IST
     )
+
+
+def test_intrabar_trigger_and_invalidation_are_bounded() -> None:
+    result = _run(_dataset(entry_invalidation_ambiguity=True))
+    outcome = result.outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,
+    )
+    assert result.summary.determinate_coverage_rate == Decimal("0")
+
+
+def test_gap_entry_at_open_precedes_later_same_bar_invalidation_and_stop() -> None:
+    outcome = _run(_dataset(gap_entry_with_later_stop=True)).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert outcome.terminal_state is HistoricalTerminalState.CLOSED
+    assert outcome.entry_fill is not None
+    assert outcome.entry_fill.timing is HistoricalFillTiming.BAR_OPEN_EXACT
+    assert outcome.realised_r == Decimal("-1")
 
 
 def test_stop_and_target_same_minute_is_bounded_not_ordered() -> None:
