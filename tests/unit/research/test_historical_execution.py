@@ -219,8 +219,15 @@ def _dataset(
     *,
     ambiguity: bool = False,
     entry_invalidation_ambiguity: bool = False,
+    entry_stop_ambiguity: bool = False,
+    entry_target_ambiguity: bool = False,
+    first_execution_trigger: bool = False,
     gap_entry_with_later_stop: bool = False,
-    missing_active_minute: bool = False,
+    exit_gap: str | None = None,
+    hold_open: bool = False,
+    late_entry: bool = False,
+    late_trigger_at_session_cutoff: bool = False,
+    missing_offset: int | None = None,
 ) -> HistoricalBarDataset:
     start = datetime(2026, 10, 9, 9, 15, tzinfo=IST)
     bars: list[HistoricalBar] = []
@@ -235,34 +242,100 @@ def _dataset(
                 "close": "100.03",
             }
         elif offset == 5:
-            # raw trigger 100.23006 is reachable; tradable 100.25 is not.
             kwargs = {
                 "open_": "100.10",
-                "high": "100.24",
+                "high": "100.25" if first_execution_trigger else "100.24",
                 "low": "100.00",
                 "close": "100.20",
             }
         elif offset == 6:
+            if gap_entry_with_later_stop:
+                kwargs = {
+                    "open_": "100.30",
+                    "high": "100.35",
+                    "low": "99.90",
+                    "close": "100.20",
+                }
+            else:
+                kwargs = {
+                    "open_": "100.20",
+                    "high": "101.10" if entry_target_ambiguity else "100.25",
+                    "low": (
+                        "99.80"
+                        if entry_stop_ambiguity
+                        else "99.94"
+                        if entry_invalidation_ambiguity
+                        else "100.00"
+                    ),
+                    "close": "100.20",
+                }
+        elif offset == 7:
+            if exit_gap == "stop":
+                kwargs = {
+                    "open_": "99.80",
+                    "high": "100.00",
+                    "low": "99.70",
+                    "close": "99.90",
+                }
+            elif exit_gap == "target":
+                kwargs = {
+                    "open_": "101.10",
+                    "high": "101.20",
+                    "low": "101.00",
+                    "close": "101.10",
+                }
+            elif hold_open:
+                kwargs = {
+                    "open_": "100.30",
+                    "high": "100.50",
+                    "low": "100.20",
+                    "close": "100.30",
+                }
+            else:
+                kwargs = {
+                    "open_": "100.30",
+                    "high": "101.10",
+                    "low": "99.80" if ambiguity else "100.20",
+                    "close": "100.80",
+                }
+        if late_entry and offset == 354:
             kwargs = {
-                "open_": "100.30" if gap_entry_with_later_stop else "100.20",
-                "high": "100.35" if gap_entry_with_later_stop else "100.25",
-                "low": (
-                    "99.90"
-                    if gap_entry_with_later_stop
-                    else "99.94"
-                    if entry_invalidation_ambiguity
-                    else "100.00"
-                ),
+                "open_": "100.00",
+                "high": "110.00",
+                "low": "99.90",
+                "close": "100.03",
+            }
+        if late_entry and offset == 355:
+            kwargs = (
+                {
+                    "open_": "100.10",
+                    "high": "100.19",
+                    "low": "100.00",
+                    "close": "100.10",
+                }
+                if late_trigger_at_session_cutoff
+                else {
+                    "open_": "100.30",
+                    "high": "100.35",
+                    "low": "100.20",
+                    "close": "100.30",
+                }
+            )
+        if late_entry and late_trigger_at_session_cutoff and 356 <= offset < 360:
+            kwargs = {
+                "open_": "100.10",
+                "high": "100.19",
+                "low": "100.00",
+                "close": "100.10",
+            }
+        if late_entry and late_trigger_at_session_cutoff and offset == 360:
+            kwargs = {
+                "open_": "100.10",
+                "high": "100.25",
+                "low": "100.00",
                 "close": "100.20",
             }
-        elif offset == 7:
-            kwargs = {
-                "open_": "100.30",
-                "high": "101.10",
-                "low": "99.80" if ambiguity else "100.20",
-                "close": "100.80",
-            }
-        if missing_active_minute and offset == 7:
+        if missing_offset == offset:
             continue
         bars.append(_bar(at, **kwargs))
 
@@ -386,7 +459,7 @@ def test_stop_and_target_same_minute_is_bounded_not_ordered() -> None:
 
 
 def test_missing_active_minute_is_unresolved_and_terminates_run() -> None:
-    result = _run(_dataset(missing_active_minute=True))
+    result = _run(_dataset(missing_offset=7))
 
     assert result.terminated_early is True
     assert result.summary.unresolved_opportunities == 1
