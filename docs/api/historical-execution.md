@@ -96,6 +96,11 @@ OPEN, the lifecycle becomes `UNRESOLVED / MISSING_EXECUTION_EVIDENCE`.
 The initial SF-078 runner records that evidence and terminates the run. It does not reseed indicators
 or resume later in the same run.
 
+The runner also terminates after any other `UNRESOLVED` outcome, or after a bounded ambiguity whose
+supported branches leave different future lifecycle states (for example EXPIRED versus
+OPEN_POSSIBLE). Continuing a single simulation path in that case would require inventing which branch
+occurred. A bounded stop-versus-target case may continue because every supported branch is CLOSED.
+
 If no lifecycle is active, the existing DATA-004 historical continuity behavior remains fail-closed.
 
 ## Research summary
