@@ -1,9 +1,9 @@
 # ADR-011 — Strategy-Agnostic Historical Execution and Ambiguity Semantics
 
-**Status:** Proposed  
-**Work item:** SF-077 / GitHub #196  
-**Strategy semantics changed:** No  
-**Runtime/execution semantics changed:** No — this ADR defines historical simulation semantics only  
+**Status:** Proposed
+**Work item:** SF-077 / GitHub #196
+**Strategy semantics changed:** No
+**Runtime/execution semantics changed:** No — this ADR defines historical simulation semantics only
 **Schema/migrations changed:** No
 
 ## Context
