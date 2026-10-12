@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -552,51 +552,107 @@ def _resolve_open_reaches(
     if bar.open.value <= stop.value:
         return _closed(
             active,
-            _sell_fill(bar.open, bar, HistoricalFillTiming.BAR_OPEN_EXACT, profile.stop_slippage_bps, ticks),
+            _sell_fill(
+                bar.open,
+                bar,
+                HistoricalFillTiming.BAR_OPEN_EXACT,
+                profile.stop_slippage_bps,
+                ticks,
+            ),
             HistoricalExitReason.STOP,
         )
     if bar.open.value >= target.value:
         return _closed(
             active,
-            _sell_fill(bar.open, bar, HistoricalFillTiming.BAR_OPEN_EXACT, profile.target_slippage_bps, ticks),
+            _sell_fill(
+                bar.open,
+                bar,
+                HistoricalFillTiming.BAR_OPEN_EXACT,
+                profile.target_slippage_bps,
+                ticks,
+            ),
             HistoricalExitReason.TARGET,
         )
     stop_hit = bar.low.value <= stop.value
     target_hit = bar.high.value >= target.value
     if stop_hit and target_hit:
-        stop_fill = _sell_fill(stop, bar, HistoricalFillTiming.INTRABAR_UNKNOWN, profile.stop_slippage_bps, ticks)
-        target_fill = _sell_fill(target, bar, HistoricalFillTiming.INTRABAR_UNKNOWN, profile.target_slippage_bps, ticks)
+        stop_fill = _sell_fill(
+            stop,
+            bar,
+            HistoricalFillTiming.INTRABAR_UNKNOWN,
+            profile.stop_slippage_bps,
+            ticks,
+        )
+        target_fill = _sell_fill(
+            target,
+            bar,
+            HistoricalFillTiming.INTRABAR_UNKNOWN,
+            profile.target_slippage_bps,
+            ticks,
+        )
         return _bounded(
             active,
             (HistoricalAmbiguityReason.STOP_VS_TARGET,),
             (
-                HistoricalPossibleOutcome(HistoricalTerminalState.CLOSED, HistoricalExitReason.STOP, _r(active, stop_fill.fill_price)),
-                HistoricalPossibleOutcome(HistoricalTerminalState.CLOSED, HistoricalExitReason.TARGET, _r(active, target_fill.fill_price)),
+                HistoricalPossibleOutcome(
+                    HistoricalTerminalState.CLOSED,
+                    HistoricalExitReason.STOP,
+                    _r(active, stop_fill.fill_price),
+                ),
+                HistoricalPossibleOutcome(
+                    HistoricalTerminalState.CLOSED,
+                    HistoricalExitReason.TARGET,
+                    _r(active, target_fill.fill_price),
+                ),
             ),
             "stop and target both reachable in one minute",
         )
     if stop_hit:
         return _closed(
             active,
-            _sell_fill(stop, bar, HistoricalFillTiming.INTRABAR_UNKNOWN, profile.stop_slippage_bps, ticks),
+            _sell_fill(
+                stop,
+                bar,
+                HistoricalFillTiming.INTRABAR_UNKNOWN,
+                profile.stop_slippage_bps,
+                ticks,
+            ),
             HistoricalExitReason.STOP,
         )
     if target_hit:
         return _closed(
             active,
-            _sell_fill(target, bar, HistoricalFillTiming.INTRABAR_UNKNOWN, profile.target_slippage_bps, ticks),
+            _sell_fill(
+                target,
+                bar,
+                HistoricalFillTiming.INTRABAR_UNKNOWN,
+                profile.target_slippage_bps,
+                ticks,
+            ),
             HistoricalExitReason.TARGET,
         )
     return None
 
 
-def _buy_fill(base: Price, bar: HistoricalBar, timing: HistoricalFillTiming, bps: Decimal, ticks: TickSizeSchedule) -> HistoricalModeledFill:
+def _buy_fill(
+    base: Price,
+    bar: HistoricalBar,
+    timing: HistoricalFillTiming,
+    bps: Decimal,
+    ticks: TickSizeSchedule,
+) -> HistoricalModeledFill:
     raw = Price(base.value * (Decimal("1") + bps / _BPS))
     tick = ticks.tick_size_on(to_ist(bar.interval.start).date())
     return HistoricalModeledFill(base, ceil_to_tick(raw, tick), bar.interval, timing, bps)
 
 
-def _sell_fill(base: Price, bar: HistoricalBar, timing: HistoricalFillTiming, bps: Decimal, ticks: TickSizeSchedule) -> HistoricalModeledFill:
+def _sell_fill(
+    base: Price,
+    bar: HistoricalBar,
+    timing: HistoricalFillTiming,
+    bps: Decimal,
+    ticks: TickSizeSchedule,
+) -> HistoricalModeledFill:
     raw = Price(base.value * (Decimal("1") - bps / _BPS))
     tick = ticks.tick_size_on(to_ist(bar.interval.start).date())
     return HistoricalModeledFill(base, floor_to_tick(raw, tick), bar.interval, timing, bps)
@@ -608,7 +664,11 @@ def _r(active: _Active, exit_price: Price) -> Decimal:
     return (exit_price.value - active.entry_fill.fill_price.value) / risk
 
 
-def _closed(active: _Active, fill: HistoricalModeledFill, reason: HistoricalExitReason) -> HistoricalExecutionOutcome:
+def _closed(
+    active: _Active,
+    fill: HistoricalModeledFill,
+    reason: HistoricalExitReason,
+) -> HistoricalExecutionOutcome:
     return HistoricalExecutionOutcome(
         active.opportunity_id,
         active.signal.interval,
@@ -645,7 +705,12 @@ def _rejected(active: _Active, detail: str) -> HistoricalExecutionOutcome:
     )
 
 
-def _bounded(active: _Active, reasons: tuple[HistoricalAmbiguityReason, ...], possible: tuple[HistoricalPossibleOutcome, ...], detail: str) -> HistoricalExecutionOutcome:
+def _bounded(
+    active: _Active,
+    reasons: tuple[HistoricalAmbiguityReason, ...],
+    possible: tuple[HistoricalPossibleOutcome, ...],
+    detail: str,
+) -> HistoricalExecutionOutcome:
     return HistoricalExecutionOutcome(
         active.opportunity_id,
         active.signal.interval,
@@ -659,7 +724,11 @@ def _bounded(active: _Active, reasons: tuple[HistoricalAmbiguityReason, ...], po
     )
 
 
-def _unresolved(active: _Active, reasons: tuple[HistoricalAmbiguityReason, ...], detail: str) -> HistoricalExecutionOutcome:
+def _unresolved(
+    active: _Active,
+    reasons: tuple[HistoricalAmbiguityReason, ...],
+    detail: str,
+) -> HistoricalExecutionOutcome:
     return HistoricalExecutionOutcome(
         active.opportunity_id,
         active.signal.interval,
@@ -679,12 +748,14 @@ def _missing(active: _Active, start: datetime) -> HistoricalExecutionOutcome:
         (HistoricalAmbiguityReason.MISSING_EXECUTION_EVIDENCE,),
         "required canonical one-minute execution evidence is missing",
     )
-    return HistoricalExecutionOutcome(
-        **{**outcome.__dict__, "affected_quality_buckets": (bucket,)}
-    )
+    return replace(outcome, affected_quality_buckets=(bucket,))
 
 
-def _blocked(dataset: HistoricalBarDataset, strategy: Strategy, decision: StrategyDecision) -> HistoricalExecutionOutcome:
+def _blocked(
+    dataset: HistoricalBarDataset,
+    strategy: Strategy,
+    decision: StrategyDecision,
+) -> HistoricalExecutionOutcome:
     opportunity_id = config_hash(
         {
             "dataset_id": str(dataset.dataset_id),
@@ -733,10 +804,23 @@ def _result(dataset, strategy, engine_version, profile, outcomes, terminated):
 
 def _summary(outcomes: list[HistoricalExecutionOutcome]) -> HistoricalExecutionSummary:
     total = len(outcomes)
-    determinate = [o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.DETERMINATE]
-    bounded = [o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS]
-    unresolved = [o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.UNRESOLVED]
-    closed = [o for o in determinate if o.terminal_state is HistoricalTerminalState.CLOSED and o.realised_r is not None]
+    determinate = [
+        o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.DETERMINATE
+    ]
+    bounded = [
+        o
+        for o in outcomes
+        if o.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    ]
+    unresolved = [
+        o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.UNRESOLVED
+    ]
+    closed = [
+        o
+        for o in determinate
+        if o.terminal_state is HistoricalTerminalState.CLOSED
+        and o.realised_r is not None
+    ]
     rs = [o.realised_r for o in closed if o.realised_r is not None]
     coverage = None if total == 0 else Decimal(len(determinate)) / Decimal(total)
     win_rate = None if not rs else Decimal(sum(r > 0 for r in rs)) / Decimal(len(rs))
