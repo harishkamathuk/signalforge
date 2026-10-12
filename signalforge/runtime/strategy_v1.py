@@ -8,7 +8,6 @@ from decimal import Decimal
 from signalforge.config.identity import ConfigIdentity
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ExpiryReason
-from signalforge.domain.execution import Fill
 from signalforge.domain.indicators import (
     AdxRequirement,
     EmaRequirement,
@@ -16,19 +15,21 @@ from signalforge.domain.indicators import (
     MacdRequirement,
     RsiRequirement,
 )
-from signalforge.domain.market import CompletedCandle, MarketEvent
+from signalforge.domain.market import CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
 from signalforge.runtime.strategy import (
-    ArmedEventAction,
-    ArmedEventDecision,
+    ArmedPolicyIntent,
     ArmedSetupView,
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
+    PriceBarrierDirection,
+    PriceBarrierIntent,
     StrategyDecision,
+    StrategyEntryFillView,
 )
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext, StrategyEvaluator
 
@@ -100,81 +101,25 @@ class IntradayMomentumV1Strategy:
             valid_until=candle.interval.end + timedelta(minutes=5),
         )
 
-    def evaluate_armed_market_event(
+    def armed_policy(
         self,
         signal: Signal,
         setup: ArmedSetupView,
-        event: MarketEvent,
-    ) -> ArmedEventDecision:
-        cutoff = self._entry_cutoff(signal.interval.end)
-        observed_at = event.exchange_timestamp
-        if observed_at >= cutoff:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=cutoff,
-                expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
-            )
-        if observed_at >= setup.valid_until:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=setup.valid_until,
-                expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
-            )
-        if event.price.value >= setup.tradable_trigger.value:
-            return ArmedEventDecision(ArmedEventAction.TRIGGER, at=observed_at)
-        if event.price.value <= setup.stop_price.value:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=observed_at,
+    ) -> ArmedPolicyIntent:
+        """Return declarative pre-entry invalidation and cutoff policy."""
+
+        return ArmedPolicyIntent(
+            pre_entry_invalidation=PriceBarrierIntent(
+                price=setup.stop_price,
+                direction=PriceBarrierDirection.AT_OR_BELOW,
                 expiry_reason=ExpiryReason.SIGNAL_LOW_BREACH,
-            )
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
-
-    def evaluate_armed_completed_candle(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        candle: CompletedCandle,
-    ) -> ArmedEventDecision:
-        if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
-            raise ValueError("CompletedCandle must be the active setup's following candle")
-        cutoff = self._entry_cutoff(signal.interval.end)
-        if setup.valid_until >= cutoff:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=cutoff,
-                expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
-            )
-        return ArmedEventDecision(
-            ArmedEventAction.EXPIRE,
-            at=setup.valid_until,
-            expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
+            ),
+            strategy_entry_cutoff_at=self._entry_cutoff(signal.interval.end),
         )
-
-    def evaluate_armed_time(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        at: datetime,
-    ) -> ArmedEventDecision:
-        cutoff = self._entry_cutoff(signal.interval.end)
-        if cutoff <= setup.valid_until and at >= cutoff:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=cutoff,
-                expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
-            )
-        if at >= setup.valid_until:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=setup.valid_until,
-                expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
-            )
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
 
     def post_fill_economics(
         self,
-        fill: Fill,
+        fill: StrategyEntryFillView,
         setup: ArmedSetupView,
     ) -> PositionEconomics:
         stop_price = setup.stop_price
