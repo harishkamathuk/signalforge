@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
@@ -63,6 +63,23 @@ class _DelayedBreakoutDecision:
 class _DelayedBreakoutStrategy:
     """Test-only ADR-011 third shape; never production-registered."""
 
+    def __init__(
+        self,
+        *,
+        signal_times: tuple[time, ...] = (time(9, 20),),
+        cutoff: time | None = time(14, 55),
+        validity_minutes: int = 10,
+        target_r: Decimal = Decimal("2"),
+        invalidation: bool = True,
+        stop_override: Decimal | None = None,
+    ) -> None:
+        self.signal_times = signal_times
+        self.cutoff = cutoff
+        self.validity_minutes = validity_minutes
+        self.target_r = target_r
+        self.invalidation = invalidation
+        self.stop_override = stop_override
+
     @property
     def identity(self) -> StrategyIdentity:
         return StrategyIdentity("test_delayed_breakout", "1.0.0")
@@ -73,6 +90,12 @@ class _DelayedBreakoutStrategy:
             {
                 "strategy_id": "test_delayed_breakout",
                 "strategy_version": "1.0.0",
+                "signal_times": [item.isoformat() for item in self.signal_times],
+                "cutoff": None if self.cutoff is None else self.cutoff.isoformat(),
+                "validity_minutes": self.validity_minutes,
+                "target_r": self.target_r,
+                "invalidation": self.invalidation,
+                "stop_override": self.stop_override,
             },
             status=ConfigStatus.EXPERIMENTAL,
         )
@@ -85,9 +108,7 @@ class _DelayedBreakoutStrategy:
         self,
         context: CompletedCandleStrategyContext,
     ) -> _DelayedBreakoutDecision:
-        actionable = to_ist(context.candle.interval.end).time() == datetime.strptime(
-            "09:20", "%H:%M"
-        ).time()
+        actionable = to_ist(context.candle.interval.end).time() in self.signal_times
         return _DelayedBreakoutDecision(
             context.candle.instrument_id,
             context.candle.interval,
@@ -103,10 +124,15 @@ class _DelayedBreakoutStrategy:
     ) -> ArmIntent:
         assert decision.actionable
         assert candle.close is not None and candle.low is not None
+        stop = (
+            candle.low
+            if self.stop_override is None
+            else Price(self.stop_override)
+        )
         return ArmIntent(
             raw_trigger=Price(candle.close.value * Decimal("1.002")),
-            stop_price=candle.low,
-            valid_until=candle.interval.end + timedelta(minutes=10),
+            stop_price=stop,
+            valid_until=candle.interval.end + timedelta(minutes=self.validity_minutes),
         )
 
     def armed_policy(
@@ -114,18 +140,27 @@ class _DelayedBreakoutStrategy:
         signal: Signal,
         setup: ArmedSetupView,
     ) -> ArmedPolicyIntent:
-        cutoff = datetime.combine(
-            to_ist(signal.interval.end).date(),
-            datetime.strptime("14:55", "%H:%M").time(),
-            tzinfo=IST,
+        cutoff_at = (
+            None
+            if self.cutoff is None
+            else datetime.combine(
+                to_ist(signal.interval.end).date(),
+                self.cutoff,
+                tzinfo=IST,
+            )
         )
-        return ArmedPolicyIntent(
-            pre_entry_invalidation=PriceBarrierIntent(
-                Price(Decimal("99.95")),
+        barrier = (
+            None
+            if not self.invalidation
+            else PriceBarrierIntent(
+                Price(setup.stop_price.value + Decimal("0.05")),
                 PriceBarrierDirection.AT_OR_BELOW,
                 ExpiryReason.SIGNAL_LOW_BREACH,
-            ),
-            strategy_entry_cutoff_at=cutoff,
+            )
+        )
+        return ArmedPolicyIntent(
+            pre_entry_invalidation=barrier,
+            strategy_entry_cutoff_at=cutoff_at,
         )
 
     def post_fill_economics(
@@ -136,17 +171,20 @@ class _DelayedBreakoutStrategy:
         risk = fill.fill_price.value - setup.stop_price.value
         return PositionEconomics(
             setup.stop_price,
-            None if risk <= 0 else Price(fill.fill_price.value + Decimal("2") * risk),
+            None if risk <= 0 else Price(fill.fill_price.value + self.target_r * risk),
         )
 
 
-def _registry() -> StrategyRegistry:
+def _registry(
+    strategy: _DelayedBreakoutStrategy | None = None,
+) -> StrategyRegistry:
+    selected = strategy or _DelayedBreakoutStrategy()
     return StrategyRegistry(
         (
             StrategyRegistration(
                 "test_delayed_breakout",
                 "1.0.0",
-                lambda parameters: _DelayedBreakoutStrategy(),
+                lambda parameters: selected,
             ),
         )
     )
@@ -266,8 +304,10 @@ def _ticks() -> TickSizeSchedule:
 def _run(
     dataset: HistoricalBarDataset,
     profile: HistoricalExecutionAssumptionProfile | None = None,
+    strategy: _DelayedBreakoutStrategy | None = None,
 ):
-    return HistoricalBarExecutionRunner(registry=_registry()).run(
+    selected = strategy or _DelayedBreakoutStrategy()
+    return HistoricalBarExecutionRunner(registry=_registry(selected)).run(
         dataset,
         strategy_selection=StrategySelection("test_delayed_breakout", "1.0.0", {}),
         engine_calculation_version="engine-v1",
