@@ -176,6 +176,31 @@ class _DelayedBreakoutStrategy:
         )
 
 
+class _UnsupportedPostFillStopStrategy(_DelayedBreakoutStrategy):
+    @property
+    def config_identity(self) -> ConfigIdentity:
+        return identify_config(
+            {
+                "strategy_id": "test_delayed_breakout",
+                "strategy_version": "1.0.0",
+                "fixture_variant": "unsupported_post_fill_stop",
+            },
+            status=ConfigStatus.EXPERIMENTAL,
+        )
+
+    def post_fill_economics(
+        self,
+        fill: StrategyEntryFillView,
+        setup: ArmedSetupView,
+    ) -> PositionEconomics:
+        changed_stop = Price(setup.stop_price.value + Decimal("0.05"))
+        risk = fill.fill_price.value - changed_stop.value
+        return PositionEconomics(
+            changed_stop,
+            None if risk <= 0 else Price(fill.fill_price.value + Decimal("2") * risk),
+        )
+
+
 def _registry(
     strategy: _DelayedBreakoutStrategy | None = None,
 ) -> StrategyRegistry:
@@ -595,6 +620,16 @@ def test_missing_active_minute_is_unresolved_and_terminates_run() -> None:
         HistoricalAmbiguityReason.MISSING_EXECUTION_EVIDENCE,
     )
     assert len(outcome.affected_quality_buckets) == 1
+
+
+def test_unsupported_post_fill_policy_is_unresolved_not_silently_reinterpreted() -> None:
+    strategy = _UnsupportedPostFillStopStrategy()
+    outcome = _run(_dataset(), strategy=strategy).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,
+    )
 
 
 def test_non_positive_risk_modeled_entry_is_rejected() -> None:
