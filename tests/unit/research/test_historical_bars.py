@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
     HistoricalBarResearchRunner,
+    HistoricalContinuityError,
     HistoricalDatasetManifest,
     aggregate_one_minute_to_five_minute,
     load_historical_bar_fixture,
@@ -24,6 +25,7 @@ from signalforge.research.historical_bars import (
 
 INSTRUMENT = InstrumentId("NSE:TEST")
 VERSION = "historical-bar-v1"
+SESSION_DATE = date(2026, 10, 9)
 
 
 def _bar(
@@ -31,8 +33,12 @@ def _bar(
     *,
     close: str | None = None,
     start_hour: int = 9,
+    session_date: date = SESSION_DATE,
 ) -> HistoricalBar:
-    start = datetime(2026, 10, 9, start_hour, minute, tzinfo=IST)
+    start = datetime.combine(session_date, datetime.min.time(), tzinfo=IST).replace(
+        hour=start_hour,
+        minute=minute,
+    )
     base = Decimal(str(100 + minute))
     close_value = base + Decimal("1") if close is None else Decimal(close)
     return HistoricalBar(
@@ -62,9 +68,14 @@ def _manifest(
     duplicates: int = 0,
     acquired_at: datetime | None = None,
     canonical_row_count: int | None = None,
+    expected_session_dates: tuple[date, ...] = (SESSION_DATE,),
+    corrupt_rejected_count: int = 0,
 ) -> HistoricalDatasetManifest:
     first = min(bar.interval.start for bar in bars)
     last = max(bar.interval.end for bar in bars)
+    canonical_count = (
+        len(bars) - duplicates if canonical_row_count is None else canonical_row_count
+    )
     return HistoricalDatasetManifest(
         provider="fixture",
         acquisition_adapter="test-fixture",
@@ -72,8 +83,16 @@ def _manifest(
         requested_instrument="NSE:TEST",
         resolved_provider_instrument="NSE:TEST",
         instrument_id=INSTRUMENT,
-        requested_start=datetime(2026, 10, 9, 9, 15, tzinfo=IST),
-        requested_end=datetime(2026, 10, 9, 15, 30, tzinfo=IST),
+        requested_start=datetime.combine(
+            expected_session_dates[0],
+            datetime.min.time(),
+            tzinfo=IST,
+        ).replace(hour=9, minute=15),
+        requested_end=datetime.combine(
+            expected_session_dates[-1],
+            datetime.min.time(),
+            tzinfo=IST,
+        ).replace(hour=15, minute=30),
         returned_start=first,
         returned_end=last,
         interval_minutes=1,
@@ -81,13 +100,12 @@ def _manifest(
         provider_timestamp_representation="ISO-8601",
         timezone_interpretation="Asia/Kolkata interval-start",
         canonicalisation_version=VERSION,
-        raw_row_count=len(bars),
-        canonical_row_count=(
-            len(bars) - duplicates if canonical_row_count is None else canonical_row_count
-        ),
-        missing_interval_count=max(0, 375 - (len(bars) - duplicates)),
+        expected_session_dates=expected_session_dates,
+        raw_row_count=len(bars) + corrupt_rejected_count,
+        canonical_row_count=canonical_count,
+        missing_interval_count=len(expected_session_dates) * 375 - canonical_count,
         duplicate_observation_count=duplicates,
-        corrupt_rejected_count=0,
+        corrupt_rejected_count=corrupt_rejected_count,
         corporate_action_policy=CorporateActionPolicy.UNKNOWN,
         limitations=("test fixture",),
     )
@@ -118,6 +136,22 @@ def test_historical_bar_requires_exact_valid_one_minute_observation() -> None:
         replace(bar, open=Price(Decimal("0")))
 
 
+def test_manifest_requires_complete_declared_session_range() -> None:
+    bar = _bar(15)
+    manifest = _manifest((bar,))
+
+    with pytest.raises(ValueError, match="complete declared regular NSE sessions"):
+        replace(
+            manifest,
+            requested_start=datetime(2026, 10, 9, 9, 16, tzinfo=IST),
+        )
+    with pytest.raises(ValueError, match="complete declared regular NSE sessions"):
+        replace(
+            manifest,
+            requested_end=datetime(2026, 10, 9, 15, 29, tzinfo=IST),
+        )
+
+
 def test_dataset_deduplicates_exact_observation_and_rejects_contradiction() -> None:
     bar = _bar(15)
     duplicate_dataset = HistoricalBarDataset(
@@ -138,6 +172,25 @@ def test_dataset_rejects_noncanonical_input_order() -> None:
     bars = (_bar(16), _bar(15))
     with pytest.raises(ValueError, match="strict canonical chronological order"):
         HistoricalBarDataset(manifest=_manifest(bars), bars=bars)
+
+
+def test_manifest_identity_counts_must_match_canonical_content() -> None:
+    bars = _bars(15, 5)
+    manifest = _manifest(bars)
+
+    with pytest.raises(ValueError, match="raw row count contradicts"):
+        HistoricalBarDataset(
+            manifest=replace(manifest, raw_row_count=manifest.raw_row_count + 1),
+            bars=bars,
+        )
+    with pytest.raises(ValueError, match="missing interval count contradicts"):
+        HistoricalBarDataset(
+            manifest=replace(
+                manifest,
+                missing_interval_count=manifest.missing_interval_count + 1,
+            ),
+            bars=bars,
+        )
 
 
 def test_complete_five_minute_bucket_has_exact_ohlcv() -> None:
@@ -166,6 +219,27 @@ def test_missing_minute_is_incomplete_and_empty_bucket_is_missing() -> None:
     assert candles[1].low is None
     assert candles[1].close is None
     assert candles[1].volume is None
+
+
+def test_entire_declared_session_with_no_rows_is_explicitly_missing() -> None:
+    prior_session = date(2026, 10, 8)
+    bars = _bars(15, 5)
+    dataset = HistoricalBarDataset(
+        manifest=_manifest(
+            bars,
+            expected_session_dates=(prior_session, SESSION_DATE),
+        ),
+        bars=bars,
+    )
+
+    candles = aggregate_one_minute_to_five_minute(dataset)
+
+    assert len(candles) == 150
+    assert all(
+        candle.quality is CandleQuality.MISSING
+        for candle in candles[:75]
+    )
+    assert candles[75].quality is CandleQuality.VALID
 
 
 def test_dataset_identity_ignores_acquisition_wall_clock_but_changes_with_content() -> None:
@@ -216,29 +290,57 @@ def test_fixture_loads_and_runs_existing_strategy_indicator_path_deterministical
     assert first == second
     assert first.semantic_mapping() == second.semantic_mapping()
     assert first.derived_candles == 75
-    assert first.valid_candles == 2
-    assert first.missing_candles == 73
+    assert first.valid_candles == 75
+    assert first.missing_candles == 0
     assert first.incomplete_candles == 0
-    assert len(first.decisions) == 2
-    assert all(not item.indicator_ready for item in first.decisions)
+    assert len(first.decisions) == 75
+    assert any(item.indicator_ready for item in first.decisions)
 
 
-def test_non_valid_bucket_breaks_research_continuity_without_resuming() -> None:
-    first_bucket = _bars(15, 5)
-    third_bucket = _bars(25, 5)
-    bars = first_bucket + third_bucket
+def test_non_valid_bucket_fails_research_explicitly() -> None:
+    bars = _bars(15, 4)
     dataset = _dataset(bars)
-    result = HistoricalBarResearchRunner().run(
-        dataset,
-        strategy_selection=StrategySelection(
-            "intraday_momentum_v1",
-            "1.0.0",
-            {},
-        ),
-        engine_calculation_version="engine-v1",
+
+    with pytest.raises(HistoricalContinuityError) as exc_info:
+        HistoricalBarResearchRunner().run(
+            dataset,
+            strategy_selection=StrategySelection(
+                "intraday_momentum_v1",
+                "1.0.0",
+                {},
+            ),
+            engine_calculation_version="engine-v1",
+        )
+
+    assert exc_info.value.candle.quality is CandleQuality.INCOMPLETE
+    assert exc_info.value.candle.interval.start == to_utc(
+        datetime(2026, 10, 9, 9, 15, tzinfo=IST)
     )
 
-    assert result.valid_candles == 2
-    assert result.missing_candles == 73
-    assert len(result.decisions) == 1
-    assert result.skipped_after_continuity_break == 1
+
+def test_fully_missing_declared_session_fails_research_explicitly() -> None:
+    prior_session = date(2026, 10, 8)
+    bars = _bars(15, 5)
+    dataset = HistoricalBarDataset(
+        manifest=_manifest(
+            bars,
+            expected_session_dates=(prior_session, SESSION_DATE),
+        ),
+        bars=bars,
+    )
+
+    with pytest.raises(HistoricalContinuityError) as exc_info:
+        HistoricalBarResearchRunner().run(
+            dataset,
+            strategy_selection=StrategySelection(
+                "intraday_momentum_v1",
+                "1.0.0",
+                {},
+            ),
+            engine_calculation_version="engine-v1",
+        )
+
+    assert exc_info.value.candle.quality is CandleQuality.MISSING
+    assert exc_info.value.candle.interval.start == to_utc(
+        datetime(2026, 10, 8, 9, 15, tzinfo=IST)
+    )
