@@ -43,8 +43,9 @@ provenance. Operational acquisition time and local file location are not dataset
 identity. The manifest explicitly declares the expected regular NSE session dates;
 the requested range must span those complete sessions from 09:15 through 15:30 IST.
 This keeps holidays/non-trading dates out of the thin vertical without inferring an
-exchange calendar. Contradictory duplicates fail explicitly; exact duplicates and all
-identity-material row/missing counts must reconcile with canonical content.
+exchange calendar. Contradictory duplicates fail explicitly. Canonical row/missing counts must reconcile
+with canonical content. Raw-row, duplicate, and corrupt-rejected counts are retained as
+operational acquisition provenance and do not alter semantic dataset identity.
 
 ## Deterministic aggregation
 
