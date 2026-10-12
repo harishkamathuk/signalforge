@@ -33,10 +33,10 @@ from signalforge.runtime.strategy import (
     ArmedPolicyIntent,
     ArmedSetupView,
     CompletedCandleStrategyContext,
-    PriceBarrierDirection,
     Strategy,
     StrategyDecision,
     StrategyEntryFillView,
+    validate_armed_policy,
 )
 
 _BPS = Decimal("10000")
@@ -494,12 +494,7 @@ def _arm(
         ArmedSetupState.ARMED,
     )
     policy = strategy.armed_policy(signal, view)
-    invalidation = policy.pre_entry_invalidation
-    if invalidation is not None and (
-        invalidation.direction is not PriceBarrierDirection.AT_OR_BELOW
-        or invalidation.price.value >= tradable_trigger.value
-    ):
-        raise ValueError("Unsupported/conflicting pre-entry invalidation policy")
+    validate_armed_policy(policy, view)
     return _Active(
         config_hash(
             {
