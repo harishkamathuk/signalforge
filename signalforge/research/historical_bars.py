@@ -205,7 +205,10 @@ class HistoricalDatasetManifest:
         last_session = self.expected_session_dates[-1]
         expected_request_start = datetime.combine(first_session, _SESSION_OPEN, tzinfo=IST)
         expected_request_end = datetime.combine(last_session, _SESSION_END, tzinfo=IST)
-        if requested_start_ist != expected_request_start or requested_end_ist != expected_request_end:
+        if (
+            requested_start_ist != expected_request_start
+            or requested_end_ist != expected_request_end
+        ):
             raise ValueError(
                 "DATA-004 requested range must span complete declared regular NSE sessions"
             )
