@@ -301,7 +301,10 @@ class HistoricalExecutionRunResult:
     strategy_version: str
     config_hash: str
     engine_calculation_version: str
+    execution_profile_id: str
+    execution_profile_version: str
     execution_profile_semantic_id: str
+    tick_rule_version: str
     outcomes: tuple[HistoricalExecutionOutcome, ...]
     summary: HistoricalExecutionSummary
     terminated_early: bool
@@ -317,7 +320,10 @@ class HistoricalExecutionRunResult:
             "strategy_version": self.strategy_version,
             "config_hash": self.config_hash,
             "engine_calculation_version": self.engine_calculation_version,
+            "execution_profile_id": self.execution_profile_id,
+            "execution_profile_version": self.execution_profile_version,
             "execution_profile_semantic_id": self.execution_profile_semantic_id,
+            "tick_rule_version": self.tick_rule_version,
             "outcomes": [item.semantic_mapping() for item in self.outcomes],
             "summary": self.summary.semantic_mapping(),
             "terminated_early": self.terminated_early,
@@ -983,15 +989,18 @@ def _result(
     terminated: bool,
 ) -> HistoricalExecutionRunResult:
     return HistoricalExecutionRunResult(
-        str(dataset.dataset_id),
-        strategy.identity.strategy_id,
-        strategy.identity.strategy_version,
-        strategy.config_identity.config_hash,
-        engine_version,
-        profile.semantic_id,
-        tuple(outcomes),
-        _summary(outcomes),
-        terminated,
+        dataset_id=str(dataset.dataset_id),
+        strategy_id=strategy.identity.strategy_id,
+        strategy_version=strategy.identity.strategy_version,
+        config_hash=strategy.config_identity.config_hash,
+        engine_calculation_version=engine_version,
+        execution_profile_id=profile.profile_id,
+        execution_profile_version=profile.version,
+        execution_profile_semantic_id=profile.semantic_id,
+        tick_rule_version=profile.tick_rule_version,
+        outcomes=tuple(outcomes),
+        summary=_summary(outcomes),
+        terminated_early=terminated,
     )
 
 
