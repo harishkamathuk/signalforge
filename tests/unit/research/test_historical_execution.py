@@ -19,7 +19,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST, CandleInterval, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     CorporateActionPolicy,
     HistoricalBar,
