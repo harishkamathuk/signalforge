@@ -376,6 +376,95 @@ profile/provenance.
 
 The simulator must not allow strategy policy to extend beyond the shared compulsory safety boundary.
 
+## Conceptual typed contract
+
+The following shapes are normative at the responsibility level but illustrative at the exact Python
+naming/API level. SF-078 may adjust names while preserving these ownership boundaries.
+
+```python
+class HistoricalOutcomeCertainty(StrEnum):
+    DETERMINATE = "determinate"
+    BOUNDED_AMBIGUOUS = "bounded_ambiguous"
+    UNRESOLVED = "unresolved"
+
+
+class PriceBarrierDirection(StrEnum):
+    AT_OR_ABOVE = "at_or_above"
+    AT_OR_BELOW = "at_or_below"
+
+
+@dataclass(frozen=True)
+class PriceBarrierIntent:
+    price: Price
+    direction: PriceBarrierDirection
+    reason: str
+
+
+@dataclass(frozen=True)
+class HistoricalArmedPolicyIntent:
+    raw_trigger: Price
+    stop_price: Price
+    valid_until: datetime
+    pre_entry_invalidation: PriceBarrierIntent | None
+    strategy_entry_cutoff_at: datetime | None
+
+
+@dataclass(frozen=True)
+class StrategyEntryFillView:
+    fill_price: Price
+    filled_at: datetime
+
+
+@dataclass(frozen=True)
+class HistoricalExecutionAssumptionProfile:
+    profile_id: str
+    version: str
+    entry_slippage: object
+    stop_slippage: object
+    target_slippage: object
+    forced_exit_slippage: object
+    tick_rule_version: str
+
+
+@dataclass(frozen=True)
+class BarReachabilityEvidence:
+    bar_start: datetime
+    bar_end: datetime
+    open: Price
+    high: Price
+    low: Price
+    close: Price
+    reachable_actions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class HistoricalPossibleOutcome:
+    terminal_state: str
+    exit_reason: str | None
+    modeled_entry_fill: Price | None
+    modeled_exit_fill: Price | None
+    outcome_r: Decimal | None
+
+
+@dataclass(frozen=True)
+class HistoricalExecutionOutcome:
+    certainty: HistoricalOutcomeCertainty
+    ambiguity_reasons: tuple[str, ...]
+    possible_outcomes: tuple[HistoricalPossibleOutcome, ...]
+```
+
+Important constraints:
+
+- `HistoricalArmedPolicyIntent` is strategy-owned policy expressed through a known typed lifecycle
+  contract, not a generic rule language.
+- `StrategyEntryFillView` is a strategy-facing economic view, not an authoritative execution fact.
+- slippage fields above are placeholders for known versioned model types; SF-078 must not use
+  arbitrary callables/executable config.
+- `possible_outcomes` contains materially distinct supported branches, not every synthetic price
+  path through the bar.
+- result/evidence identities must be deterministic from strategy/config/dataset/assumption profile
+  and causal bar/opportunity identity.
+
 ## Ambiguity taxonomy
 
 SF-078 must support at least the following classifications:
@@ -503,17 +592,25 @@ Pressure exposed:
 
 - the shared contract must support absence of pre-entry invalidation without embedding momentum policy.
 
-### Shape 3 — test-only alternative execution shape
+### Shape 3 — test-only delayed-breakout execution shape
 
-Use a test-only strategy in SF-078 to vary at least:
+The design is pressure-tested against this explicit non-production shape:
 
-- trigger distance;
-- validity duration;
-- pre-entry invalidation presence/absence;
-- target multiple.
+- long-only completed-candle opportunity;
+- raw trigger = signal close × 1.002;
+- stop = signal-candle low;
+- pre-entry invalidation = a separate downward barrier above the stop (for example a deterministic
+  fixture value between signal low and close), proving invalidation is not assumed to equal stop;
+- validity = two following five-minute candles;
+- strategy-specific earlier entry cutoff = 14:55 IST;
+- positive-risk target = 2.0R from modeled entry fill.
 
-Its purpose is to pressure the typed execution intent and ambiguity engine, not to create a third
-production strategy.
+This shape is intentionally not registered as a production strategy. It pressure-tests independent
+trigger, stop, invalidation, validity, cutoff and post-fill target fields.
+
+The proposed contract can represent all of these differences without adding strategy IDs/formulas to
+historical mechanics. SF-078 must implement this as a test-only Strategy shape to convert the design
+proof into executable evidence.
 
 ### Explicit protocol limits exposed by the pressure test
 
