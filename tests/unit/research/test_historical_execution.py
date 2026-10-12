@@ -30,6 +30,7 @@ from signalforge.research.historical_execution import (
     HistoricalAmbiguityReason,
     HistoricalBarExecutionRunner,
     HistoricalExecutionAssumptionProfile,
+    HistoricalExitReason,
     HistoricalFillTiming,
     HistoricalOutcomeCertainty,
     HistoricalTerminalState,
@@ -446,6 +447,119 @@ def test_gap_entry_at_open_precedes_later_same_bar_invalidation_and_stop() -> No
     assert outcome.realised_r == Decimal("-1")
 
 
+def test_entry_and_stop_same_minute_is_bounded() -> None:
+    strategy = _DelayedBreakoutStrategy(invalidation=False)
+    outcome = _run(
+        _dataset(entry_stop_ambiguity=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.ENTRY_VS_POST_FILL_STOP,
+    )
+
+
+def test_entry_and_target_same_minute_is_bounded() -> None:
+    strategy = _DelayedBreakoutStrategy(invalidation=False)
+    outcome = _run(
+        _dataset(entry_target_ambiguity=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.ENTRY_VS_POST_FILL_TARGET,
+    )
+
+
+def test_multiple_competing_actions_are_explicit() -> None:
+    strategy = _DelayedBreakoutStrategy(cutoff=time(9, 21, 30))
+    outcome = _run(
+        _dataset(entry_invalidation_ambiguity=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert set(outcome.ambiguity_reasons) == {
+        HistoricalAmbiguityReason.ENTRY_VS_STRATEGY_CUTOFF,
+        HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,
+        HistoricalAmbiguityReason.MULTIPLE_COMPETING_ACTIONS,
+    }
+
+
+def test_stop_gap_uses_observed_open_as_fill_base() -> None:
+    outcome = _run(_dataset(exit_gap="stop")).outcomes[0]
+
+    assert outcome.exit_reason is HistoricalExitReason.STOP
+    assert outcome.exit_fill is not None
+    assert outcome.exit_fill.timing is HistoricalFillTiming.BAR_OPEN_EXACT
+    assert outcome.exit_fill.base_price == Price(Decimal("99.80"))
+
+
+def test_target_gap_uses_observed_open_as_fill_base() -> None:
+    outcome = _run(_dataset(exit_gap="target")).outcomes[0]
+
+    assert outcome.exit_reason is HistoricalExitReason.TARGET
+    assert outcome.exit_fill is not None
+    assert outcome.exit_fill.timing is HistoricalFillTiming.BAR_OPEN_EXACT
+    assert outcome.exit_fill.base_price == Price(Decimal("101.10"))
+
+
+def test_exact_validity_boundary_expires_before_trigger() -> None:
+    strategy = _DelayedBreakoutStrategy(validity_minutes=1)
+    outcome = _run(_dataset(), strategy=strategy).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert outcome.terminal_state is HistoricalTerminalState.EXPIRED
+    assert outcome.entry_fill is None
+    assert outcome.detail == "validity_window_end"
+
+
+def test_trigger_vs_cutoff_inside_minute_is_bounded() -> None:
+    strategy = _DelayedBreakoutStrategy(cutoff=time(9, 20, 30))
+    outcome = _run(
+        _dataset(first_execution_trigger=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert HistoricalAmbiguityReason.ENTRY_VS_STRATEGY_CUTOFF in (
+        outcome.ambiguity_reasons
+    )
+
+
+def test_compulsory_1515_exit_precedes_same_boundary_price_reach() -> None:
+    strategy = _DelayedBreakoutStrategy(
+        signal_times=(time(15, 10),),
+        cutoff=None,
+    )
+    outcome = _run(
+        _dataset(late_entry=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.exit_reason is HistoricalExitReason.FORCED_SESSION_EXIT
+    assert outcome.exit_fill is not None
+    assert to_ist(outcome.exit_fill.bucket.start).time() == time(15, 15)
+    assert outcome.exit_fill.timing is HistoricalFillTiming.EXACT_BOUNDARY
+
+
+def test_entry_at_1515_boundary_is_blocked_by_compulsory_session_cutoff() -> None:
+    strategy = _DelayedBreakoutStrategy(
+        signal_times=(time(15, 10),),
+        cutoff=None,
+    )
+    outcome = _run(
+        _dataset(late_entry=True, late_trigger_at_session_cutoff=True),
+        strategy=strategy,
+    ).outcomes[0]
+
+    assert outcome.terminal_state is HistoricalTerminalState.EXPIRED
+    assert outcome.entry_fill is None
+    assert outcome.detail == "forced_session_entry_expiry"
+
+
 def test_stop_and_target_same_minute_is_bounded_not_ordered() -> None:
     outcome = _run(_dataset(ambiguity=True)).outcomes[0]
 
@@ -456,6 +570,18 @@ def test_stop_and_target_same_minute_is_bounded_not_ordered() -> None:
         Decimal("-1"),
         Decimal("2"),
     }
+
+
+def test_missing_minute_while_armed_is_unresolved_and_terminates_run() -> None:
+    result = _run(_dataset(missing_offset=6))
+
+    assert result.terminated_early is True
+    outcome = result.outcomes[0]
+    assert outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED
+    assert outcome.entry_fill is None
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.MISSING_EXECUTION_EVIDENCE,
+    )
 
 
 def test_missing_active_minute_is_unresolved_and_terminates_run() -> None:
@@ -469,6 +595,46 @@ def test_missing_active_minute_is_unresolved_and_terminates_run() -> None:
         HistoricalAmbiguityReason.MISSING_EXECUTION_EVIDENCE,
     )
     assert len(outcome.affected_quality_buckets) == 1
+
+
+def test_non_positive_risk_modeled_entry_is_rejected() -> None:
+    strategy = _DelayedBreakoutStrategy(
+        invalidation=False,
+        stop_override=Decimal("100.30"),
+    )
+    outcome = _run(_dataset(), strategy=strategy).outcomes[0]
+
+    assert outcome.certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert outcome.terminal_state is HistoricalTerminalState.REJECTED
+    assert outcome.detail == "non_positive_risk"
+
+
+def test_new_actionable_signal_is_blocked_while_position_remains_open() -> None:
+    strategy = _DelayedBreakoutStrategy(
+        signal_times=(time(9, 20), time(9, 25)),
+    )
+    result = _run(_dataset(hold_open=True), strategy=strategy)
+
+    assert sum(
+        outcome.terminal_state is HistoricalTerminalState.BLOCKED
+        for outcome in result.outcomes
+    ) == 1
+    assert sum(
+        outcome.exit_reason is HistoricalExitReason.FORCED_SESSION_EXIT
+        for outcome in result.outcomes
+    ) == 1
+
+
+def test_reachability_evidence_is_retained_and_identity_material() -> None:
+    result = _run(_dataset())
+    outcome = result.outcomes[0]
+
+    assert [item.reachable_actions for item in outcome.reachability_evidence] == [
+        (),
+        ("entry_trigger",),
+        ("target",),
+    ]
+    assert result.result_id == _run(_dataset()).result_id
 
 
 def test_fixed_bps_profile_is_adverse_tick_normalized_and_identity_material() -> None:
@@ -494,6 +660,15 @@ def test_fixed_bps_profile_is_adverse_tick_normalized_and_identity_material() ->
     assert adverse_result.outcomes[0].entry_fill is not None
     assert adverse_result.outcomes[0].entry_fill.fill_price.value > (
         zero_result.outcomes[0].entry_fill.fill_price.value
+    )
+    adverse_outcome = adverse_result.outcomes[0]
+    assert adverse_outcome.raw_target_price is not None
+    expected_risk = (
+        adverse_outcome.entry_fill.fill_price.value
+        - adverse_outcome.stop_price.value
+    )
+    assert adverse_outcome.raw_target_price.value == (
+        adverse_outcome.entry_fill.fill_price.value + Decimal("2") * expected_risk
     )
 
 
