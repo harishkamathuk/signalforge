@@ -17,8 +17,7 @@ from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.strategy import (
-    ArmedEventAction,
-    ArmedEventDecision,
+    ArmedPolicyIntent,
     ArmedSetupView,
     ArmIntent,
 )
@@ -232,9 +231,9 @@ class _ViewCaptureStrategy(IntradayMomentumV1Strategy):
         super().__init__(StrategyV1EvaluationConfig())
         self.seen_setup: ArmedSetupView | None = None
 
-    def evaluate_armed_market_event(self, signal, setup, event):
+    def armed_policy(self, signal, setup):
         self.seen_setup = setup
-        return super().evaluate_armed_market_event(signal, setup, event)
+        return super().armed_policy(signal, setup)
 
 
 def test_strategy_receives_read_only_armed_setup_view() -> None:
@@ -266,8 +265,9 @@ class _LateTriggerStrategy(IntradayMomentumV1Strategy):
             valid_until=candle.interval.end.replace(hour=16, minute=0),
         )
 
-    def evaluate_armed_market_event(self, signal, setup, event):
-        return ArmedEventDecision(ArmedEventAction.TRIGGER, at=event.exchange_timestamp)
+    def armed_policy(self, signal, setup):
+        del signal, setup
+        return ArmedPolicyIntent()
 
 
 class _NonPositiveRiskStrategy(IntradayMomentumV1Strategy):
