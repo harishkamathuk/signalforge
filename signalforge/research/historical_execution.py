@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -59,6 +59,7 @@ class HistoricalAmbiguityReason(StrEnum):
     ENTRY_VS_POST_FILL_STOP = "entry_vs_post_fill_stop"
     ENTRY_VS_POST_FILL_TARGET = "entry_vs_post_fill_target"
     STOP_VS_TARGET = "stop_vs_target"
+    MULTIPLE_COMPETING_ACTIONS = "multiple_competing_actions"
     MISSING_EXECUTION_EVIDENCE = "missing_execution_evidence"
     UNSUPPORTED_STRATEGY_POLICY = "unsupported_strategy_policy"
 
@@ -143,6 +144,29 @@ class HistoricalExecutionAssumptionProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoricalBarReachabilityEvidence:
+    """Observed bar and the lifecycle actions it proves reachable."""
+
+    bucket: CandleInterval
+    open: Price
+    high: Price
+    low: Price
+    close: Price
+    reachable_actions: tuple[str, ...]
+
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "bucket_start": self.bucket.start.isoformat(),
+            "bucket_end": self.bucket.end.isoformat(),
+            "open": self.open.value,
+            "high": self.high.value,
+            "low": self.low.value,
+            "close": self.close.value,
+            "reachable_actions": list(self.reachable_actions),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class HistoricalModeledFill:
     base_price: Price
     fill_price: Price
@@ -193,6 +217,7 @@ class HistoricalExecutionOutcome:
     realised_r: Decimal | None = None
     ambiguity_reasons: tuple[HistoricalAmbiguityReason, ...] = ()
     possible_outcomes: tuple[HistoricalPossibleOutcome, ...] = ()
+    reachability_evidence: tuple[HistoricalBarReachabilityEvidence, ...] = ()
     affected_quality_buckets: tuple[CandleInterval, ...] = ()
     detail: str | None = None
 
@@ -226,6 +251,9 @@ class HistoricalExecutionOutcome:
             "ambiguity_reasons": [item.value for item in self.ambiguity_reasons],
             "possible_outcomes": [
                 item.semantic_mapping() for item in self.possible_outcomes
+            ],
+            "reachability_evidence": [
+                item.semantic_mapping() for item in self.reachability_evidence
             ],
             "affected_quality_buckets": [
                 {
@@ -306,6 +334,7 @@ class _Active:
     entry_fill: HistoricalModeledFill | None = None
     raw_target: Price | None = None
     tradable_target: Price | None = None
+    reachability: list[HistoricalBarReachabilityEvidence] = field(default_factory=list)
 
     @property
     def is_open(self) -> bool:
@@ -492,6 +521,7 @@ def _process_bar(
     ticks: TickSizeSchedule,
     profile: HistoricalExecutionAssumptionProfile,
 ) -> HistoricalExecutionOutcome | None:
+    active.reachability.append(_reachability(active, bar))
     return (
         _process_open_bar(active, bar, ticks, profile)
         if active.is_open
@@ -522,32 +552,29 @@ def _process_armed_bar(
     invalidated = invalidation is not None and bar.low.value <= invalidation.price.value
     gap = bar.open.value >= active.view.tradable_trigger.value
 
-    for boundary, reason in (
-        (cutoff, HistoricalAmbiguityReason.ENTRY_VS_STRATEGY_CUTOFF),
-        (active.view.valid_until, HistoricalAmbiguityReason.ENTRY_VS_EXPIRY),
-        (forced, HistoricalAmbiguityReason.ENTRY_VS_SESSION_CUTOFF),
-    ):
-        if boundary is not None and start < boundary < end and trigger and not gap:
+    competing: list[HistoricalAmbiguityReason] = []
+    if trigger and not gap:
+        for boundary, reason in (
+            (cutoff, HistoricalAmbiguityReason.ENTRY_VS_STRATEGY_CUTOFF),
+            (active.view.valid_until, HistoricalAmbiguityReason.ENTRY_VS_EXPIRY),
+            (forced, HistoricalAmbiguityReason.ENTRY_VS_SESSION_CUTOFF),
+        ):
+            if boundary is not None and start < boundary < end:
+                competing.append(reason)
+        if invalidated:
+            competing.append(HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION)
+        if len(competing) > 1:
+            competing.append(HistoricalAmbiguityReason.MULTIPLE_COMPETING_ACTIONS)
+        if competing:
             return _bounded(
                 active,
-                (reason,),
+                tuple(competing),
                 (
                     HistoricalPossibleOutcome(HistoricalTerminalState.EXPIRED, None, None),
                     HistoricalPossibleOutcome(HistoricalTerminalState.OPEN_POSSIBLE, None, None),
                 ),
-                "price reach and time-boundary order unknown",
+                "entry ordering against competing intrabar actions is unknown",
             )
-
-    if not gap and trigger and invalidated:
-        return _bounded(
-            active,
-            (HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,),
-            (
-                HistoricalPossibleOutcome(HistoricalTerminalState.EXPIRED, None, None),
-                HistoricalPossibleOutcome(HistoricalTerminalState.OPEN_POSSIBLE, None, None),
-            ),
-            "trigger and invalidation both reachable in one minute",
-        )
     if not gap and invalidated:
         return _expired(active, "pre_entry_invalidation")
     if not trigger:
@@ -729,6 +756,45 @@ def _resolve_open_reaches(
     return None
 
 
+def _reachability(
+    active: _Active,
+    bar: HistoricalBar,
+) -> HistoricalBarReachabilityEvidence:
+    actions: list[str] = []
+    if active.is_open:
+        if bar.low.value <= active.view.stop_price.value:
+            actions.append("stop")
+        if (
+            active.tradable_target is not None
+            and bar.high.value >= active.tradable_target.value
+        ):
+            actions.append("target")
+        if bar.interval.start >= _forced_exit_at(bar.interval.start):
+            actions.append("forced_session_exit")
+    else:
+        if bar.high.value >= active.view.tradable_trigger.value:
+            actions.append("entry_trigger")
+        invalidation = active.policy.pre_entry_invalidation
+        if invalidation is not None and bar.low.value <= invalidation.price.value:
+            actions.append("pre_entry_invalidation")
+        cutoff = active.policy.strategy_entry_cutoff_at
+        for boundary, name in (
+            (cutoff, "strategy_entry_cutoff"),
+            (active.view.valid_until, "validity_expiry"),
+            (_forced_exit_at(bar.interval.start), "session_cutoff"),
+        ):
+            if boundary is not None and bar.interval.start <= boundary < bar.interval.end:
+                actions.append(name)
+    return HistoricalBarReachabilityEvidence(
+        bar.interval,
+        bar.open,
+        bar.high,
+        bar.low,
+        bar.close,
+        tuple(actions),
+    )
+
+
 def _buy_fill(
     base: Price,
     bar: HistoricalBar,
@@ -779,6 +845,7 @@ def _closed(
         exit_fill=fill,
         exit_reason=reason,
         realised_r=_r(active, fill.fill_price),
+        reachability_evidence=tuple(active.reachability),
     )
 
 
@@ -794,6 +861,7 @@ def _expired(active: _Active, detail: str) -> HistoricalExecutionOutcome:
         stop_price=active.view.stop_price,
         raw_target_price=active.raw_target,
         tradable_target_price=active.tradable_target,
+        reachability_evidence=tuple(active.reachability),
         detail=detail,
     )
 
@@ -811,6 +879,7 @@ def _rejected(active: _Active, detail: str) -> HistoricalExecutionOutcome:
         raw_target_price=active.raw_target,
         tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
+        reachability_evidence=tuple(active.reachability),
         detail=detail,
     )
 
@@ -835,6 +904,7 @@ def _bounded(
         entry_fill=active.entry_fill,
         ambiguity_reasons=reasons,
         possible_outcomes=possible,
+        reachability_evidence=tuple(active.reachability),
         detail=detail,
     )
 
@@ -857,6 +927,7 @@ def _unresolved(
         tradable_target_price=active.tradable_target,
         entry_fill=active.entry_fill,
         ambiguity_reasons=reasons,
+        reachability_evidence=tuple(active.reachability),
         detail=detail,
     )
 
