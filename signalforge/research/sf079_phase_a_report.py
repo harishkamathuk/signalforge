@@ -17,15 +17,21 @@ _DATA001_REF = (
     "docs/validation/sf-075-data-001-free-nse-historical-data.md"
 )
 _DATA001_SNAPSHOT = "git-blob:90562cb0bfdb7e73ff9e9e831e92e38e38d3a034"
-_DATA001_OBSERVED_AT = datetime(2026, 10, 11, 0, 0, tzinfo=timezone.utc)
+_DATA001_OBSERVED_AT = datetime(
+    2026, 10, 11, 0, 0, tzinfo=timezone.utc
+)
 
 _DATA002_REF = "github-issue:#188"
 _DATA002_SNAPSHOT = "github-issue-188@2026-10-11T20:29:38Z"
-_DATA002_OBSERVED_AT = datetime(2026, 10, 11, 20, 29, 38, tzinfo=timezone.utc)
+_DATA002_OBSERVED_AT = datetime(
+    2026, 10, 11, 20, 29, 38, tzinfo=timezone.utc
+)
 
 _PENDING_REF = "pending:SignalForge-nsemine-local-validation"
 _PENDING_SNAPSHOT = "pending:no-immutable-probe-artifact-yet"
-_PENDING_OBSERVED_AT = datetime(2026, 10, 13, 0, 0, tzinfo=timezone.utc)
+_PENDING_OBSERVED_AT = datetime(
+    2026, 10, 13, 0, 0, tzinfo=timezone.utc
+)
 
 
 def _evidence(
@@ -109,7 +115,8 @@ OPENCHART_0_2_0 = HistoricalSourceQualification(
                 else QualificationStatus.PENDING
             ),
             (
-                "DATA-001 found the tested path did not preserve trustworthy requested instrument identity."
+                "DATA-001 found the tested path did not preserve trustworthy "
+                "requested instrument identity."
                 if criterion is QualificationCriterion.INSTRUMENT_IDENTITY
                 else "Not required to complete after decisive identity failure."
             ),
@@ -171,7 +178,8 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
             criterion,
             status,
             (
-                "Prior evidence exists, but the repaired local path must be re-observed before selection."
+                "Prior evidence exists, but the repaired local path must be "
+                "re-observed before selection."
             ),
             reference=_DATA002_REF,
             snapshot_id=_DATA002_SNAPSHOT,
@@ -180,7 +188,8 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
     if criterion is QualificationCriterion.IMPLEMENTATION_IDENTITY:
         return _pending(
             criterion,
-            "Exact SignalForge-nsemine repository/commit identity under validation is not yet recorded.",
+            "Exact SignalForge-nsemine repository/commit identity under "
+            "validation is not yet recorded.",
         )
     return _pending(
         criterion,
@@ -202,7 +211,8 @@ NSEMINE_SIGNALFORGE_CANDIDATE = HistoricalSourceQualification(
         for criterion in QualificationCriterion
     ),
     decision_rationale=(
-        "Blocked pending immutable local implementation identity and fresh reliability/retention evidence."
+        "Blocked pending immutable local implementation identity and fresh "
+        "reliability/retention evidence."
     ),
     blockers=(
         "SignalForge-nsemine local implementation commit identity pending",
