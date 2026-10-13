@@ -217,6 +217,10 @@ def validate_armed_policy(
 ) -> None:
     """Validate the currently supported long-entry declarative policy family."""
 
+    cutoff = policy.strategy_entry_cutoff_at
+    if cutoff is not None and cutoff < setup.armed_at:
+        raise ValueError("Strategy entry cutoff must not precede setup arming")
+
     invalidation = policy.pre_entry_invalidation
     if invalidation is None:
         return
@@ -301,20 +305,23 @@ def evaluate_armed_completed_candle(
     setup: ArmedSetupView,
     candle: CompletedCandle,
 ) -> ArmedEventDecision:
-    """Expire one active setup at its accepted completed-candle boundary."""
+    """Evaluate accepted time boundaries at one completed-candle boundary."""
 
     validate_armed_policy(policy, setup)
-    if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
-        raise ValueError("CompletedCandle must be the active setup's following candle")
+    if candle.interval.start < setup.armed_at:
+        raise ValueError("CompletedCandle must not precede setup arming")
+
     cutoff = policy.strategy_entry_cutoff_at
-    if cutoff is not None and setup.valid_until >= cutoff:
-        return ArmedEventDecision(
-            ArmedEventAction.EXPIRE,
-            at=cutoff,
-            expiry_reason=ExpiryReason.ENTRY_CUTOFF_REACHED,
-        )
+    boundary = setup.valid_until
+    reason = ExpiryReason.VALIDITY_WINDOW_END
+    if cutoff is not None and cutoff <= boundary:
+        boundary = cutoff
+        reason = ExpiryReason.ENTRY_CUTOFF_REACHED
+
+    if candle.interval.end < boundary:
+        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
     return ArmedEventDecision(
         ArmedEventAction.EXPIRE,
-        at=setup.valid_until,
-        expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
+        at=boundary,
+        expiry_reason=reason,
     )
