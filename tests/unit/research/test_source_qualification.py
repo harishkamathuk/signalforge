@@ -20,7 +20,9 @@ from signalforge.research.source_qualification import (
     SourceQualificationReport,
 )
 
-OBSERVED_AT = datetime(2026, 10, 13, 0, 0, tzinfo=timezone.utc)
+OBSERVED_AT = datetime(
+    2026, 10, 13, 0, 0, tzinfo=timezone.utc
+)
 
 
 def _evidence(
@@ -295,7 +297,10 @@ def test_current_phase_a_report_is_executable_and_gate_remains_blocked() -> None
     assert statuses[QualificationCriterion.ONE_MINUTE_CAPABILITY] is QualificationStatus.PROVEN
     assert statuses[QualificationCriterion.TIMESTAMP_SEMANTICS] is QualificationStatus.PENDING
     assert statuses[QualificationCriterion.AUTHENTICATION_BOUNDARY] is QualificationStatus.PENDING
-    assert statuses[QualificationCriterion.IMPLEMENTATION_IDENTITY] is QualificationStatus.PENDING
+    assert (
+        statuses[QualificationCriterion.IMPLEMENTATION_IDENTITY]
+        is QualificationStatus.PENDING
+    )
     assert NSEMINE_SIGNALFORGE_CANDIDATE.implementation_revision == (
         "PENDING_LOCAL_COMMIT_IDENTITY"
     )
