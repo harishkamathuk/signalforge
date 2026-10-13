@@ -23,6 +23,22 @@ above the tradable trigger in both live/PAPER and historical modes.
 No persistence schema change is required: recovered Signal + ArmedSetup facts contain the accepted
 state from which the registered Strategy deterministically projects its policy.
 
+## Independent adversarial review corrections
+
+Before merge, independent review found and corrected three material issues:
+
+1. historical opportunity identity depended on the execution-assumption profile, which would prevent
+   clean alignment of the same signal across zero/adverse SF-080 sensitivity runs;
+2. simulator/tick provenance did not include an explicit simulator calculation version plus the
+   semantic identity of the actual effective-dated TickSizeSchedule;
+3. the shared completed-candle ARMED evaluator still assumed a one-candle validity window, so the
+   required two-candle delayed-breakout shape was not actually supported by the same live/PAPER
+   contract.
+
+The corrected shared evaluator now returns NO_ACTION at intermediate completed-candle boundaries and
+expires only at the earliest accepted validity/cutoff boundary. Existing one-candle strategy tests
+remain unchanged, while a dedicated multi-candle validity regression proves the generic contract.
+
 ## Three-strategy-shape proof
 
 ### Shape 1 — intraday_momentum_v1 / 1.0.0
