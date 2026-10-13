@@ -23,8 +23,10 @@ from signalforge.runtime.rsi_mean_reversion_v1 import (
 )
 from signalforge.runtime.strategy import (
     ArmedEventAction,
+    ArmedPolicyIntent,
     ArmedSetupView,
     StrategyEntryFillView,
+    evaluate_armed_completed_candle,
     evaluate_armed_market_event,
     evaluate_armed_time,
 )
@@ -205,3 +207,33 @@ def test_reference_semantic_matrix_remains_independent_of_v1() -> None:
     fill = _fill(Decimal("100.50"))
     economics = strategy.post_fill_economics(fill, view)
     assert economics.raw_target_price == Price(Decimal("102.00"))
+
+
+def test_shared_armed_policy_supports_multi_candle_validity_window() -> None:
+    armed_at = datetime(2026, 10, 3, 10, 0, tzinfo=IST)
+    view = ArmedSetupView(
+        signal_id=_signal(_reference(), _candle(armed_at)).signal_id,
+        raw_trigger=Price(Decimal("100")),
+        tradable_trigger=Price(Decimal("100")),
+        stop_price=Price(Decimal("99")),
+        armed_at=armed_at,
+        valid_until=armed_at + timedelta(minutes=10),
+        state=ArmedSetupState.ARMED,
+    )
+    policy = ArmedPolicyIntent()
+
+    first = evaluate_armed_completed_candle(
+        policy,
+        view,
+        _candle(armed_at + timedelta(minutes=5)),
+    )
+    second = evaluate_armed_completed_candle(
+        policy,
+        view,
+        _candle(armed_at + timedelta(minutes=10)),
+    )
+
+    assert first.action is ArmedEventAction.NO_ACTION
+    assert second.action is ArmedEventAction.EXPIRE
+    assert second.at == view.valid_until
+    assert second.expiry_reason is ExpiryReason.VALIDITY_WINDOW_END
