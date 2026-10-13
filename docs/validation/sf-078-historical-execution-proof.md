@@ -61,6 +61,21 @@ Existing semantic-matrix and reference-policy tests preserve:
 The fixture is registered only in the test registry and is not added to the production strategy
 registry.
 
+
+### Same-runner contract proof
+
+Both real registered strategies are also executed through
+`HistoricalBarExecutionRunner` against the canonical repository historical fixture. That fixture is
+not designed to force either strategy into a trade, so trade-shape semantics remain proven by the
+shared cross-strategy semantic matrix rather than by weakening accepted strategy parameters.
+
+Together this proves:
+
+- both production/reference registered strategies traverse the same historical runner API;
+- their distinct ARMED and post-fill semantics are preserved by shared declarative-contract tests;
+- the third test-only delayed-breakout shape exercises the full historical lifecycle with materially
+  different trigger/invalidation/validity/cutoff/target structure.
+
 ## Provenance identity
 
 The independent review identified and corrected two provenance gaps before merge:
