@@ -61,6 +61,18 @@ Existing semantic-matrix and reference-policy tests preserve:
 The fixture is registered only in the test registry and is not added to the production strategy
 registry.
 
+## Provenance identity
+
+The independent review identified and corrected two provenance gaps before merge:
+
+- actionable opportunity identity is now derived from dataset + strategy/config + engine evaluation
+  identity and remains stable when only execution assumptions or tick schedules change;
+- the overall historical result records both an explicit simulator calculation version and the
+  semantic identity of the supplied effective-dated TickSizeSchedule.
+
+This allows SF-080 execution-sensitivity runs to align the same opportunity across zero/adverse
+profiles while still producing distinct reproducible result identities.
+
 ## Historical execution evidence
 
 The historical runner is separate from the ReplaySource/MarketEvent backtester.
