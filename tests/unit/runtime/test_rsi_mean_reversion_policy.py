@@ -6,16 +6,10 @@ import pytest
 
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.domain.armed import ArmedSetup, ExpiryReason
-from signalforge.domain.execution import ExecutionMode, Fill
-from signalforge.domain.ids import (
-    EntryIntentId,
-    InstrumentId,
-    RunId,
-    TriggerEventId,
-)
+from signalforge.domain.ids import InstrumentId, RunId
 from signalforge.domain.indicators import IndicatorReading, IndicatorSnapshot, RsiRequirement
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
-from signalforge.domain.money import Price, Quantity
+from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
@@ -28,6 +22,10 @@ from signalforge.runtime.strategy import (
     ArmedEventAction,
     ArmedSetupView,
     CompletedCandleStrategyContext,
+    StrategyEntryFillView,
+    evaluate_armed_completed_candle,
+    evaluate_armed_market_event,
+    evaluate_armed_time,
 )
 
 INSTRUMENT = InstrumentId("NSE:TEST")
@@ -201,7 +199,8 @@ def test_reference_market_policy_trigger_equality_and_no_low_invalidation() -> N
         quantity=1,
         source="test",
     )
-    assert strategy.evaluate_armed_market_event(signal, view, low_event).action is (
+    policy = strategy.armed_policy(signal, view)
+    assert evaluate_armed_market_event(policy, view, low_event).action is (
         ArmedEventAction.NO_ACTION
     )
 
@@ -214,7 +213,7 @@ def test_reference_market_policy_trigger_equality_and_no_low_invalidation() -> N
         quantity=1,
         source="test",
     )
-    decision = strategy.evaluate_armed_market_event(signal, view, trigger_event)
+    decision = evaluate_armed_market_event(policy, view, trigger_event)
 
     assert decision.action is ArmedEventAction.TRIGGER
     assert decision.at == trigger_at
@@ -232,7 +231,9 @@ def test_reference_market_policy_expires_before_trigger_at_validity_boundary() -
         source="test",
     )
 
-    decision = _strategy().evaluate_armed_market_event(signal, _setup_view(setup), event)
+    strategy = _strategy()
+    view = _setup_view(setup)
+    decision = evaluate_armed_market_event(strategy.armed_policy(signal, view), view, event)
 
     assert decision.action is ArmedEventAction.EXPIRE
     assert decision.at == setup.valid_until
@@ -256,16 +257,10 @@ def test_reference_completed_candle_and_time_expire_at_validity_end() -> None:
     )
     strategy = _strategy()
 
-    completed = strategy.evaluate_armed_completed_candle(
-        signal,
-        _setup_view(setup),
-        following,
-    )
-    timed = strategy.evaluate_armed_time(
-        signal,
-        _setup_view(setup),
-        setup.valid_until,
-    )
+    view = _setup_view(setup)
+    policy = strategy.armed_policy(signal, view)
+    completed = evaluate_armed_completed_candle(policy, view, following)
+    timed = evaluate_armed_time(policy, view, setup.valid_until)
 
     assert completed.action is ArmedEventAction.EXPIRE
     assert completed.at == setup.valid_until
@@ -276,18 +271,7 @@ def test_reference_completed_candle_and_time_expire_at_validity_end() -> None:
 def test_reference_post_fill_economics_uses_actual_fill_and_one_r() -> None:
     candle = _candle()
     signal, setup = _signal_and_setup(candle)
-    fill = Fill.create(
-        entry_intent_id=EntryIntentId("intent-rsi-reference"),
-        trigger_event_id=TriggerEventId("trigger-rsi-reference"),
-        signal_id=signal.signal_id,
-        instrument_id=INSTRUMENT,
-        reference_price=setup.tradable_trigger,
-        fill_price=Price(Decimal("100.50")),
-        quantity=Quantity(10),
-        execution_mode=ExecutionMode.PAPER,
-        filled_at=setup.armed_at + timedelta(seconds=1),
-        run=signal.run,
-    )
+    fill = StrategyEntryFillView(Price(Decimal("100.50")))
 
     economics = _strategy().post_fill_economics(fill, _setup_view(setup))
 
@@ -298,18 +282,7 @@ def test_reference_post_fill_economics_uses_actual_fill_and_one_r() -> None:
 def test_reference_post_fill_non_positive_risk_defers_to_generic_rejection() -> None:
     candle = _candle()
     signal, setup = _signal_and_setup(candle)
-    fill = Fill.create(
-        entry_intent_id=EntryIntentId("intent-rsi-zero-risk"),
-        trigger_event_id=TriggerEventId("trigger-rsi-zero-risk"),
-        signal_id=signal.signal_id,
-        instrument_id=INSTRUMENT,
-        reference_price=setup.tradable_trigger,
-        fill_price=setup.signal_low,
-        quantity=Quantity(10),
-        execution_mode=ExecutionMode.PAPER,
-        filled_at=setup.armed_at + timedelta(seconds=1),
-        run=signal.run,
-    )
+    fill = StrategyEntryFillView(setup.signal_low)
 
     economics = _strategy().post_fill_economics(fill, _setup_view(setup))
 

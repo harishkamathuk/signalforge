@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -20,21 +19,20 @@ from signalforge.config.strategy_registry import (
     UnsupportedStrategyVersionError,
     normalize_strategy_selection,
 )
-from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId, RunId, deterministic_id
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
-from signalforge.domain.market import CompletedCandle, MarketEvent
+from signalforge.domain.market import CompletedCandle
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.strategy import (
-    ArmedEventAction,
-    ArmedEventDecision,
+    ArmedPolicyIntent,
     ArmedSetupView,
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
     StrategyDecision,
+    StrategyEntryFillView,
 )
 
 
@@ -92,33 +90,17 @@ class _TestStrategy:
     ) -> ArmIntent:
         raise AssertionError("test-only strategy never arms")
 
-    def evaluate_armed_market_event(
+    def armed_policy(
         self,
         signal: Signal,
         setup: ArmedSetupView,
-        event: MarketEvent,
-    ) -> ArmedEventDecision:
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
-
-    def evaluate_armed_completed_candle(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        candle: CompletedCandle,
-    ) -> ArmedEventDecision:
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
-
-    def evaluate_armed_time(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        at: datetime,
-    ) -> ArmedEventDecision:
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
+    ) -> ArmedPolicyIntent:
+        del signal, setup
+        return ArmedPolicyIntent()
 
     def post_fill_economics(
         self,
-        fill: Fill,
+        fill: StrategyEntryFillView,
         setup: ArmedSetupView,
     ) -> PositionEconomics:
         raise AssertionError("test-only strategy never opens a position")

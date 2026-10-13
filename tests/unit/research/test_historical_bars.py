@@ -16,10 +16,9 @@ from signalforge.config.strategy_registry import (
     StrategyRegistry,
     StrategySelection,
 )
-from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import EmaRequirement, IndicatorRequirements
-from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
+from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
@@ -35,12 +34,13 @@ from signalforge.research.historical_bars import (
     load_historical_bar_fixture,
 )
 from signalforge.runtime.strategy import (
-    ArmedEventDecision,
+    ArmedPolicyIntent,
     ArmedSetupView,
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
     StrategyDecision,
+    StrategyEntryFillView,
 )
 
 INSTRUMENT = InstrumentId("NSE:TEST")
@@ -188,33 +188,16 @@ class _CloseAboveEmaTestStrategy:
     ) -> ArmIntent:
         raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
 
-    def evaluate_armed_market_event(
+    def armed_policy(
         self,
         signal: Signal,
         setup: ArmedSetupView,
-        event: MarketEvent,
-    ) -> ArmedEventDecision:
-        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
-
-    def evaluate_armed_completed_candle(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        candle: CompletedCandle,
-    ) -> ArmedEventDecision:
-        raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
-
-    def evaluate_armed_time(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        at: datetime,
-    ) -> ArmedEventDecision:
+    ) -> ArmedPolicyIntent:
         raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")
 
     def post_fill_economics(
         self,
-        fill: Fill,
+        fill: StrategyEntryFillView,
         setup: ArmedSetupView,
     ) -> PositionEconomics:
         raise AssertionError("historical-bar signal audit must not invoke lifecycle policy")

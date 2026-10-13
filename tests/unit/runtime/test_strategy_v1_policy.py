@@ -4,13 +4,17 @@ from decimal import Decimal
 
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.armed import ArmedSetup, ExpiryReason
-from signalforge.domain.execution import ExecutionMode, Fill
-from signalforge.domain.ids import EntryIntentId, InstrumentId, TriggerEventId
+from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEvent
-from signalforge.domain.money import Price, Quantity
+from signalforge.domain.money import Price
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.runtime.strategy import ArmedEventAction, ArmedSetupView
+from signalforge.runtime.strategy import (
+    ArmedEventAction,
+    ArmedSetupView,
+    StrategyEntryFillView,
+    evaluate_armed_market_event,
+)
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
 INSTRUMENT = InstrumentId("NSE:TEST")
@@ -115,7 +119,12 @@ def test_v1_armed_market_policy_preserves_ordering_and_low_invalidation() -> Non
         source="test",
     )
 
-    low_decision = strategy.evaluate_armed_market_event(signal, _setup_view(setup), low_event)
+    view = _setup_view(setup)
+    low_decision = evaluate_armed_market_event(
+        strategy.armed_policy(signal, view),
+        view,
+        low_event,
+    )
 
     assert low_decision.action is ArmedEventAction.EXPIRE
     assert low_decision.expiry_reason is ExpiryReason.SIGNAL_LOW_BREACH
@@ -132,9 +141,10 @@ def test_v1_armed_market_policy_preserves_ordering_and_low_invalidation() -> Non
         quantity=1,
         source="test",
     )
-    cutoff_decision = strategy.evaluate_armed_market_event(
-        cutoff_signal,
-        _setup_view(cutoff_setup),
+    cutoff_view = _setup_view(cutoff_setup)
+    cutoff_decision = evaluate_armed_market_event(
+        strategy.armed_policy(cutoff_signal, cutoff_view),
+        cutoff_view,
         cutoff_event,
     )
 
@@ -146,21 +156,8 @@ def test_v1_armed_market_policy_preserves_ordering_and_low_invalidation() -> Non
 def test_v1_post_fill_economics_uses_actual_fill_and_one_point_five_r() -> None:
     candle = _candle()
     signal, setup = _signal_and_setup(candle)
-    fill = Fill.create(
-        entry_intent_id=EntryIntentId("intent-v1-policy"),
-        trigger_event_id=TriggerEventId("trigger-v1-policy"),
-        signal_id=signal.signal_id,
-        instrument_id=INSTRUMENT,
-        reference_price=setup.tradable_trigger,
-        fill_price=Price(Decimal("100.50")),
-        quantity=Quantity(10),
-        execution_mode=ExecutionMode.PAPER,
-        filled_at=setup.armed_at + timedelta(seconds=1),
-        run=signal.run,
-    )
-
     economics = _strategy().post_fill_economics(
-        fill,
+        StrategyEntryFillView(Price(Decimal("100.50"))),
         _setup_view(setup),
     )
 
@@ -171,21 +168,8 @@ def test_v1_post_fill_economics_uses_actual_fill_and_one_point_five_r() -> None:
 def test_v1_post_fill_non_positive_risk_defers_to_generic_rejection() -> None:
     candle = _candle()
     signal, setup = _signal_and_setup(candle)
-    fill = Fill.create(
-        entry_intent_id=EntryIntentId("intent-v1-zero-risk"),
-        trigger_event_id=TriggerEventId("trigger-v1-zero-risk"),
-        signal_id=signal.signal_id,
-        instrument_id=INSTRUMENT,
-        reference_price=setup.tradable_trigger,
-        fill_price=setup.signal_low,
-        quantity=Quantity(10),
-        execution_mode=ExecutionMode.PAPER,
-        filled_at=setup.armed_at + timedelta(seconds=1),
-        run=signal.run,
-    )
-
     economics = _strategy().post_fill_economics(
-        fill,
+        StrategyEntryFillView(setup.signal_low),
         _setup_view(setup),
     )
 

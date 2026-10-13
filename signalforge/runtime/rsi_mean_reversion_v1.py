@@ -3,28 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from signalforge.config.identity import ConfigIdentity
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
-from signalforge.domain.armed import ExpiryReason
-from signalforge.domain.execution import Fill
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.indicators import IndicatorRequirements, RsiRequirement
-from signalforge.domain.market import CompletedCandle, MarketEvent
+from signalforge.domain.market import CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
 from signalforge.runtime.strategy import (
-    ArmedEventAction,
-    ArmedEventDecision,
+    ArmedPolicyIntent,
     ArmedSetupView,
     ArmIntent,
     CompletedCandleStrategyContext,
     PositionEconomics,
     StrategyDecision,
+    StrategyEntryFillView,
 )
 
 _RSI_REASON_UNAVAILABLE = "rsi_unavailable"
@@ -130,64 +128,19 @@ class RsiMeanReversionV1Strategy:
             + timedelta(minutes=self.config.timeframe_minutes),
         )
 
-    def evaluate_armed_market_event(
+    def armed_policy(
         self,
         signal: Signal,
         setup: ArmedSetupView,
-        event: MarketEvent,
-    ) -> ArmedEventDecision:
-        """Apply validity and trigger policy to one ordered market event."""
+    ) -> ArmedPolicyIntent:
+        """Return the reference strategy's declarative ARMED policy."""
 
-        observed_at = event.exchange_timestamp
-        if observed_at >= setup.valid_until:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=setup.valid_until,
-                expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
-            )
-        if event.price.value >= setup.tradable_trigger.value:
-            return ArmedEventDecision(ArmedEventAction.TRIGGER, at=observed_at)
-        # Signal-low breach is intentionally not a pre-entry invalidation rule
-        # for this reference strategy; the low becomes the stop only after entry.
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
-
-    def evaluate_armed_completed_candle(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        candle: CompletedCandle,
-    ) -> ArmedEventDecision:
-        """Expire an untriggered setup at the following completed-candle boundary."""
-
-        if candle.interval.start != setup.armed_at or candle.interval.end != setup.valid_until:
-            raise ValueError("CompletedCandle must be the active setup's following candle")
-        return ArmedEventDecision(
-            ArmedEventAction.EXPIRE,
-            at=setup.valid_until,
-            expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
-        )
-
-    def evaluate_armed_time(
-        self,
-        signal: Signal,
-        setup: ArmedSetupView,
-        at: datetime,
-    ) -> ArmedEventDecision:
-        """Expire at validity end; shared runtime retains compulsory session safety."""
-
-        if at >= setup.valid_until:
-            return ArmedEventDecision(
-                ArmedEventAction.EXPIRE,
-                at=setup.valid_until,
-                expiry_reason=ExpiryReason.VALIDITY_WINDOW_END,
-            )
-        # No strategy-specific 15:05 cutoff exists here. Compulsory session
-        # safety remains owned and enforced by shared lifecycle mechanics.
-        return ArmedEventDecision(ArmedEventAction.NO_ACTION)
+        del signal, setup
+        return ArmedPolicyIntent()
 
     def post_fill_economics(
         self,
-        fill: Fill,
+        fill: StrategyEntryFillView,
         setup: ArmedSetupView,
     ) -> PositionEconomics:
         """Return signal-low stop and raw 1.0R target from the authoritative fill."""
