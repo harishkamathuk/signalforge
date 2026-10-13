@@ -4,6 +4,7 @@ import inspect
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
 from signalforge.config.strategy_registry import (
@@ -25,6 +26,7 @@ from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
     HistoricalDatasetManifest,
+    load_historical_bar_fixture,
 )
 from signalforge.research.historical_execution import (
     HistoricalAmbiguityReason,
@@ -414,6 +416,39 @@ def _run(
         tick_schedule=tick_schedule or _ticks(),
         execution_profile=profile or HistoricalExecutionAssumptionProfile.zero(),
     )
+
+
+def test_registered_strategies_run_through_historical_runner_contract() -> None:
+    root = Path(__file__).parents[3]
+    dataset = load_historical_bar_fixture(
+        root / "examples/research/historical-bars-one-session.json"
+    )
+    runner = HistoricalBarExecutionRunner()
+    profile = HistoricalExecutionAssumptionProfile.zero()
+
+    momentum = runner.run(
+        dataset,
+        strategy_selection=StrategySelection("intraday_momentum_v1", "1.0.0", {}),
+        engine_calculation_version="engine-v1",
+        tick_schedule=_ticks(),
+        execution_profile=profile,
+    )
+    mean_reversion = runner.run(
+        dataset,
+        strategy_selection=StrategySelection("rsi_mean_reversion_v1", "1.0.0", {}),
+        engine_calculation_version="engine-v1",
+        tick_schedule=_ticks(),
+        execution_profile=profile,
+    )
+
+    assert momentum.strategy_id == "intraday_momentum_v1"
+    assert mean_reversion.strategy_id == "rsi_mean_reversion_v1"
+    # This canonical infrastructure fixture is intentionally not constructed to
+    # force either real strategy into a trade. Distinct lifecycle semantics are
+    # pressure-tested by the shared semantic-matrix tests; this test proves both
+    # real registered implementations traverse the same historical runner API.
+    assert momentum.summary.total_actionable_opportunities == 0
+    assert mean_reversion.summary.total_actionable_opportunities == 0
 
 
 def test_third_strategy_shape_runs_deterministically_without_signal_candle_lookahead() -> None:
