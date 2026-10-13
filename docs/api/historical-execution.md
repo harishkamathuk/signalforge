@@ -75,6 +75,21 @@ The result is normalized to the applicable effective-dated tick rule.
 
 No ambient execution assumption is permitted.
 
+
+### Execution provenance
+
+Historical result identity records both:
+
+- the execution-assumption profile semantic identity; and
+- the semantic identity of the actual effective-dated `TickSizeSchedule` supplied to the run.
+
+The simulator also emits `simulator_calculation_version`. Any future change to historical execution
+semantics must bump that calculation version rather than relying only on repository history.
+
+Historical opportunity identity is deliberately independent of the execution-assumption profile and
+tick schedule. The same actionable completed-candle opportunity therefore retains one identity across
+zero-slippage and adverse execution-sensitivity runs, while the overall run/result identity changes.
+
 ## Ambiguity
 
 Results are classified as:
