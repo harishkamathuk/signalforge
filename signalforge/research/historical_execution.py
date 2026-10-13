@@ -43,6 +43,7 @@ _BPS = Decimal("10000")
 _SESSION_OPEN = time(9, 15)
 _SESSION_END = time(15, 30)
 _FORCED_EXIT = time(15, 15)
+HISTORICAL_EXECUTION_CALCULATION_VERSION = "historical-bar-execution-v1"
 
 
 class HistoricalOutcomeCertainty(StrEnum):
@@ -303,10 +304,12 @@ class HistoricalExecutionRunResult:
     strategy_version: str
     config_hash: str
     engine_calculation_version: str
+    simulator_calculation_version: str
     execution_profile_id: str
     execution_profile_version: str
     execution_profile_semantic_id: str
     tick_rule_version: str
+    tick_schedule_semantic_id: str
     outcomes: tuple[HistoricalExecutionOutcome, ...]
     summary: HistoricalExecutionSummary
     terminated_early: bool
@@ -322,10 +325,12 @@ class HistoricalExecutionRunResult:
             "strategy_version": self.strategy_version,
             "config_hash": self.config_hash,
             "engine_calculation_version": self.engine_calculation_version,
+            "simulator_calculation_version": self.simulator_calculation_version,
             "execution_profile_id": self.execution_profile_id,
             "execution_profile_version": self.execution_profile_version,
             "execution_profile_semantic_id": self.execution_profile_semantic_id,
             "tick_rule_version": self.tick_rule_version,
+            "tick_schedule_semantic_id": self.tick_schedule_semantic_id,
             "outcomes": [item.semantic_mapping() for item in self.outcomes],
             "summary": self.summary.semantic_mapping(),
             "terminated_early": self.terminated_early,
@@ -373,7 +378,6 @@ class HistoricalBarExecutionRunner:
                 str(dataset.dataset_id),
                 strategy.config_identity.config_hash,
                 engine_calculation_version,
-                execution_profile.semantic_id,
             ),
             strategy=strategy.identity,
             config_id=strategy.config_identity.config_id,
@@ -402,6 +406,7 @@ class HistoricalBarExecutionRunner:
                         strategy,
                         engine_calculation_version,
                         execution_profile,
+                        tick_schedule,
                         outcomes,
                         True,
                     )
@@ -425,6 +430,7 @@ class HistoricalBarExecutionRunner:
                             strategy,
                             engine_calculation_version,
                             execution_profile,
+                            tick_schedule,
                             outcomes,
                             True,
                         )
@@ -475,6 +481,7 @@ class HistoricalBarExecutionRunner:
             strategy,
             engine_calculation_version,
             execution_profile,
+            tick_schedule,
             outcomes,
             False,
         )
@@ -1007,6 +1014,7 @@ def _result(
     strategy: Strategy,
     engine_version: str,
     profile: HistoricalExecutionAssumptionProfile,
+    tick_schedule: TickSizeSchedule,
     outcomes: list[HistoricalExecutionOutcome],
     terminated: bool,
 ) -> HistoricalExecutionRunResult:
@@ -1016,13 +1024,35 @@ def _result(
         strategy_version=strategy.identity.strategy_version,
         config_hash=strategy.config_identity.config_hash,
         engine_calculation_version=engine_version,
+        simulator_calculation_version=HISTORICAL_EXECUTION_CALCULATION_VERSION,
         execution_profile_id=profile.profile_id,
         execution_profile_version=profile.version,
         execution_profile_semantic_id=profile.semantic_id,
         tick_rule_version=profile.tick_rule_version,
+        tick_schedule_semantic_id=_tick_schedule_semantic_id(tick_schedule),
         outcomes=tuple(outcomes),
         summary=_summary(outcomes),
         terminated_early=terminated,
+    )
+
+
+def _tick_schedule_semantic_id(schedule: TickSizeSchedule) -> str:
+    return config_hash(
+        {
+            "instrument_id": str(schedule.instrument_id),
+            "rules": [
+                {
+                    "tick_size": rule.tick_size.value,
+                    "effective_from": rule.effective_from.isoformat(),
+                    "effective_to": (
+                        None
+                        if rule.effective_to is None
+                        else rule.effective_to.isoformat()
+                    ),
+                }
+                for rule in schedule.rules
+            ],
+        }
     )
 
 
