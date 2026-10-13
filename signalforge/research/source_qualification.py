@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from signalforge.config.identity import config_hash
+from signalforge.domain.time import require_aware, to_utc
 
 
 class QualificationDecision(StrEnum):
@@ -23,7 +24,6 @@ class QualificationStatus(StrEnum):
     PROVEN = "proven"
     FAILED = "failed"
     PENDING = "pending"
-    NOT_APPLICABLE = "not_applicable"
 
 
 class QualificationCriterion(StrEnum):
@@ -42,6 +42,7 @@ class QualificationCriterion(StrEnum):
     RAW_REFERENCE_RETENTION = "raw_reference_retention"
     DATA_USE_CONSTRAINTS = "data_use_constraints"
     TRANSPORT_RELIABILITY = "transport_reliability"
+    IMPLEMENTATION_IDENTITY = "implementation_identity"
 
 
 MANDATORY_SELECT_CRITERIA: tuple[QualificationCriterion, ...] = tuple(
@@ -57,12 +58,18 @@ class QualificationEvidence:
     status: QualificationStatus
     summary: str
     evidence_reference: str
+    evidence_snapshot_id: str
+    observed_at: datetime
 
     def __post_init__(self) -> None:
         if not self.summary.strip():
             raise ValueError("Qualification evidence summary must not be empty")
         if not self.evidence_reference.strip():
             raise ValueError("Qualification evidence reference must not be empty")
+        if not self.evidence_snapshot_id.strip():
+            raise ValueError("Qualification evidence snapshot identity must not be empty")
+        require_aware(self.observed_at)
+        object.__setattr__(self, "observed_at", to_utc(self.observed_at))
 
     def semantic_mapping(self) -> dict[str, object]:
         return {
@@ -70,6 +77,8 @@ class QualificationEvidence:
             "status": self.status.value,
             "summary": self.summary,
             "evidence_reference": self.evidence_reference,
+            "evidence_snapshot_id": self.evidence_snapshot_id,
+            "observed_at": self.observed_at.isoformat(),
         }
 
 
@@ -118,6 +127,8 @@ class HistoricalSourceQualification:
     library_or_adapter: str
     version: str
     endpoint_family: str
+    implementation_source: str
+    implementation_revision: str
     decision: QualificationDecision
     evidence: tuple[QualificationEvidence, ...]
     decision_rationale: str
@@ -131,6 +142,8 @@ class HistoricalSourceQualification:
             "library_or_adapter",
             "version",
             "endpoint_family",
+            "implementation_source",
+            "implementation_revision",
             "decision_rationale",
         ):
             if not str(getattr(self, field_name)).strip():
@@ -196,6 +209,8 @@ class HistoricalSourceQualification:
             "library_or_adapter": self.library_or_adapter,
             "version": self.version,
             "endpoint_family": self.endpoint_family,
+            "implementation_source": self.implementation_source,
+            "implementation_revision": self.implementation_revision,
             "decision": self.decision.value,
             "evidence": [
                 item.semantic_mapping()
