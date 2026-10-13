@@ -701,6 +701,36 @@ def test_new_actionable_signal_is_blocked_while_position_remains_open() -> None:
     ) == 1
 
 
+def test_blocked_opportunity_identity_is_execution_profile_stable() -> None:
+    strategy = _DelayedBreakoutStrategy(
+        signal_times=(time(9, 20), time(9, 25)),
+    )
+    zero = _run(_dataset(hold_open=True), strategy=strategy)
+    adverse = _run(
+        _dataset(hold_open=True),
+        HistoricalExecutionAssumptionProfile(
+            "adverse-fixed-bps",
+            "1",
+            Decimal("10"),
+            Decimal("10"),
+            Decimal("10"),
+            Decimal("10"),
+            "nse-tick-v1",
+        ),
+        strategy=strategy,
+    )
+
+    zero_blocked = next(
+        item for item in zero.outcomes
+        if item.terminal_state is HistoricalTerminalState.BLOCKED
+    )
+    adverse_blocked = next(
+        item for item in adverse.outcomes
+        if item.terminal_state is HistoricalTerminalState.BLOCKED
+    )
+    assert zero_blocked.opportunity_id == adverse_blocked.opportunity_id
+
+
 def test_reachability_evidence_is_retained_and_identity_material() -> None:
     result = _run(_dataset())
     outcome = result.outcomes[0]
