@@ -16,11 +16,15 @@ A candidate may be marked:
 - **REJECT** when at least one mandatory criterion is demonstrably failed;
 - **BLOCKED** when evidence is incomplete and at least one mandatory criterion remains pending.
 
-The typed implementation is
+The reusable typed implementation is
 `signalforge.research.source_qualification.HistoricalSourceQualification`.
 
+The authoritative current candidate state is the executable
+`signalforge.research.sf079_phase_a_report.CURRENT_SF079_PHASE_A_REPORT`. CI imports and validates
+that report directly; this document explains the same state but is not the sole source of truth.
+
 A SELECT decision is deliberately impossible while transport reliability, bounded repeatability,
-retention depth or another mandatory criterion remains pending.
+retention depth, immutable implementation identity or another mandatory criterion remains pending.
 
 ## Current candidate state
 
@@ -66,22 +70,27 @@ Current Gate A state:
 | --- | --- | --- |
 | Exact instrument identity | PROVEN | DATA-001 captured BAJAJ-AUTO identity |
 | One-minute capability | PROVEN | DATA-001 successful historical retrieval |
-| Timestamp semantics | PROVEN/PARTIAL | enough for canonicalization evidence already recorded; recheck against repaired path |
+| Timestamp semantics | PENDING | prior evidence exists, but the repaired path must be re-observed before SELECT |
 | Retention depth | PENDING | transport reliability prevented a defensible measurement |
 | Bounded repeatability | PENDING | fresh repeated acquisitions not yet proven |
 | Missing/duplicate behavior | PENDING | must be measured on the selected bounded sample |
 | Corporate-action policy | PENDING | must be explicit for the eventual sample |
 | Volume semantics | PENDING | must be confirmed for the selected path |
-| Authentication/session boundary | PROVEN/PARTIAL | DATA-002 documents bootstrap/session behavior; repaired path still needs evidence |
+| Authentication/session boundary | PENDING | DATA-002 documents prior behavior; repaired path still needs fresh evidence |
 | Rate-limit/throttling boundary | PENDING | must be documented during bounded probes |
 | Raw/reference retention | PENDING | depends on the selected acquisition path and source terms |
 | Data-use constraints | PENDING | must be documented before storing/sharing captured source data |
 | Transport reliability | PENDING | local SignalForge-nsemine validation not yet completed |
+| Implementation identity | PENDING | exact local repository/commit identity under validation is not yet recorded |
 
 Decision: **BLOCKED_PENDING_LOCAL_VALIDATION**.
 
 The blocked state is intentional. It prevents Phase B adapter implementation from treating a
 promising but incompletely validated source as canonical.
+
+The local repaired implementation must be identified by immutable source identity (for example,
+repository plus commit SHA or equivalent build/source hash). Reporting only the upstream package
+version `2.2.1` is insufficient once local code differs from that release.
 
 ## Sample pre-registration
 
@@ -143,7 +152,9 @@ especially:
 7. timestamp and interval-label semantics;
 8. missing/duplicate/correction behavior;
 9. provider adjustment and volume semantics where observable;
-10. any rate-limit or anti-bot behavior material to reproducibility.
+10. any rate-limit or anti-bot behavior material to reproducibility;
+11. exact local repository + commit/build identity for the code under test;
+12. dated/versioned probe artifacts or content hashes for every evidence item promoted to PROVEN.
 
 If the repaired path satisfies every mandatory criterion, update the qualification to SELECT and
 freeze the sample before Phase B implementation.
@@ -158,10 +169,11 @@ Phase A adds:
 
 - typed qualification criteria;
 - explicit SELECT / REJECT / BLOCKED semantics;
-- deterministic qualification semantic identity;
+- deterministic qualification semantic identity including implementation revision and evidence snapshot identity;
 - outcome-blind sample pre-registration;
 - validation that SELECT cannot occur with pending evidence;
 - validation that blocked/rejected decisions have explicit evidence;
+- a committed executable current-source report validated by CI;
 - repository evidence documenting the current source state.
 
 It does **not** add:
