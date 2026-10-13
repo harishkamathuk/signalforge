@@ -456,7 +456,7 @@ class HistoricalBarExecutionRunner:
             if not decision.actionable:
                 continue
             if active is not None:
-                outcomes.append(_blocked(dataset, strategy, decision))
+                outcomes.append(_blocked(run, decision))
                 continue
             active = _arm(
                 dataset,
@@ -962,15 +962,14 @@ def _missing(active: _Active, start: datetime) -> HistoricalExecutionOutcome:
 
 
 def _blocked(
-    dataset: HistoricalBarDataset,
-    strategy: Strategy,
+    run: RunIdentity,
     decision: StrategyDecision,
 ) -> HistoricalExecutionOutcome:
     opportunity_id = config_hash(
         {
-            "dataset_id": str(dataset.dataset_id),
-            "strategy_id": strategy.identity.strategy_id,
-            "interval": decision.interval.start.isoformat(),
+            "strategy_run_id": str(run.run_id),
+            "interval_start": decision.interval.start.isoformat(),
+            "interval_end": decision.interval.end.isoformat(),
             "blocked_by_active_lifecycle": True,
         }
     )
