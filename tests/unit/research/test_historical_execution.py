@@ -393,10 +393,10 @@ def _dataset(
     return HistoricalBarDataset(manifest, tuple(bars))
 
 
-def _ticks() -> TickSizeSchedule:
+def _ticks(tick: str = "0.05") -> TickSizeSchedule:
     return TickSizeSchedule(
         INSTRUMENT,
-        (TickSizeRule(Price(Decimal("0.05")), date(2026, 1, 1)),),
+        (TickSizeRule(Price(Decimal(tick)), date(2026, 1, 1)),),
     )
 
 
@@ -404,13 +404,14 @@ def _run(
     dataset: HistoricalBarDataset,
     profile: HistoricalExecutionAssumptionProfile | None = None,
     strategy: _DelayedBreakoutStrategy | None = None,
+    tick_schedule: TickSizeSchedule | None = None,
 ):
     selected = strategy or _DelayedBreakoutStrategy()
     return HistoricalBarExecutionRunner(registry=_registry(selected)).run(
         dataset,
         strategy_selection=StrategySelection("test_delayed_breakout", "1.0.0", {}),
         engine_calculation_version="engine-v1",
-        tick_schedule=_ticks(),
+        tick_schedule=tick_schedule or _ticks(),
         execution_profile=profile or HistoricalExecutionAssumptionProfile.zero(),
     )
 
@@ -696,6 +697,11 @@ def test_fixed_bps_profile_is_adverse_tick_normalized_and_identity_material() ->
     assert zero_result.execution_profile_semantic_id != (
         adverse_result.execution_profile_semantic_id
     )
+    assert zero_result.result_id != adverse_result.result_id
+    assert zero_result.outcomes[0].opportunity_id == (
+        adverse_result.outcomes[0].opportunity_id
+    )
+    assert zero_result.simulator_calculation_version == "historical-bar-execution-v1"
     assert zero_result.outcomes[0].entry_fill is not None
     assert adverse_result.outcomes[0].entry_fill is not None
     assert adverse_result.outcomes[0].entry_fill.fill_price.value > (
@@ -710,6 +716,15 @@ def test_fixed_bps_profile_is_adverse_tick_normalized_and_identity_material() ->
     assert adverse_outcome.raw_target_price.value == (
         adverse_outcome.entry_fill.fill_price.value + Decimal("2") * expected_risk
     )
+
+
+def test_tick_schedule_semantic_identity_is_result_provenance() -> None:
+    first = _run(_dataset(), tick_schedule=_ticks("0.05"))
+    second = _run(_dataset(), tick_schedule=_ticks("0.10"))
+
+    assert first.tick_schedule_semantic_id != second.tick_schedule_semantic_id
+    assert first.result_id != second.result_id
+    assert first.outcomes[0].opportunity_id == second.outcomes[0].opportunity_id
 
 
 def test_historical_execution_module_has_no_event_backtest_or_real_strategy_dispatch() -> None:
