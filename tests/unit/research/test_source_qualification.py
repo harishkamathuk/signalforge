@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -21,7 +21,7 @@ from signalforge.research.source_qualification import (
 )
 
 OBSERVED_AT = datetime(
-    2026, 10, 13, 0, 0, tzinfo=timezone.utc
+    2026, 10, 13, 0, 0, tzinfo=UTC
 )
 
 
@@ -264,7 +264,7 @@ def test_observed_at_is_aware_and_identity_material() -> None:
         summary=first.summary,
         evidence_reference=first.evidence_reference,
         evidence_snapshot_id=first.evidence_snapshot_id,
-        observed_at=datetime(2026, 10, 14, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 10, 14, tzinfo=UTC),
     )
     candidate_first = _candidate(
         candidate_id="candidate-a",
