@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from signalforge.research.source_qualification import (
     HistoricalSourceQualification,
@@ -18,19 +18,19 @@ _DATA001_REF = (
 )
 _DATA001_SNAPSHOT = "git-blob:90562cb0bfdb7e73ff9e9e831e92e38e38d3a034"
 _DATA001_OBSERVED_AT = datetime(
-    2026, 10, 11, 0, 0, tzinfo=timezone.utc
+    2026, 10, 11, 0, 0, tzinfo=UTC
 )
 
 _DATA002_REF = "github-issue:#188"
 _DATA002_SNAPSHOT = "github-issue-188@2026-10-11T20:29:38Z"
 _DATA002_OBSERVED_AT = datetime(
-    2026, 10, 11, 20, 29, 38, tzinfo=timezone.utc
+    2026, 10, 11, 20, 29, 38, tzinfo=UTC
 )
 
 _PENDING_REF = "pending:SignalForge-nsemine-local-validation"
 _PENDING_SNAPSHOT = "pending:no-immutable-probe-artifact-yet"
 _PENDING_OBSERVED_AT = datetime(
-    2026, 10, 13, 0, 0, tzinfo=timezone.utc
+    2026, 10, 13, 0, 0, tzinfo=UTC
 )
 
 
