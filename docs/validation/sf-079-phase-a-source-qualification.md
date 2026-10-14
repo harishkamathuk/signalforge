@@ -75,7 +75,7 @@ Current Gate A state:
 | --- | --- | --- |
 | Exact instrument identity | PROVEN | DATA-001 captured BAJAJ-AUTO identity |
 | One-minute capability | PROVEN | DATA-001 successful historical retrieval |
-| Timestamp semantics | PENDING | SF-081 confirmed host-timezone-dependent retrieval; NSE protocol interpretation not established |
+| Timestamp semantics | PENDING | SF-081 fork PRs #3/#4 established host-independent observed NSE-local wall-clock encoding on bounded RELIANCE 1m/5m evidence; PR #206 demonstrated offline canonical representability. Generalized endpoint semantics not established |
 | Retention depth | PENDING | transport reliability prevented a defensible measurement |
 | Bounded repeatability | PENDING | fresh repeated acquisitions not yet proven |
 | Missing/duplicate behavior | PENDING | must be measured on the selected bounded sample |
@@ -86,19 +86,63 @@ Current Gate A state:
 | Raw/reference retention | PENDING | depends on the selected acquisition path and source terms |
 | Data-use constraints | PENDING | must be documented before storing/sharing captured source data |
 | Transport reliability | PENDING | bounded compatibility shown in DATA-002, but Gate A source-reliability qualification remains incomplete |
-| Implementation identity | PROVEN | fork `develop` merge commit `e56ca52b5ed326a52a70a2dc833531005675bfbc`; immutable Git commit identity |
+| Implementation identity | PROVEN | fork `develop` timestamp merge commit `3c642ed08b895e72319e02adc12cd78991c34800`; main canonical-test merge `758dd560faa97d60c02744b9965f85809bb5b33b` |
 
 Decision: **BLOCKED_PENDING_LOCAL_VALIDATION**.
 
 The blocked state is intentional. It prevents Phase B adapter implementation from treating a
 promising but incompletely validated source as canonical.
 
-The merged fork implementation has immutable source identity:
+The latest timestamp-remediated fork implementation has immutable source identity:
 `github:harishkamathuk/signalforge-nsemine` at
-`e56ca52b5ed326a52a70a2dc833531005675bfbc`. Bounded live probes described in
+`3c642ed08b895e72319e02adc12cd78991c34800`. Bounded live probes described in
 DATA-002 were conducted on the pre-merge feature revision; their results must not be
 misrepresented as post-merge evidence of historical timestamp correctness or broader source
 reliability. A later revised fork build requires its own identity and evidence snapshot.
+
+## SF-081 dated evidence handoff — 14 October 2026
+
+This records **bounded** historical-timestamp evidence; it does not replace the
+source-wide Gate A qualification or alter the qualification decision.
+
+- **Observed sample:** RELIANCE, 12 October 2026, 09:15–10:15 NSE local,
+  60 one-minute and 12 five-minute returned bars, observed on 14 October.
+  The separate SF-081 acquisition retained raw/processed OHLCV and
+  SHA-256 comparison evidence; exact per-artifact hashes are not duplicated
+  here because they have not been independently recovered from the issue.
+- **Observed interpretation:** NSE chart millisecond values are UTC-shaped
+  representations of the **NSE-local wall clock**, not verified UTC instants.
+  One-minute opening at 09:15:53–59 maps to 09:15 NSE local; five-minute
+  value at 09:19:53–59 maps to the 09:15 opening.
+- **Observed parity:** the bounded one-hour sample matched across process
+  timezones UTC, Europe/London and Asia/Kolkata; 1m→5m OHLCV aggregation
+  matched all 12 observed provider five-minute buckets. These observations
+  are not a vendor protocol specification.
+- **Fork implementation:** [PR #3](https://github.com/harishkamathuk/signalforge-nsemine/pull/3)
+  merged as `8157b8d51ee1f870124c31d1dd125658a89eb421`;
+  [PR #4](https://github.com/harishkamathuk/signalforge-nsemine/pull/4)
+  merged as `3c642ed08b895e72319e02adc12cd78991c34800` (current
+  recorded fork implementation identity).
+- **Canonical compatibility:** [main PR #206](https://github.com/harishkamathuk/signalforge/pull/206)
+  merged as `758dd560faa97d60c02744b9965f85809bb5b33b`. Its
+  [test-only validation note](sf-081-canonical-timestamp-compatibility.md)
+  documents deterministic offline representation using existing
+  `HistoricalBarDataset` and the canonical 1m→5m aggregator. This is
+  **not** a provider acquisition adapter and does not prove real-provider
+  bytes have passed into a canonical dataset.
+- **Evidence pointers:** [SF-081 #203](https://github.com/harishkamathuk/signalforge/issues/203)
+  and [canonical validation note](sf-081-canonical-timestamp-compatibility.md).
+  Probe identity and observed SHA-256 references belong to the existing
+  SF-081 evidence records; no new raw NSE data is asserted or committed.
+- **Still unknown:** provider-wide request/response range inclusivity,
+  repeatability/retention/corrections, vendor instrument identity for the
+  eventual dataset, adjustment and volume policies, source-use terms and
+  completeness. These remain mandatory Gate A gaps.
+
+**Executable decision remains BLOCKED.** In particular, the
+`TIMESTAMP_SEMANTICS` criterion remains **PENDING** despite strong
+evidence for the declared hour, because Gate A qualifies a source rather
+than only one response clock pattern. Phase B cannot begin.
 
 ## Sample pre-registration
 
