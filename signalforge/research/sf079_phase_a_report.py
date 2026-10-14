@@ -32,7 +32,7 @@ _SF081_SNAPSHOT = (
     "git-fork:3c642ed08b895e72319e02adc12cd78991c34800;"
     "git-main:758dd560faa97d60c02744b9965f85809bb5b33b"
 )
-_SF081_OBSERVED_AT = datetime(2026, 10, 14, 0, 0, tzinfo=UTC)
+_SF081_OBSERVED_AT = datetime(2026, 10, 14, 19, 33, 48, tzinfo=UTC)
 
 _PENDING_REF = "pending:signalforge-nsemine-local-validation"
 _PENDING_SNAPSHOT = "pending:no-immutable-probe-artifact-yet"
@@ -216,7 +216,7 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
             reference="https://github.com/harishkamathuk/signalforge-nsemine/commit/"
             "3c642ed08b895e72319e02adc12cd78991c34800",
             snapshot_id="git-commit:3c642ed08b895e72319e02adc12cd78991c34800",
-            observed_at=datetime(2026, 10, 14, 13, 59, tzinfo=UTC),
+            observed_at=datetime(2026, 10, 14, 18, 59, 55, tzinfo=UTC),
         )
     return _pending(
         criterion,
