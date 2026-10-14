@@ -3,6 +3,9 @@
 Synthetic raw-looking clock values mirror the observed 1m/5m *shape*,
 not proprietary prices, provider identity or vendor-wide semantics.
 """
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -22,7 +25,6 @@ from signalforge.research.historical_bars import (
 
 DAY = datetime(2026, 10, 12, tzinfo=IST)
 START = DAY.replace(hour=9, minute=15)
-END = DAY.replace(hour=10, minute=15)
 INSTRUMENT = InstrumentId("NSE:SF081-SYNTHETIC")
 VERSION = "sf081-test-only-clock-proof-v1"
 
@@ -99,8 +101,13 @@ def test_observed_1m_to_canonical_utc_full_hour_and_five_minute_alignment():
     assert len(dataset.bars) == 60
     assert dataset.bars[0].interval.start == datetime(2026, 10, 12, 3, 45, tzinfo=UTC)
     assert dataset.bars[-1].interval.end == datetime(2026, 10, 12, 4, 45, tzinfo=UTC)
-    assert dataset.bars[0].provider_timestamp_raw != str(
-        int(dataset.bars[0].interval.end.timestamp() * 1000))
+    first = dataset.bars[0]
+    expected_raw = int(datetime(2026, 10, 12, 9, 15, 53, tzinfo=UTC).timestamp() * 1000)
+    assert first.provider_timestamp_raw == str(expected_raw)
+    assert first.provider_timestamp_interpreted == datetime(2026, 10, 12, 3, 45, 53, tzinfo=UTC)
+    assert first.interval.start == datetime(2026, 10, 12, 3, 45, tzinfo=UTC)
+    assert first.provider_timestamp_interpreted != first.interval.start
+    assert datetime.fromtimestamp(expected_raw / 1000, UTC) != first.provider_timestamp_interpreted
     derived = aggregate_one_minute_to_five_minute(dataset)
     valid = [bar for bar in derived if bar.quality is CandleQuality.VALID]
     assert len(derived) == 75
@@ -133,3 +140,34 @@ def test_unqualified_interval_and_incorrect_raw_precision_are_rejected():
         checked_canonical_interval(raw, 10)
     with pytest.raises(ValueError, match="invalid raw milliseconds"):
         checked_canonical_interval(raw + 500, 1)
+
+
+@pytest.mark.parametrize("wire_hour", [3, 14])
+def test_wrong_utc_or_double_offset_encoding_not_canonical_open(wire_hour: int) -> None:
+    raw = int(datetime(2026, 10, 12, wire_hour, 45, 53, tzinfo=UTC).timestamp() * 1000)
+    canonical_open = datetime(2026, 10, 12, 3, 45, tzinfo=UTC)
+    try:
+        mapped = checked_canonical_interval(raw, 1)
+    except ValueError:
+        return
+    assert mapped.start != canonical_open
+
+
+@pytest.mark.parametrize("host_tz", ["UTC", "Europe/London", "Asia/Kolkata"])
+def test_host_timezone_independent_mapping(host_tz: str) -> None:
+    # Separate process, same test-only clock semantics; no NSE requests.
+    expression = (
+        "from datetime import UTC,datetime,timedelta; "
+        "from zoneinfo import ZoneInfo; "
+        "from signalforge.domain.time import to_utc; "
+        "raw=int(datetime(2026,10,12,9,15,53,tzinfo=UTC).timestamp()*1000); "
+        "wall=datetime.fromtimestamp(raw/1000,UTC).replace(tzinfo=None); "
+        "opened=wall.replace(second=0,tzinfo=ZoneInfo('Asia/Kolkata')); "
+        "print(to_utc(opened).isoformat()+'|'+to_utc(opened+timedelta(minutes=1)).isoformat())"
+    )
+    output = subprocess.check_output(
+        [sys.executable, "-c", expression],
+        env={**os.environ, "TZ": host_tz},
+        text=True,
+    ).strip()
+    assert output == "2026-10-12T03:45:00+00:00|2026-10-12T03:46:00+00:00"
