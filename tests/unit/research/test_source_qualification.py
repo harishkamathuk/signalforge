@@ -302,7 +302,7 @@ def test_current_phase_a_report_is_executable_and_gate_remains_blocked() -> None
         is QualificationStatus.PROVEN
     )
     assert NSEMINE_SIGNALFORGE_CANDIDATE.implementation_revision == (
-        "e56ca52b5ed326a52a70a2dc833531005675bfbc"
+        "3c642ed08b895e72319e02adc12cd78991c34800"
     )
 
 
@@ -315,7 +315,7 @@ def test_current_fork_identity_is_immutable_without_promoting_other_evidence() -
     )
     assert identity.status is QualificationStatus.PROVEN
     assert identity.evidence_snapshot_id == (
-        "git-commit:e56ca52b5ed326a52a70a2dc833531005675bfbc"
+        "git-commit:3c642ed08b895e72319e02adc12cd78991c34800"
     )
     assert candidate.decision is QualificationDecision.BLOCKED
     assert CURRENT_SF079_PHASE_A_REPORT.gate_a_passed is False
@@ -326,3 +326,22 @@ def test_current_fork_identity_is_immutable_without_promoting_other_evidence() -
     assert QualificationCriterion.TIMESTAMP_SEMANTICS in pending
     assert QualificationCriterion.RETENTION_DEPTH in pending
     assert QualificationCriterion.TRANSPORT_RELIABILITY in pending
+
+
+def test_sf081_timestamp_evidence_is_bounded_and_not_selected() -> None:
+    candidate = NSEMINE_SIGNALFORGE_CANDIDATE
+    timestamp = next(
+        item for item in candidate.evidence
+        if item.criterion is QualificationCriterion.TIMESTAMP_SEMANTICS
+    )
+    assert timestamp.status is QualificationStatus.PENDING
+    assert "60x1m, 12x5m" in timestamp.summary
+    assert "provider-wide" in timestamp.summary
+    assert "3c642ed08b895e72319e02adc12cd78991c34800" in (
+        timestamp.evidence_snapshot_id
+    )
+    assert "758dd560faa97d60c02744b9965f85809bb5b33b" in (
+        timestamp.evidence_snapshot_id
+    )
+    assert candidate.decision is QualificationDecision.BLOCKED
+    assert CURRENT_SF079_PHASE_A_REPORT.gate_a_passed is False
