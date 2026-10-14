@@ -23,8 +23,8 @@ The authoritative current candidate state is the executable
 `signalforge.research.sf079_phase_a_report.CURRENT_SF079_PHASE_A_REPORT`. CI imports and validates
 that report directly; this document explains the same state but is not the sole source of truth.
 
-A SELECT decision is deliberately impossible while transport reliability, bounded repeatability,
-retention depth, immutable implementation identity or another mandatory criterion remains pending.
+A SELECT decision is deliberately impossible while timestamp semantics, transport reliability,
+bounded repeatability, retention depth or another mandatory criterion remains pending.
 
 ## Current candidate state
 
@@ -52,7 +52,7 @@ Gate A consequence:
 
 No SF-079 adapter should be built for this path.
 
-### nsemine 2.2.1 / SignalForge-nsemine candidate — BLOCKED
+### nsemine 2.2.1 / signalforge-nsemine candidate — BLOCKED
 
 DATA-001 demonstrated useful semantics when retrieval succeeded:
 
@@ -60,9 +60,14 @@ DATA-001 demonstrated useful semantics when retrieval succeeded:
 - one-minute and five-minute historical OHLCV were observed;
 - complete one-minute buckets aggregated deterministically to the provider five-minute OHLCV.
 
-DATA-002 records the unresolved transport problem in the released nsemine path. The user's
-SignalForge-nsemine local work is intended to test a repair, but that local validation is not yet
-part of SignalForge evidence.
+DATA-002 records the original intermittent transport failure. Fork PR #1 introduced an
+explicit synchronous `requests` option while retaining `curl_cffi` as default; bounded
+RELIANCE probes validated functional transport compatibility but did not reproduce the original
+TLS failure. The merged fork implementation is identified by commit
+`e56ca52b5ed326a52a70a2dc833531005675bfbc` in
+`harishkamathuk/signalforge-nsemine`. This identifies the code baseline, not a fully qualified
+historical source. SF-081 separately tracks the demonstrated host-timezone-dependent timestamp
+defect.
 
 Current Gate A state:
 
@@ -70,7 +75,7 @@ Current Gate A state:
 | --- | --- | --- |
 | Exact instrument identity | PROVEN | DATA-001 captured BAJAJ-AUTO identity |
 | One-minute capability | PROVEN | DATA-001 successful historical retrieval |
-| Timestamp semantics | PENDING | prior evidence exists, but the repaired path must be re-observed before SELECT |
+| Timestamp semantics | PENDING | SF-081 confirmed host-timezone-dependent retrieval; NSE protocol interpretation not established |
 | Retention depth | PENDING | transport reliability prevented a defensible measurement |
 | Bounded repeatability | PENDING | fresh repeated acquisitions not yet proven |
 | Missing/duplicate behavior | PENDING | must be measured on the selected bounded sample |
@@ -80,17 +85,20 @@ Current Gate A state:
 | Rate-limit/throttling boundary | PENDING | must be documented during bounded probes |
 | Raw/reference retention | PENDING | depends on the selected acquisition path and source terms |
 | Data-use constraints | PENDING | must be documented before storing/sharing captured source data |
-| Transport reliability | PENDING | local SignalForge-nsemine validation not yet completed |
-| Implementation identity | PENDING | exact local repository/commit identity under validation is not yet recorded |
+| Transport reliability | PENDING | bounded compatibility shown in DATA-002, but Gate A source-reliability qualification remains incomplete |
+| Implementation identity | PROVEN | fork `develop` merge commit `e56ca52b5ed326a52a70a2dc833531005675bfbc`; immutable Git commit identity |
 
 Decision: **BLOCKED_PENDING_LOCAL_VALIDATION**.
 
 The blocked state is intentional. It prevents Phase B adapter implementation from treating a
 promising but incompletely validated source as canonical.
 
-The local repaired implementation must be identified by immutable source identity (for example,
-repository plus commit SHA or equivalent build/source hash). Reporting only the upstream package
-version `2.2.1` is insufficient once local code differs from that release.
+The merged fork implementation has immutable source identity:
+`github:harishkamathuk/signalforge-nsemine` at
+`e56ca52b5ed326a52a70a2dc833531005675bfbc`. Bounded live probes described in
+DATA-002 were conducted on the pre-merge feature revision; their results must not be
+misrepresented as post-merge evidence of historical timestamp correctness or broader source
+reliability. A later revised fork build requires its own identity and evidence snapshot.
 
 ## Sample pre-registration
 
@@ -138,7 +146,7 @@ Current tick size must not be projected backwards without evidence.
 
 The eventual smoke-run evidence must retain the actual tick-schedule semantic identity.
 
-## Handoff from local SignalForge-nsemine testing
+## Handoff from local signalforge-nsemine testing
 
 The local validation should provide evidence sufficient to update the nsemine candidate record,
 especially:
@@ -153,7 +161,7 @@ especially:
 8. missing/duplicate/correction behavior;
 9. provider adjustment and volume semantics where observable;
 10. any rate-limit or anti-bot behavior material to reproducibility;
-11. exact local repository + commit/build identity for the code under test;
+11. link every new probe to the exact installed fork commit/build identity;
 12. dated/versioned probe artifacts or content hashes for every evidence item promoted to PROVEN.
 
 If the repaired path satisfies every mandatory criterion, update the qualification to SELECT and
@@ -193,6 +201,6 @@ Phase A framework implementation is complete.
 
 Current actionable state:
 
-`nsemine / SignalForge-nsemine → BLOCKED_PENDING_LOCAL_VALIDATION`
+`nsemine / signalforge-nsemine → BLOCKED_PENDING_LOCAL_VALIDATION`
 
 Phase B must not begin until that status becomes SELECT, or another source passes Gate A.

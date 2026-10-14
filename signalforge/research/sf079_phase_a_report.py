@@ -27,7 +27,7 @@ _DATA002_OBSERVED_AT = datetime(
     2026, 10, 11, 20, 29, 38, tzinfo=UTC
 )
 
-_PENDING_REF = "pending:SignalForge-nsemine-local-validation"
+_PENDING_REF = "pending:signalforge-nsemine-local-validation"
 _PENDING_SNAPSHOT = "pending:no-immutable-probe-artifact-yet"
 _PENDING_OBSERVED_AT = datetime(
     2026, 10, 13, 0, 0, tzinfo=UTC
@@ -145,7 +145,7 @@ _NSEMINE_STATUS: dict[QualificationCriterion, QualificationStatus] = {
     QualificationCriterion.RAW_REFERENCE_RETENTION: QualificationStatus.PENDING,
     QualificationCriterion.DATA_USE_CONSTRAINTS: QualificationStatus.PENDING,
     QualificationCriterion.TRANSPORT_RELIABILITY: QualificationStatus.PENDING,
-    QualificationCriterion.IMPLEMENTATION_IDENTITY: QualificationStatus.PENDING,
+    QualificationCriterion.IMPLEMENTATION_IDENTITY: QualificationStatus.PROVEN,
 }
 
 
@@ -186,37 +186,42 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
             observed_at=_DATA002_OBSERVED_AT,
         )
     if criterion is QualificationCriterion.IMPLEMENTATION_IDENTITY:
-        return _pending(
+        return _evidence(
             criterion,
-            "Exact SignalForge-nsemine repository/commit identity under "
-            "validation is not yet recorded.",
+            status,
+            "Fork develop transport implementation is identified by its merged commit; "
+            "earlier bounded probes do not establish timestamp correctness.",
+            reference="https://github.com/harishkamathuk/signalforge-nsemine/commit/"
+            "e56ca52b5ed326a52a70a2dc833531005675bfbc",
+            snapshot_id="git-commit:e56ca52b5ed326a52a70a2dc833531005675bfbc",
+            observed_at=datetime(2026, 10, 14, 13, 59, tzinfo=UTC),
         )
     return _pending(
         criterion,
-        "Mandatory evidence remains pending local SignalForge-nsemine validation.",
+        "Mandatory evidence remains pending local signalforge-nsemine validation.",
     )
 
 
 NSEMINE_SIGNALFORGE_CANDIDATE = HistoricalSourceQualification(
     candidate_id="nsemine-signalforge-local",
-    source_name="nsemine / SignalForge-nsemine",
+    source_name="nsemine / signalforge-nsemine",
     library_or_adapter="nsemine-compatible local fork",
     version="upstream-2.2.1-compatible",
     endpoint_family="NSE quote/charting endpoints",
-    implementation_source="local:SignalForge-nsemine",
-    implementation_revision="PENDING_LOCAL_COMMIT_IDENTITY",
+    implementation_source="github:harishkamathuk/signalforge-nsemine",
+    implementation_revision="e56ca52b5ed326a52a70a2dc833531005675bfbc",
     decision=QualificationDecision.BLOCKED,
     evidence=tuple(
         _nsemine_evidence(criterion)
         for criterion in QualificationCriterion
     ),
     decision_rationale=(
-        "Blocked pending immutable local implementation identity and fresh "
-        "reliability/retention evidence."
+        "Blocked pending verified historical timestamp semantics and remaining "
+        "source qualification evidence."
     ),
     blockers=(
-        "SignalForge-nsemine local implementation commit identity pending",
-        "fresh transport/repeatability/retention qualification pending",
+        "SF-081 historical timestamp correctness remains unverified",
+        "retention and other mandatory source qualification evidence pending",
     ),
 )
 

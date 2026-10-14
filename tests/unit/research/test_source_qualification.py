@@ -299,8 +299,30 @@ def test_current_phase_a_report_is_executable_and_gate_remains_blocked() -> None
     assert statuses[QualificationCriterion.AUTHENTICATION_BOUNDARY] is QualificationStatus.PENDING
     assert (
         statuses[QualificationCriterion.IMPLEMENTATION_IDENTITY]
-        is QualificationStatus.PENDING
+        is QualificationStatus.PROVEN
     )
     assert NSEMINE_SIGNALFORGE_CANDIDATE.implementation_revision == (
-        "PENDING_LOCAL_COMMIT_IDENTITY"
+        "e56ca52b5ed326a52a70a2dc833531005675bfbc"
     )
+
+
+def test_current_fork_identity_is_immutable_without_promoting_other_evidence() -> None:
+    candidate = NSEMINE_SIGNALFORGE_CANDIDATE
+    assert candidate.implementation_source == "github:harishkamathuk/signalforge-nsemine"
+    identity = next(
+        item for item in candidate.evidence
+        if item.criterion is QualificationCriterion.IMPLEMENTATION_IDENTITY
+    )
+    assert identity.status is QualificationStatus.PROVEN
+    assert identity.evidence_snapshot_id == (
+        "git-commit:e56ca52b5ed326a52a70a2dc833531005675bfbc"
+    )
+    assert candidate.decision is QualificationDecision.BLOCKED
+    assert CURRENT_SF079_PHASE_A_REPORT.gate_a_passed is False
+    pending = {
+        item.criterion for item in candidate.evidence
+        if item.status is QualificationStatus.PENDING
+    }
+    assert QualificationCriterion.TIMESTAMP_SEMANTICS in pending
+    assert QualificationCriterion.RETENTION_DEPTH in pending
+    assert QualificationCriterion.TRANSPORT_RELIABILITY in pending
