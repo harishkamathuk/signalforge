@@ -27,6 +27,13 @@ _DATA002_OBSERVED_AT = datetime(
     2026, 10, 11, 20, 29, 38, tzinfo=UTC
 )
 
+_SF081_REF = "https://github.com/harishkamathuk/signalforge/issues/203"
+_SF081_SNAPSHOT = (
+    "git-fork:3c642ed08b895e72319e02adc12cd78991c34800;"
+    "git-main:758dd560faa97d60c02744b9965f85809bb5b33b"
+)
+_SF081_OBSERVED_AT = datetime(2026, 10, 14, 0, 0, tzinfo=UTC)
+
 _PENDING_REF = "pending:signalforge-nsemine-local-validation"
 _PENDING_SNAPSHOT = "pending:no-immutable-probe-artifact-yet"
 _PENDING_OBSERVED_AT = datetime(
@@ -169,8 +176,23 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
             snapshot_id=_DATA001_SNAPSHOT,
             observed_at=_DATA001_OBSERVED_AT,
         )
+    if criterion is QualificationCriterion.TIMESTAMP_SEMANTICS:
+        return _evidence(
+            criterion,
+            status,
+            (
+                "SF-081 bounded RELIANCE 2026-10-12 09:15-10:15 IST sample "
+                "(60x1m, 12x5m) and host-TZ parity support observed chart "
+                "wall-clock-shaped milliseconds, 1m/5m opening labels and "
+                "canonical UTC mapping. Fork PRs #3/#4 and main PR #206 "
+                "merged. Generalized NSE endpoint contract, range behaviour "
+                "and provider-wide source qualification remain unproven."
+            ),
+            reference=_SF081_REF,
+            snapshot_id=_SF081_SNAPSHOT,
+            observed_at=_SF081_OBSERVED_AT,
+        )
     if criterion in {
-        QualificationCriterion.TIMESTAMP_SEMANTICS,
         QualificationCriterion.AUTHENTICATION_BOUNDARY,
         QualificationCriterion.TRANSPORT_RELIABILITY,
     }:
@@ -189,11 +211,11 @@ def _nsemine_evidence(criterion: QualificationCriterion) -> QualificationEvidenc
         return _evidence(
             criterion,
             status,
-            "Fork develop transport implementation is identified by its merged commit; "
-            "earlier bounded probes do not establish timestamp correctness.",
+            "Fork develop timestamp implementation is identified by merged PR #4; "
+            "bounded probes support the observed date/window, not broad qualification.",
             reference="https://github.com/harishkamathuk/signalforge-nsemine/commit/"
-            "e56ca52b5ed326a52a70a2dc833531005675bfbc",
-            snapshot_id="git-commit:e56ca52b5ed326a52a70a2dc833531005675bfbc",
+            "3c642ed08b895e72319e02adc12cd78991c34800",
+            snapshot_id="git-commit:3c642ed08b895e72319e02adc12cd78991c34800",
             observed_at=datetime(2026, 10, 14, 13, 59, tzinfo=UTC),
         )
     return _pending(
@@ -220,7 +242,8 @@ NSEMINE_SIGNALFORGE_CANDIDATE = HistoricalSourceQualification(
         "source qualification evidence."
     ),
     blockers=(
-        "SF-081 historical timestamp correctness remains unverified",
+        "SF-081 timestamp convention is proven only for a bounded sample; "
+        "provider-wide request/response semantics remain pending",
         "retention and other mandatory source qualification evidence pending",
     ),
 )
