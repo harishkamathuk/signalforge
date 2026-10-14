@@ -231,7 +231,7 @@ NSEMINE_SIGNALFORGE_CANDIDATE = HistoricalSourceQualification(
     version="upstream-2.2.1-compatible",
     endpoint_family="NSE quote/charting endpoints",
     implementation_source="github:harishkamathuk/signalforge-nsemine",
-    implementation_revision="e56ca52b5ed326a52a70a2dc833531005675bfbc",
+    implementation_revision="3c642ed08b895e72319e02adc12cd78991c34800",
     decision=QualificationDecision.BLOCKED,
     evidence=tuple(
         _nsemine_evidence(criterion)
