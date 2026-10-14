@@ -66,7 +66,8 @@ def synthetic_bars() -> tuple[HistoricalBar, ...]:
             close=Price(price + Decimal("0.5")), volume=100 + offset,
             quality=CandleQuality.VALID, source_provider="synthetic-clock-contract",
             source_record_count=1, provider_timestamp_raw=str(raw),
-            provider_timestamp_interpreted=datetime.fromtimestamp(raw / 1000, UTC).replace(\n                tzinfo=IST).astimezone(UTC),
+            provider_timestamp_interpreted=datetime.fromtimestamp(raw / 1000, UTC).replace(
+                tzinfo=IST).astimezone(UTC),
             canonicalisation_version=VERSION,
         ))
     return tuple(records)
