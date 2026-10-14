@@ -13,8 +13,11 @@ from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
 from signalforge.domain.time import IST, CandleInterval, to_utc
 from signalforge.research.historical_bars import (
-    CorporateActionPolicy, HistoricalBar, HistoricalBarDataset,
-    HistoricalDatasetManifest, aggregate_one_minute_to_five_minute,
+    CorporateActionPolicy,
+    HistoricalBar,
+    HistoricalBarDataset,
+    HistoricalDatasetManifest,
+    aggregate_one_minute_to_five_minute,
 )
 
 DAY = datetime(2026, 10, 12, tzinfo=IST)
@@ -63,7 +66,7 @@ def synthetic_bars() -> tuple[HistoricalBar, ...]:
             close=Price(price + Decimal("0.5")), volume=100 + offset,
             quality=CandleQuality.VALID, source_provider="synthetic-clock-contract",
             source_record_count=1, provider_timestamp_raw=str(raw),
-            provider_timestamp_interpreted=interval.end - timedelta(seconds=7),
+            provider_timestamp_interpreted=datetime.fromtimestamp(raw / 1000, UTC).replace(\n                tzinfo=IST).astimezone(UTC),
             canonicalisation_version=VERSION,
         ))
     return tuple(records)
