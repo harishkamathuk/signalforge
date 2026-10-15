@@ -56,13 +56,15 @@ separate, attributable independent instrument-reference evidence links the exact
 provider token to NSE TCS/EQ. A CLI symbol, filename or operator label alone is
 never accepted as independent identity proof.
 
-If genuinely independent reference evidence is required, it may be supplied
-with `--instrument-reference-evidence`. The JSON must identify an independent
-instrument-reference source, NSE, TCS/EQ, cash Equity, the exact nsemine provider
-token, a reproducible source reference, and a lowercase SHA-256 for the referenced
-source content. This path is only a provenance mechanism; the operator remains
-responsible for retaining the attributable source material that the reference
-and hash identify.
+If genuinely independent reference evidence is required, supply both
+`--instrument-reference-evidence` and `--instrument-reference-source`. The
+metadata JSON must identify an independent instrument-reference source, NSE,
+TCS/EQ, cash Equity, the exact nsemine provider token, a reproducible source
+reference, and the lowercase SHA-256 of the retained source snapshot. The CLI
+hashes the supplied source snapshot and requires an exact match before that
+reference can support identity. A metadata file by itself is rejected. The
+operator remains responsible for ensuring that the retained snapshot is genuinely
+from the attributed source and may be retained under its terms.
 
 ## Evidence artifacts
 
