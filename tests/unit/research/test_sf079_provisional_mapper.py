@@ -47,7 +47,9 @@ def test_synthetic_mapping_preserves_raw_interpreted_and_canonical_clock():
     assert len(dataset.bars) == 59
     assert dataset.manifest.missing_interval_count == 316
     assert dataset.bars[0].interval.start == datetime(2026, 10, 12, 3, 45, tzinfo=UTC)
-    assert dataset.bars[0].provider_timestamp_interpreted == datetime(2026, 10, 12, 3, 45, 53, tzinfo=UTC)
+    assert dataset.bars[0].provider_timestamp_interpreted == datetime(
+        2026, 10, 12, 3, 45, 53, tzinfo=UTC
+    )
     assert dataset.bars[0].provider_timestamp_raw == str(rows()[0]["time"])
     assert "SYNTHETIC" in dataset.manifest.limitations[0]
     assert str(dataset.dataset_id) == str(convert(rows()).dataset_id)
