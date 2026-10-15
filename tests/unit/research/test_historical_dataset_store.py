@@ -142,6 +142,7 @@ def test_loader_parses_original_verified_bytes_once(tmp_path, monkeypatch):
     identity = store.save(dataset)
     path = tmp_path / (str(identity) + ".json")
     original_read = Path.read_bytes
+    _original_blob = original_read(path)
 
     def replace_on_first_read(self):
         value = original_read(self)
@@ -154,7 +155,7 @@ def test_loader_parses_original_verified_bytes_once(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "read_bytes", replace_on_first_read)
     restored = store.load(identity)
     assert restored == dataset
-    assert path.read_bytes() != original_read(path)
+    assert original_read(path) != _original_blob
 
 
 def test_saved_dataset_can_be_loaded_after_store_reconstruction(tmp_path):
