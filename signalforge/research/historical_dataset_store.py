@@ -85,6 +85,8 @@ class LocalHistoricalDatasetStore:
             if dataset.dataset_id != dataset_id:
                 raise HistoricalDatasetStoreError("dataset semantic identity mismatch")
             return dataset
+        except HistoricalDatasetStoreError:
+            raise
         except (OSError, ValueError, TypeError, ArithmeticError) as exc:
             raise HistoricalDatasetStoreError(
                 f"frozen dataset unavailable or invalid: {dataset_id}"
