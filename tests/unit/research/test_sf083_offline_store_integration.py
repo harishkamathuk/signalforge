@@ -76,6 +76,19 @@ def test_sf083_offline_reuse_through_shared_sf084_store(tmp_path, monkeypatch):
     first = aggregate_one_minute_to_five_minute(canonical)
     second = aggregate_one_minute_to_five_minute(reloaded)
     assert second == first
+    # Independent fixture-based oracle, not merely two runs of the same aggregator.
+    # 09:15-09:20 has all five source minutes and known constant prices.
+    first_bucket = second[0]
+    assert first_bucket.quality is CandleQuality.VALID
+    assert str(first_bucket.open.value) == "100.00"
+    assert str(first_bucket.high.value) == "101.00"
+    assert str(first_bucket.low.value) == "99.00"
+    assert str(first_bucket.close.value) == "100.50"
+    assert first_bucket.volume == sum(100 + n for n in range(5))
+    # Missing minute 09:22 makes the 09:20-09:25 bucket incomplete.
+    assert second[1].quality is CandleQuality.INCOMPLETE
+    assert second[1].source_event_count == 4
+    assert second[1].volume == sum(100 + n for n in (5, 6, 8, 9))
     assert sum(c.quality is CandleQuality.VALID for c in second) == 11
     assert sum(c.quality is CandleQuality.INCOMPLETE for c in second) == 1
     assert sum(c.quality is CandleQuality.MISSING for c in second) == 63
