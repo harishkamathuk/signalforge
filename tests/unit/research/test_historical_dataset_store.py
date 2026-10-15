@@ -162,3 +162,64 @@ def test_saved_dataset_can_be_loaded_after_store_reconstruction(tmp_path):
     dataset = load_historical_bar_fixture(FIXTURE)
     identity = LocalHistoricalDatasetStore(tmp_path).save(dataset)
     assert LocalHistoricalDatasetStore(tmp_path).load(identity) == dataset
+
+
+def test_canonical_deduplicated_bars_roundtrip_preserves_source_counts(tmp_path):
+    from signalforge.research.historical_bars import HistoricalBarDataset
+    source = load_historical_bar_fixture(FIXTURE)
+    bars = source.bars
+    manifest = replace(
+        source.manifest,
+        duplicate_observation_count=1,
+        raw_row_count=source.manifest.raw_row_count + 1,
+    )
+    canonical = HistoricalBarDataset(manifest=manifest, bars=(bars[0], bars[0], *bars[1:]))
+    assert len(canonical.bars) == len(bars)
+    assert canonical.manifest.duplicate_observation_count == 1
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(canonical)
+    restored = LocalHistoricalDatasetStore(tmp_path).load(identity)
+    assert restored == canonical
+    assert restored.dataset_id == identity
+    assert restored.manifest.raw_row_count == len(bars) + 1
+    assert restored.manifest.canonical_row_count == len(bars)
+    assert store.save(restored) == identity
+
+
+def test_sidecar_creation_failure_fails_closed_without_repair(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path)
+    original_open = Path.open
+
+    def fail_sidecar_creation(self, mode="r", *args, **kwargs):
+        if self.suffix == ".sha256" and mode == "x":
+            raise OSError("injected sidecar publication failure")
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_sidecar_creation)
+    with pytest.raises(OSError, match="injected sidecar"):
+        store.save(dataset)
+    monkeypatch.setattr(Path, "open", original_open)
+    json_path = tmp_path / (str(dataset.dataset_id) + ".json")
+    assert json_path.exists()
+    assert not json_path.with_suffix(".sha256").exists()
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.load(dataset.dataset_id)
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.save(dataset)
+
+
+def test_canonical_storage_rejects_undeclared_duplicates_and_false_raw_counts(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    path = tmp_path / (str(identity) + ".json")
+    payload = json.loads(path.read_text())
+    payload["bars"].append(payload["bars"][-1].copy())
+    altered = json.dumps(payload).encode()
+    path.write_bytes(altered)
+    path.with_suffix(".sha256").write_text(
+        hashlib.sha256(altered).hexdigest() + "\n", encoding="ascii"
+    )
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.load(identity)
