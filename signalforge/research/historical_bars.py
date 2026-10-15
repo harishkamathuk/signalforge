@@ -560,7 +560,13 @@ class HistoricalBarResearchRunner:
 def load_historical_bar_fixture(path: Path) -> HistoricalBarDataset:
     """Load one strict repository-local JSON historical-bar fixture."""
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    return parse_historical_bar_fixture_json(path.read_text(encoding="utf-8"))
+
+
+def parse_historical_bar_fixture_json(content: str) -> HistoricalBarDataset:
+    """Parse already-read historical fixture JSON without reopening any path."""
+
+    payload = json.loads(content)
     if not isinstance(payload, dict):
         raise ValueError("Historical fixture root must be an object")
     manifest_raw = _mapping(payload.get("manifest"), "manifest")
