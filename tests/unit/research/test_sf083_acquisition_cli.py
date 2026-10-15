@@ -45,7 +45,8 @@ def test_single_bounded_mock_acquisition_does_not_reinterpret_raw(tmp_path, monk
     assert calls[0]["interval"] == 1
     assert calls[0]["raw"] is True
     assert report["status"].startswith("RAW_CAPTURED")
-    assert json.loads((output / "sdk-decoded-response.json").read_text()) == {"raw": {"bars": [{"time": 123, "p": 101.2}]}}
+    expected_response = {"raw": {"bars": [{"time": 123, "p": 101.2}]}}
+    assert json.loads((output / "sdk-decoded-response.json").read_text()) == expected_response
     assert json.loads((output / "acquisition-manifest.json").read_text()) == report
     assert report["sdk_decoded_json_sha256"] == cli.hashlib.sha256(
         (output / "sdk-decoded-response.json").read_bytes()
