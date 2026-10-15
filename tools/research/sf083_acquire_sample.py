@@ -57,10 +57,71 @@ def _provider_token(candidate: dict[str, object]) -> str:
     raise ValueError("provider candidate token/scripcode is absent or malformed")
 
 
+def _load_reference_evidence(path: Path | None) -> tuple[dict[str, object] | None, str | None]:
+    if path is None:
+        return None, None
+    if not path.is_file():
+        raise ValueError("independent instrument-reference evidence file does not exist")
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("independent instrument-reference evidence is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("independent instrument-reference evidence must be a JSON object")
+    required_strings = {
+        "evidence_type": "independent_instrument_reference",
+        "provider": "nsemine",
+        "exchange": "NSE",
+        "instrument_type": "Equity",
+    }
+    for field, expected in required_strings.items():
+        if value.get(field) != expected:
+            raise ValueError(
+                f"independent instrument-reference evidence has invalid {field}"
+            )
+    for field in ("symbol", "series", "provider_token", "source_reference"):
+        if not isinstance(value.get(field), str) or not str(value[field]).strip():
+            raise ValueError(
+                f"independent instrument-reference evidence is missing {field}"
+            )
+    source_hash = value.get("source_content_sha256")
+    if (
+        not isinstance(source_hash, str)
+        or len(source_hash) != 64
+        or any(char not in "0123456789abcdef" for char in source_hash)
+    ):
+        raise ValueError(
+            "independent instrument-reference evidence requires a lowercase source hash"
+        )
+    return value, digest
+
+
+def _reference_supports_candidate(
+    reference: dict[str, object] | None,
+    *,
+    symbol: str,
+    series: str,
+    token: str,
+) -> bool:
+    if reference is None:
+        return False
+    return (
+        str(reference.get("symbol", "")).upper() == symbol.upper()
+        and str(reference.get("series", "")).upper() == series.upper()
+        and reference.get("provider_token") == token
+    )
+
+
 def _select_equity_candidate(
-    candidates: list[dict[str, object]], *, symbol: str, series: str
+    candidates: list[dict[str, object]],
+    *,
+    symbol: str,
+    series: str,
+    reference: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], str, str]:
-    """Select exactly one candidate whose original provider identity proves SYMBOL/SERIES."""
+    """Select exactly one candidate whose evidence proves SYMBOL/SERIES."""
     requested_symbol = symbol.upper()
     requested_series = series.upper()
     composite = f"{requested_symbol}-{requested_series}"
@@ -87,30 +148,37 @@ def _select_equity_candidate(
             )
             continue
 
-        series_from_symbol = original_upper == composite
-        series_from_field = (
-            isinstance(provider_series, str)
-            and provider_series.upper() == requested_series
-            and original_upper == requested_symbol
-        )
-        if not (series_from_symbol or series_from_field):
-            conflicts.append(
-                f"candidate {index} for {original_symbol!r} does not establish "
-                f"series {requested_series}"
-            )
-            continue
-
         try:
             token = _provider_token(candidate)
         except ValueError as exc:
             conflicts.append(f"candidate {index} for {original_symbol!r}: {exc}")
             continue
 
-        basis = (
-            "original_provider_symbol_exact_symbol_series"
-            if series_from_symbol
-            else "original_provider_symbol_plus_series_field"
+        series_from_symbol = original_upper == composite
+        series_from_field = (
+            isinstance(provider_series, str)
+            and provider_series.upper() == requested_series
+            and original_upper == requested_symbol
         )
+        series_from_reference = (
+            original_upper == requested_symbol
+            and _reference_supports_candidate(
+                reference, symbol=symbol, series=series, token=token
+            )
+        )
+        if not (series_from_symbol or series_from_field or series_from_reference):
+            conflicts.append(
+                f"candidate {index} for {original_symbol!r} does not establish "
+                f"series {requested_series}"
+            )
+            continue
+
+        if series_from_symbol:
+            basis = "original_provider_symbol_exact_symbol_series"
+        elif series_from_field:
+            basis = "original_provider_symbol_plus_series_field"
+        else:
+            basis = "independent_reference_exact_token_symbol_series"
         accepted.append((candidate, token, basis))
 
     if len(accepted) != 1:
@@ -131,6 +199,7 @@ def acquire(
     calendar: str,
     revision: str,
     series: str = "EQ",
+    instrument_reference: Path | None = None,
 ) -> dict[str, object]:
     """Resolve and verify one instrument, then acquire one declared session."""
     if not symbol or not symbol.isascii() or not symbol.replace("-", "").isalnum():
@@ -178,6 +247,15 @@ def acquire(
         installed_version = "unknown (source checkout or mocked install)"
     module_path = str(vars(historical).get("__file__") or "unavailable")
 
+    reference, reference_file_digest = _load_reference_evidence(instrument_reference)
+    if reference is not None and (
+        str(reference["symbol"]).upper() != symbol.upper()
+        or str(reference["series"]).upper() != series.upper()
+    ):
+        raise ValueError(
+            "independent instrument-reference evidence contradicts requested identity"
+        )
+
     search_parameters = {"stock_symbol": symbol, "segment": series, "scrip_type": None}
     raw_candidates = search(**search_parameters)
     if not isinstance(raw_candidates, list) or any(
@@ -186,7 +264,7 @@ def acquire(
         raise ValueError("provider resolver returned an invalid candidate collection")
     candidates: list[dict[str, object]] = raw_candidates
     selected, token, match_basis = _select_equity_candidate(
-        candidates, symbol=symbol, series=series
+        candidates, symbol=symbol, series=series, reference=reference
     )
     selected_symbol = selected.get("symbol")
     selected_type = selected.get("type")
@@ -207,6 +285,8 @@ def acquire(
         "selected_provider_token": token,
         "selection_basis": match_basis,
         "verification_outcome": "VERIFIED_EXACT_PROVIDER_IDENTITY",
+        "independent_reference_evidence": reference,
+        "independent_reference_file_sha256": reference_file_digest,
     }
     resolver_bytes = _json_bytes(resolver_evidence)
     resolver_digest = hashlib.sha256(resolver_bytes).hexdigest()
@@ -276,6 +356,11 @@ def acquire(
         "local_entitlement_evidence": str(entitlement),
         "source_fact_vs_attestation": {
             "provider_candidates_and_selected_token": "provider source facts",
+            "independent_reference_evidence": (
+                "hash-addressed external reference evidence"
+                if reference is not None
+                else "not supplied/not required"
+            ),
             "historical_request_token": "direct SDK call argument recorded by this CLI",
             "declared_revision": "operator attestation",
             "calendar_reference": "operator attestation/reference",
@@ -340,6 +425,14 @@ def main(argv: list[str] | None = None) -> int:
     acquire_parser.add_argument("--entitlement-evidence", type=Path, required=True)
     acquire_parser.add_argument("--calendar-reference", required=True)
     acquire_parser.add_argument("--revision", required=True)
+    acquire_parser.add_argument(
+        "--instrument-reference-evidence",
+        type=Path,
+        help=(
+            "optional hash-addressed independent reference JSON; required only when "
+            "provider candidate fields do not themselves establish EQ identity"
+        ),
+    )
     verify_parser = modes.add_parser(
         "offline-verify", help="load a frozen canonical ID"
     )
@@ -356,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
                 calendar=args.calendar_reference,
                 revision=args.revision,
                 series=args.series,
+                instrument_reference=args.instrument_reference_evidence,
             )
         else:
             result = verify(output=args.output, dataset_id=args.dataset_id)
