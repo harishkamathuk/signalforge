@@ -26,8 +26,9 @@ def test_single_bounded_mock_acquisition_does_not_reinterpret_raw(tmp_path, monk
     nsemine = ModuleType("nsemine")
     historical = ModuleType("nsemine.historical")
 
-    def mock_fetch(**kwargs):
-        calls.append(kwargs)
+    def mock_fetch(*, stock_symbol, start_datetime, end_datetime, interval, raw):
+        calls.append(dict(stock_symbol=stock_symbol, start_datetime=start_datetime,
+                          end_datetime=end_datetime, interval=interval, raw=raw))
         return {"raw": {"bars": [{"time": 123, "p": 101.2}]}}
 
     historical.get_stock_historical_data = mock_fetch
@@ -44,10 +45,10 @@ def test_single_bounded_mock_acquisition_does_not_reinterpret_raw(tmp_path, monk
     assert calls[0]["interval"] == 1
     assert calls[0]["raw"] is True
     assert report["status"].startswith("RAW_CAPTURED")
-    assert json.loads((output / "raw-response.json").read_text()) == mock_fetch()
+    assert json.loads((output / "sdk-decoded-response.json").read_text()) == {"raw": {"bars": [{"time": 123, "p": 101.2}]}}
     assert json.loads((output / "acquisition-manifest.json").read_text()) == report
-    assert report["raw_sha256"] == cli.hashlib.sha256(
-        (output / "raw-response.json").read_bytes()
+    assert report["sdk_decoded_json_sha256"] == cli.hashlib.sha256(
+        (output / "sdk-decoded-response.json").read_bytes()
     ).hexdigest()
     with pytest.raises(FileExistsError):
         cli.acquire(
@@ -104,3 +105,47 @@ def test_cli_returns_blocked_for_missing_dataset(tmp_path, capsys):
     ])
     assert status == 2
     assert "SF-083 blocked:" in capsys.readouterr().err
+
+
+def test_incompatible_provider_signature_fails_before_network(tmp_path, monkeypatch):
+    output = tmp_path / "private"
+    output.mkdir()
+    evidence = tmp_path / "permission.txt"
+    evidence.write_text("synthetic test attestation")
+    historical = ModuleType("nsemine.historical")
+
+    def wrong_api(**kwargs):
+        pytest.fail("provider must not be called")
+
+    historical.get_stock_historical_data = wrong_api
+    monkeypatch.setitem(sys.modules, "nsemine.historical", historical)
+    with pytest.raises(ValueError, match="signature"):
+        cli.acquire(symbol="TEST", session=date(2026, 10, 9), output=output,
+                    entitlement=evidence, calendar="synthetic", revision="test")
+    assert not list(output.iterdir())
+
+
+def test_manifest_write_failure_cleans_partial_capture(tmp_path, monkeypatch):
+    output = tmp_path / "private"
+    output.mkdir()
+    evidence = tmp_path / "permission.txt"
+    evidence.write_text("synthetic test attestation")
+    historical = ModuleType("nsemine.historical")
+
+    def stub(*, stock_symbol, start_datetime, end_datetime, interval, raw):
+        return {"data": []}
+
+    historical.get_stock_historical_data = stub
+    monkeypatch.setitem(sys.modules, "nsemine.historical", historical)
+    original_write = cli._write_exclusive
+
+    def fail_second(path, data):
+        if path.name == "acquisition-manifest.json":
+            raise OSError("simulated disk fault")
+        return original_write(path, data)
+
+    monkeypatch.setattr(cli, "_write_exclusive", fail_second)
+    with pytest.raises(OSError, match="simulated disk fault"):
+        cli.acquire(symbol="TEST", session=date(2026, 10, 9), output=output,
+                    entitlement=evidence, calendar="synthetic", revision="test")
+    assert list(output.iterdir()) == []
