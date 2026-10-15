@@ -91,3 +91,56 @@ def test_empty_fixture_and_naive_observation_rejected():
         module.map_synthetic_session(rows(), session_date=DAY, instrument=INSTRUMENT,
             provider_symbol=SYMBOL, acquired_at=datetime(2026, 10, 14),
             fork_revision=SHA, fixture_sha256=module.fixture_digest(rows()))
+
+
+def test_mutated_fixture_with_original_digest_rejected():
+    fixture = rows()
+    original_sha = module.fixture_digest(fixture)
+    fixture[1]["close"] = "100.75"
+    with pytest.raises(ValueError, match="digest mismatch"):
+        module.map_synthetic_session(
+            fixture, session_date=DAY, instrument=INSTRUMENT,
+            provider_symbol=SYMBOL, acquired_at=datetime(2026, 10, 14, tzinfo=UTC),
+            fork_revision=SHA, fixture_sha256=original_sha,
+        )
+
+
+def test_declared_synthetic_provenance_is_not_market_evidence():
+    dataset = convert(rows())
+    version = dataset.manifest.acquisition_version
+    assert "declared-unverified-fork-ref:" + SHA in version
+    assert "verified-synthetic-fixture:" + module.fixture_digest(rows()) in version
+    assert dataset.manifest.acquired_at == datetime(2026, 10, 14, tzinfo=UTC)
+    assert any("completed-candle status" in x for x in dataset.manifest.limitations)
+    assert any("not provider evidence" in x for x in dataset.manifest.limitations)
+    assert any("unverified" in x for x in dataset.manifest.limitations)
+
+
+def test_last_regular_session_minute_maps_to_exact_1530_close():
+    fixture = rows()
+    wall = datetime(2026, 10, 12, 15, 29, 59, tzinfo=UTC)
+    fixture.append(dict(fixture[-1], time=int(wall.timestamp()) * 1000))
+    dataset = convert(fixture)
+    assert dataset.manifest.returned_end == datetime(2026, 10, 12, 10, tzinfo=UTC)
+    assert dataset.manifest.missing_interval_count == 315
+    assert dataset.bars[-1].interval.end == dataset.manifest.returned_end
+
+
+def test_wrong_calendar_date_and_contradictory_duplicate_fail_closed():
+    fixture = rows()
+    fixture[1]["time"] += 24 * 60 * 60 * 1000
+    with pytest.raises(ValueError, match="session date"):
+        convert(fixture)
+
+    fixture = rows()
+    fixture.insert(1, dict(fixture[0], close="100.75"))
+    with pytest.raises(ValueError, match="duplicate or unordered"):
+        convert(fixture)
+
+
+@pytest.mark.parametrize("price", ["", "not-a-decimal", "NaN", "Infinity", "-10"])
+def test_invalid_price_strings_fail_closed(price):
+    fixture = rows()
+    fixture[1]["open"] = price
+    with pytest.raises((ValueError, ArithmeticError)):
+        convert(fixture)
