@@ -52,7 +52,9 @@ def map_synthetic_session(
     bars: list[HistoricalBar] = []
     previous = None
     for item in records:
-        if set(item) != {"instrument", "provider_symbol", "time", "open", "high", "low", "close", "volume"}:
+        required = {"instrument", "provider_symbol", "time", "open",
+                    "high", "low", "close", "volume"}
+        if set(item) != required:
             raise ValueError("unexpected synthetic record fields")
         if item["instrument"] != instrument or item["provider_symbol"] != provider_symbol:
             raise ValueError("instrument identity mismatch")
@@ -77,7 +79,9 @@ def map_synthetic_session(
         interpreted = wall.replace(tzinfo=IST).astimezone(UTC)
         bars.append(HistoricalBar(
             instrument_id=identity,
-            interval=CandleInterval(start=to_utc(opened), end=to_utc(opened + timedelta(minutes=1))),
+            interval=CandleInterval(
+                start=to_utc(opened), end=to_utc(opened + timedelta(minutes=1))
+            ),
             open=raw_prices[0], high=raw_prices[1], low=raw_prices[2], close=raw_prices[3],
             volume=volume, quality=CandleQuality.VALID,
             source_provider="synthetic-nsemine-shaped",
@@ -94,7 +98,9 @@ def map_synthetic_session(
         instrument_id=identity, requested_start=begin, requested_end=finish,
         returned_start=bars[0].interval.start, returned_end=bars[-1].interval.end,
         interval_minutes=1, acquired_at=acquired_at,
-        provider_timestamp_representation="NSE-local wall-clock-shaped epoch milliseconds (synthetic)",
+        provider_timestamp_representation=(
+            "NSE-local wall-clock-shaped epoch milliseconds (synthetic)"
+        ),
         timezone_interpretation="decode UTC-shaped wall fields as Asia/Kolkata, never UTC instant",
         canonicalisation_version=VERSION,
         expected_session_dates=(session_date,),
