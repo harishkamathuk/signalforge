@@ -1,4 +1,6 @@
 """SF-084: deterministic synthetic fixture storage; no provider/network dependency."""
+import hashlib
+import json
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -96,3 +98,66 @@ def test_no_reacquisition_or_repair_on_missing_file(tmp_path):
     with pytest.raises(HistoricalDatasetStoreError):
         store.load(dataset.dataset_id)
     assert not list(tmp_path.iterdir())
+
+
+
+def test_missing_sidecar_and_incomplete_save_rejected(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    sidecar = tmp_path / (str(identity) + ".sha256")
+    sidecar.unlink()
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.load(identity)
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.save(dataset)
+
+
+def test_malformed_json_and_manifest_counts_rejected(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    path = tmp_path / (str(identity) + ".json")
+    for altered in (b"{broken",):
+        path.write_bytes(altered)
+        path.with_suffix(".sha256").write_text(
+            hashlib.sha256(altered).hexdigest() + "\n", encoding="ascii"
+        )
+        with pytest.raises(HistoricalDatasetStoreError):
+            store.load(identity)
+    payload = json.loads(FIXTURE.read_text())
+    payload["manifest"]["canonical_row_count"] = 10
+    altered = json.dumps(payload).encode()
+    path.write_bytes(altered)
+    path.with_suffix(".sha256").write_text(
+        hashlib.sha256(altered).hexdigest() + "\n", encoding="ascii"
+    )
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.load(identity)
+
+
+def test_loader_parses_original_verified_bytes_once(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    path = tmp_path / (str(identity) + ".json")
+    original_read = Path.read_bytes
+
+    def replace_on_first_read(self):
+        value = original_read(self)
+        if self == path:
+            payload = json.loads(value)
+            payload["manifest"]["acquired_at"] = "2026-10-12T12:00:00+00:00"
+            self.write_text(json.dumps(payload))
+        return value
+
+    monkeypatch.setattr(Path, "read_bytes", replace_on_first_read)
+    restored = store.load(identity)
+    assert restored == dataset
+    assert path.read_bytes() != original_read(path)
+
+
+def test_saved_dataset_can_be_loaded_after_store_reconstruction(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    identity = LocalHistoricalDatasetStore(tmp_path).save(dataset)
+    assert LocalHistoricalDatasetStore(tmp_path).load(identity) == dataset
