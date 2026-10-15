@@ -81,7 +81,7 @@ class LocalHistoricalDatasetStore:
             digest = (path.with_suffix(".sha256")).read_text(encoding="ascii")
             if digest != hashlib.sha256(blob).hexdigest() + "\n":
                 raise HistoricalDatasetStoreError("stored bytes disagree with frozen digest")
-            dataset = parse_historical_bar_fixture_json(blob.decode("utf-8"))
+            dataset = parse_historical_bar_fixture_json(blob.decode("utf-8"), canonical_storage=True)
             if dataset.dataset_id != dataset_id:
                 raise HistoricalDatasetStoreError("dataset semantic identity mismatch")
             return dataset
@@ -97,6 +97,16 @@ class LocalHistoricalDatasetStore:
         path = self._path(dataset_id)
         blob = _payload(dataset)
         digest_path = path.with_suffix(".sha256")
+        # Preflight the precise representation that will be persisted. A valid
+        # canonical dataset must never be published in an unloadable form.
+        try:
+            verified = parse_historical_bar_fixture_json(
+                blob.decode("utf-8"), canonical_storage=True
+            )
+            if verified != dataset or verified.dataset_id != dataset_id:
+                raise HistoricalDatasetStoreError("serialized dataset round-trip differs")
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise HistoricalDatasetStoreError("dataset is not serializable for offline reuse") from exc
         self.root.mkdir(parents=True, exist_ok=True)
         if path.exists() or digest_path.exists():
             loaded = self.load(dataset_id)
