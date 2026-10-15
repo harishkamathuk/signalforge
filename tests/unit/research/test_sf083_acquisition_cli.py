@@ -31,7 +31,10 @@ def _reference(
     token: str = "11536",
     symbol: str = "TCS",
     series: str = "EQ",
-) -> Path:
+    source_bytes: bytes = b"synthetic authoritative instrument master snapshot",
+) -> tuple[Path, Path]:
+    source = tmp_path / "instrument-reference-source.bin"
+    source.write_bytes(source_bytes)
     path = tmp_path / "instrument-reference.json"
     path.write_text(
         json.dumps(
@@ -44,12 +47,12 @@ def _reference(
                 "instrument_type": "Equity",
                 "provider_token": token,
                 "source_reference": "synthetic://authoritative-instrument-master",
-                "source_content_sha256": "a" * 64,
+                "source_content_sha256": cli.hashlib.sha256(source_bytes).hexdigest(),
             }
         ),
         encoding="utf-8",
     )
-    return path
+    return path, source
 
 
 def _install_provider(
@@ -121,7 +124,14 @@ def _install_provider(
     return calls
 
 
-def _acquire(tmp_path, monkeypatch, *, candidates, response=None, reference=None):
+def _acquire(
+    tmp_path,
+    monkeypatch,
+    *,
+    candidates,
+    response=None,
+    reference: tuple[Path, Path] | None = None,
+):
     output = tmp_path / "private-data"
     output.mkdir()
     calls = _install_provider(
@@ -134,7 +144,8 @@ def _acquire(tmp_path, monkeypatch, *, candidates, response=None, reference=None
         entitlement=_evidence(tmp_path),
         calendar="synthetic-calendar",
         revision="fixed-mock-revision",
-        instrument_reference=reference,
+        instrument_reference=reference[0] if reference is not None else None,
+        instrument_reference_source=reference[1] if reference is not None else None,
     )
     return output, calls, report
 
@@ -240,7 +251,10 @@ def test_missing_series_can_use_exact_hash_addressed_independent_token_reference
     resolver = json.loads((output / "resolver-evidence.json").read_text())
     assert resolver["independent_reference_evidence"]["source_content_sha256"] == "a" * 64
     assert resolver["independent_reference_file_sha256"] == cli.hashlib.sha256(
-        reference.read_bytes()
+        reference[0].read_bytes()
+    ).hexdigest()
+    assert resolver["independent_reference_source_sha256"] == cli.hashlib.sha256(
+        reference[1].read_bytes()
     ).hexdigest()
 
 
@@ -276,9 +290,40 @@ def test_independent_reference_token_mismatch_fails_closed(tmp_path, monkeypatch
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
             revision="test",
-            instrument_reference=_reference(tmp_path, token="99999"),
+            instrument_reference=_reference(tmp_path, token="99999")[0],
+            instrument_reference_source=_reference(
+                tmp_path, token="99999", source_bytes=b"other source"
+            )[1],
         )
     assert calls["fetch"] == []
+
+
+
+def test_independent_reference_source_hash_mismatch_fails_before_resolver(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "private"
+    output.mkdir()
+    metadata, source = _reference(tmp_path)
+    source.write_bytes(b"tampered after metadata creation")
+    calls = _install_provider(
+        monkeypatch,
+        candidates=[{"symbol": "TCS", "scripcode": "11536", "type": "Equity"}],
+    )
+    with pytest.raises(ValueError, match="source snapshot hash"):
+        cli.acquire(
+            symbol="TCS",
+            session=SESSION,
+            output=output,
+            entitlement=_evidence(tmp_path),
+            calendar="synthetic",
+            revision="test",
+            instrument_reference=metadata,
+            instrument_reference_source=source,
+        )
+    assert calls["search"] == []
+    assert calls["fetch"] == []
+
 
 
 def test_successful_historical_response_alone_cannot_establish_identity(
