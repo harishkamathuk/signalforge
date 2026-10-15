@@ -32,3 +32,19 @@ SF-083 should supply one permissible real NSE data session to this store and
 verify network-disconnected reload. This task neither acquires data nor
 changes Gate A, strategy semantics, or provider qualifications. Do not commit
 restricted provider OHLCV files to Git.
+
+## Interrupted writes and recovery
+
+A dataset consists of two files. If a process terminates or storage fails after the
+JSON file is created but before the SHA-256 sidecar is published, subsequent
+loads and saves deliberately fail closed. There is **no automatic repair**.
+Inspect the files and audit the acquisition/source evidence before manually
+quarantining the incomplete pair to a separate directory; retry an authorized
+save only after that investigation. Never overwrite the original evidence.
+
+Both files are individually flushed and synchronized, followed by a parent
+folder synchronization where `O_DIRECTORY` is supported. This improves local
+filesystem crash durability but does not promise transactional publication,
+recovery from arbitrary hardware faults, or protection against intentional
+modification of both the data and sidecar. The loader parses precisely the
+bytes whose checksum it verified, without a second file read.
