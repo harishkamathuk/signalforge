@@ -249,7 +249,10 @@ def test_missing_series_can_use_exact_hash_addressed_independent_token_reference
         == "independent_reference_exact_token_symbol_series"
     )
     resolver = json.loads((output / "resolver-evidence.json").read_text())
-    assert resolver["independent_reference_evidence"]["source_content_sha256"] == "a" * 64
+    assert (
+        resolver["independent_reference_evidence"]["source_content_sha256"]
+        == cli.hashlib.sha256(reference[1].read_bytes()).hexdigest()
+    )
     assert resolver["independent_reference_file_sha256"] == cli.hashlib.sha256(
         reference[0].read_bytes()
     ).hexdigest()
@@ -282,6 +285,7 @@ def test_independent_reference_token_mismatch_fails_closed(tmp_path, monkeypatch
     output = tmp_path / "private"
     output.mkdir()
     calls = _install_provider(monkeypatch, candidates=[candidate], response={"data": [1]})
+    reference = _reference(tmp_path, token="99999")
     with pytest.raises(ValueError, match="does not establish series EQ"):
         cli.acquire(
             symbol="TCS",
@@ -290,13 +294,10 @@ def test_independent_reference_token_mismatch_fails_closed(tmp_path, monkeypatch
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
             revision="test",
-            instrument_reference=_reference(tmp_path, token="99999")[0],
-            instrument_reference_source=_reference(
-                tmp_path, token="99999", source_bytes=b"other source"
-            )[1],
+            instrument_reference=reference[0],
+            instrument_reference_source=reference[1],
         )
     assert calls["fetch"] == []
-
 
 
 def test_independent_reference_source_hash_mismatch_fails_before_resolver(
@@ -323,7 +324,6 @@ def test_independent_reference_source_hash_mismatch_fails_before_resolver(
         )
     assert calls["search"] == []
     assert calls["fetch"] == []
-
 
 
 def test_successful_historical_response_alone_cannot_establish_identity(
