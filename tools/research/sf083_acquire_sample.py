@@ -57,13 +57,28 @@ def _provider_token(candidate: dict[str, object]) -> str:
     raise ValueError("provider candidate token/scripcode is absent or malformed")
 
 
-def _load_reference_evidence(path: Path | None) -> tuple[dict[str, object] | None, str | None]:
-    if path is None:
-        return None, None
+def _load_reference_evidence(
+    path: Path | None,
+    source_path: Path | None,
+) -> tuple[dict[str, object] | None, str | None, str | None]:
+    if path is None and source_path is None:
+        return None, None, None
+    if path is None or source_path is None:
+        raise ValueError(
+            "independent instrument-reference metadata and source snapshot are both required"
+        )
     if not path.is_file():
         raise ValueError("independent instrument-reference evidence file does not exist")
+    if not source_path.is_file():
+        raise ValueError("independent instrument-reference source snapshot does not exist")
+
     raw = path.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
+    metadata_digest = hashlib.sha256(raw).hexdigest()
+    source_bytes = source_path.read_bytes()
+    if not source_bytes:
+        raise ValueError("independent instrument-reference source snapshot is empty")
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -86,16 +101,20 @@ def _load_reference_evidence(path: Path | None) -> tuple[dict[str, object] | Non
             raise ValueError(
                 f"independent instrument-reference evidence is missing {field}"
             )
-    source_hash = value.get("source_content_sha256")
+    declared_source_hash = value.get("source_content_sha256")
     if (
-        not isinstance(source_hash, str)
-        or len(source_hash) != 64
-        or any(char not in "0123456789abcdef" for char in source_hash)
+        not isinstance(declared_source_hash, str)
+        or len(declared_source_hash) != 64
+        or any(char not in "0123456789abcdef" for char in declared_source_hash)
     ):
         raise ValueError(
             "independent instrument-reference evidence requires a lowercase source hash"
         )
-    return value, digest
+    if declared_source_hash != source_digest:
+        raise ValueError(
+            "independent instrument-reference source snapshot hash does not match metadata"
+        )
+    return value, metadata_digest, source_digest
 
 
 def _reference_supports_candidate(
@@ -200,6 +219,7 @@ def acquire(
     revision: str,
     series: str = "EQ",
     instrument_reference: Path | None = None,
+    instrument_reference_source: Path | None = None,
 ) -> dict[str, object]:
     """Resolve and verify one instrument, then acquire one declared session."""
     if not symbol or not symbol.isascii() or not symbol.replace("-", "").isalnum():
@@ -247,7 +267,9 @@ def acquire(
         installed_version = "unknown (source checkout or mocked install)"
     module_path = str(vars(historical).get("__file__") or "unavailable")
 
-    reference, reference_file_digest = _load_reference_evidence(instrument_reference)
+    reference, reference_file_digest, reference_source_digest = _load_reference_evidence(
+        instrument_reference, instrument_reference_source
+    )
     if reference is not None and (
         str(reference["symbol"]).upper() != symbol.upper()
         or str(reference["series"]).upper() != series.upper()
@@ -287,6 +309,7 @@ def acquire(
         "verification_outcome": "VERIFIED_EXACT_PROVIDER_IDENTITY",
         "independent_reference_evidence": reference,
         "independent_reference_file_sha256": reference_file_digest,
+        "independent_reference_source_sha256": reference_source_digest,
     }
     resolver_bytes = _json_bytes(resolver_evidence)
     resolver_digest = hashlib.sha256(resolver_bytes).hexdigest()
@@ -357,7 +380,7 @@ def acquire(
         "source_fact_vs_attestation": {
             "provider_candidates_and_selected_token": "provider source facts",
             "independent_reference_evidence": (
-                "hash-addressed external reference evidence"
+                "metadata verified against a retained external source snapshot hash"
                 if reference is not None
                 else "not supplied/not required"
             ),
@@ -429,8 +452,16 @@ def main(argv: list[str] | None = None) -> int:
         "--instrument-reference-evidence",
         type=Path,
         help=(
-            "optional hash-addressed independent reference JSON; required only when "
+            "optional independent-reference metadata JSON; required only when "
             "provider candidate fields do not themselves establish EQ identity"
+        ),
+    )
+    acquire_parser.add_argument(
+        "--instrument-reference-source",
+        type=Path,
+        help=(
+            "local retained source snapshot whose SHA-256 must match the independent "
+            "reference metadata"
         ),
     )
     verify_parser = modes.add_parser(
@@ -450,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
                 revision=args.revision,
                 series=args.series,
                 instrument_reference=args.instrument_reference_evidence,
+                instrument_reference_source=args.instrument_reference_source,
             )
         else:
             result = verify(output=args.output, dataset_id=args.dataset_id)
