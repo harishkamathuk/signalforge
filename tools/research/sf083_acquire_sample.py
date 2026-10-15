@@ -58,7 +58,7 @@ def acquire(
         raise FileExistsError("output directory must be empty; no implicit overwrite")
     # Invocation deliberately imports nsemine only in acquisition mode.
     historical = importlib.import_module("nsemine.historical")
-    call = getattr(historical, "get_stock_historical_data")
+    call = historical.get_stock_historical_data
     start = datetime.combine(session, time(9, 15), tzinfo=IST)
     end = datetime.combine(session, time(15, 30), tzinfo=IST)
     response = call(
