@@ -1,17 +1,19 @@
 """SF-079 provisional offline mapper: synthetic/provider-shaped fixtures only; no I/O."""
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
-from decimal import Decimal
 import hashlib
 import json
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
 from signalforge.domain.time import IST, CandleInterval, to_utc
 from signalforge.research.historical_bars import (
-    CorporateActionPolicy, HistoricalBar, HistoricalBarDataset,
+    CorporateActionPolicy,
+    HistoricalBar,
+    HistoricalBarDataset,
     HistoricalDatasetManifest,
 )
 
