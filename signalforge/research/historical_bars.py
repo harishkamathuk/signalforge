@@ -591,7 +591,9 @@ def load_historical_bar_fixture(path: Path) -> HistoricalBarDataset:
     return parse_historical_bar_fixture_json(path.read_text(encoding="utf-8"))
 
 
-def parse_historical_bar_fixture_json(\n    content: str, *, canonical_storage: bool = False\n) -> HistoricalBarDataset:
+def parse_historical_bar_fixture_json(
+    content: str, *, canonical_storage: bool = False
+) -> HistoricalBarDataset:
     """Parse already-read historical fixture JSON without reopening any path."""
 
     payload = json.loads(content)
