@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import pytest
 
