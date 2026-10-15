@@ -670,6 +670,8 @@ def parse_historical_bar_fixture_json(
                 canonicalisation_version=_string(row, "canonicalisation_version"),
             )
         )
+    if canonical_storage:
+        return HistoricalBarDataset.from_canonical_storage(manifest, tuple(bars))
     return HistoricalBarDataset(manifest=manifest, bars=tuple(bars))
 
 
