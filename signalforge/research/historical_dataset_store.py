@@ -15,7 +15,7 @@ from pathlib import Path
 from signalforge.domain.ids import DatasetId
 from signalforge.research.historical_bars import (
     HistoricalBarDataset,
-    load_historical_bar_fixture,
+    parse_historical_bar_fixture_json,
 )
 
 
@@ -81,7 +81,7 @@ class LocalHistoricalDatasetStore:
             digest = (path.with_suffix(".sha256")).read_text(encoding="ascii")
             if digest != hashlib.sha256(blob).hexdigest() + "\n":
                 raise HistoricalDatasetStoreError("stored bytes disagree with frozen digest")
-            dataset = load_historical_bar_fixture(path)
+            dataset = parse_historical_bar_fixture_json(blob.decode("utf-8"))
             if dataset.dataset_id != dataset_id:
                 raise HistoricalDatasetStoreError("dataset semantic identity mismatch")
             return dataset
@@ -116,6 +116,13 @@ class LocalHistoricalDatasetStore:
                 handle.write(hashlib.sha256(blob).hexdigest() + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
+            # Publication is not reported complete until names are durable.
+            if hasattr(os, "O_DIRECTORY"):
+                descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
         except FileExistsError as exc:
             raise HistoricalDatasetStoreError("concurrent/conflicting dataset write") from exc
         return dataset_id
