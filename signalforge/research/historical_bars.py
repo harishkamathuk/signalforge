@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -326,6 +326,34 @@ class HistoricalBarDataset:
             raise ValueError("Historical returned range contradicts canonical bar content")
         object.__setattr__(self, "bars", tuple(canonical))
 
+    @classmethod
+    def from_canonical_storage(
+        cls,
+        manifest: HistoricalDatasetManifest,
+        bars: tuple[HistoricalBar, ...],
+    ) -> HistoricalBarDataset:
+        """Validate unique persisted bars while retaining source duplicate counts.
+
+        Source duplicates were removed by normal canonicalization before storage.
+        This does not reconstruct or fabricate upstream observations.
+        """
+        if manifest.raw_row_count != (
+            manifest.canonical_row_count
+            + manifest.duplicate_observation_count
+            + manifest.corrupt_rejected_count
+        ):
+            raise ValueError("Stored historical raw counts contradict manifest")
+        normalized = replace(
+            manifest,
+            duplicate_observation_count=0,
+            raw_row_count=manifest.canonical_row_count + manifest.corrupt_rejected_count,
+        )
+        checked = cls(manifest=normalized, bars=bars)
+        result = object.__new__(cls)
+        object.__setattr__(result, "manifest", manifest)
+        object.__setattr__(result, "bars", checked.bars)
+        return result
+
     @property
     def content_hash(self) -> str:
         """Return semantic content identity independent of path/acquisition wall clock."""
@@ -560,7 +588,15 @@ class HistoricalBarResearchRunner:
 def load_historical_bar_fixture(path: Path) -> HistoricalBarDataset:
     """Load one strict repository-local JSON historical-bar fixture."""
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    return parse_historical_bar_fixture_json(path.read_text(encoding="utf-8"))
+
+
+def parse_historical_bar_fixture_json(
+    content: str, *, canonical_storage: bool = False
+) -> HistoricalBarDataset:
+    """Parse already-read historical fixture JSON without reopening any path."""
+
+    payload = json.loads(content)
     if not isinstance(payload, dict):
         raise ValueError("Historical fixture root must be an object")
     manifest_raw = _mapping(payload.get("manifest"), "manifest")
@@ -634,6 +670,8 @@ def load_historical_bar_fixture(path: Path) -> HistoricalBarDataset:
                 canonicalisation_version=_string(row, "canonicalisation_version"),
             )
         )
+    if canonical_storage:
+        return HistoricalBarDataset.from_canonical_storage(manifest, tuple(bars))
     return HistoricalBarDataset(manifest=manifest, bars=tuple(bars))
 
 
