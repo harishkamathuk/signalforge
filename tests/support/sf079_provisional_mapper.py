@@ -37,13 +37,19 @@ def map_synthetic_session(
     session_date: date, instrument: str, provider_symbol: str,
     acquired_at: datetime, fork_revision: str, fixture_sha256: str,
 ) -> HistoricalBarDataset:
-    """Convert declared synthetic 1m rows; fail on corrupt or contradictory input."""
+    """Convert declared synthetic 1m rows; no proof of provider candle completion.
+
+    Raw wall-clock mapping and the caller-declared session date are synthetic
+    test assumptions, not independently validated market-data semantics.
+    """
     if not records:
         raise ValueError("empty synthetic fixture")
     if acquired_at.tzinfo is None or acquired_at.utcoffset() is None:
         raise ValueError("acquired_at must be aware")
     if len(fixture_sha256) != 64 or any(c not in "0123456789abcdef" for c in fixture_sha256):
         raise ValueError("invalid fixture digest")
+    if fixture_digest(records) != fixture_sha256:
+        raise ValueError("synthetic fixture digest mismatch")
     if len(fork_revision) != 40 or any(c not in "0123456789abcdef" for c in fork_revision):
         raise ValueError("fork revision must be immutable SHA")
     identity = InstrumentId(instrument)
@@ -93,7 +99,10 @@ def map_synthetic_session(
     manifest = HistoricalDatasetManifest(
         provider="synthetic-nsemine-shaped",
         acquisition_adapter="offline-experimental-only",
-        acquisition_version=VERSION + ";fork:" + fork_revision + ";fixture:" + fixture_sha256,
+        acquisition_version=(
+            VERSION + ";declared-unverified-fork-ref:" + fork_revision
+            + ";verified-synthetic-fixture:" + fixture_sha256
+        ),
         requested_instrument=instrument, resolved_provider_instrument=provider_symbol,
         instrument_id=identity, requested_start=begin, requested_end=finish,
         returned_start=bars[0].interval.start, returned_end=bars[-1].interval.end,
@@ -108,8 +117,13 @@ def map_synthetic_session(
         missing_interval_count=375-len(bars), duplicate_observation_count=0,
         corrupt_rejected_count=0,
         corporate_action_policy=CorporateActionPolicy.UNKNOWN,
-        limitations=("SYNTHETIC / NON-MARKET EVIDENCE; no NSE acquisition",
-                     "Not evidence of Gate A qualification or real market strategy performance"),
+        limitations=(
+            "SYNTHETIC / NON-MARKET EVIDENCE; no NSE acquisition",
+            "Declared synthetic session date and fixture construction time; not provider evidence",
+            "One-minute bucket alignment does not establish completed-candle status",
+            "Declared fork revision is unverified, not an observed acquisition build",
+            "Not evidence of Gate A qualification or real market strategy performance",
+        ),
     )
     return HistoricalBarDataset(manifest=manifest, bars=tuple(bars))
 
