@@ -48,3 +48,14 @@ filesystem crash durability but does not promise transactional publication,
 recovery from arbitrary hardware faults, or protection against intentional
 modification of both the data and sidecar. The loader parses precisely the
 bytes whose checksum it verified, without a second file read.
+
+## Canonical duplicate-source evidence
+
+The canonical `HistoricalBarDataset` removes identical upstream duplicate
+observations during initial validation while retaining their number in its
+manifest. The store serializes only unique canonical bars and uses a specific,
+strict canonical-storage reconstruction path that validates the unique bars and
+original raw/canonical/duplicate/rejected counts. It does **not** synthesize
+duplicate OHLCV records on disk. Save preflights that exact storage decoder
+before publishing files; a valid source dataset with duplicates must round-trip
+without changing its dataset ID or manifest evidence.
