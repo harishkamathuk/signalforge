@@ -8,7 +8,7 @@ import pytest
 from signalforge.domain.market import CandleQuality
 from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute
 
-PATH = Path(__file__).resolve().parents[1] / "support" / "sf079_provisional_mapper.py"
+PATH = Path(__file__).resolve().parents[2] / "support" / "sf079_provisional_mapper.py"
 spec = importlib.util.spec_from_file_location("sf079_provisional_mapper", PATH)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
