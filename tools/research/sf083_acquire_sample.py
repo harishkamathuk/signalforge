@@ -71,7 +71,7 @@ def acquire(
         installed_version = importlib.metadata.version("nsemine")
     except importlib.metadata.PackageNotFoundError:
         installed_version = "unknown (source checkout or mocked install)"
-    module_path = str(getattr(historical, "__file__", None) or "unavailable")
+    module_path = str(vars(historical).get("__file__") or "unavailable")
     start = datetime.combine(session, time(9, 15), tzinfo=IST)
     end = datetime.combine(session, time(15, 30), tzinfo=IST)
     response = call(
