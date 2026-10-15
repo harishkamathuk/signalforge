@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import importlib.metadata
+import inspect
 import json
 import os
 import sys
@@ -56,9 +58,20 @@ def acquire(
         raise ValueError("create the private local output directory before acquisition")
     if any(output.iterdir()):
         raise FileExistsError("output directory must be empty; no implicit overwrite")
-    # Invocation deliberately imports nsemine only in acquisition mode.
+    # Check the installed SDK interface before any provider call.
     historical = importlib.import_module("nsemine.historical")
     call = historical.get_stock_historical_data
+    expected = {"stock_symbol", "start_datetime", "end_datetime", "interval", "raw"}
+    actual = inspect.signature(call).parameters
+    if not expected.issubset(actual) or any(
+        actual[name].kind == inspect.Parameter.POSITIONAL_ONLY for name in expected
+    ):
+        raise ValueError("installed nsemine historical function signature is incompatible")
+    try:
+        installed_version = importlib.metadata.version("nsemine")
+    except importlib.metadata.PackageNotFoundError:
+        installed_version = "unknown (source checkout or mocked install)"
+    module_path = str(getattr(historical, "__file__", None) or "unavailable")
     start = datetime.combine(session, time(9, 15), tzinfo=IST)
     end = datetime.combine(session, time(15, 30), tzinfo=IST)
     response = call(
@@ -67,7 +80,11 @@ def acquire(
     )
     if response is None:
         raise ValueError("nsemine returned no response; nothing persisted")
+    if not isinstance(response, dict):
+        raise ValueError("expected decoded dictionary from nsemine raw=True")
     raw = _json_bytes(response)
+    if len(raw) > 20_000_000:
+        raise ValueError("decoded provider response exceeds 20 MB bounded sample limit")
     digest = hashlib.sha256(raw).hexdigest()
     observed_at = datetime.now(UTC).isoformat()
     acquisition = {
@@ -83,17 +100,33 @@ def acquire(
                        "start_datetime": start.isoformat(),
                        "end_datetime": end.isoformat()},
         "acquired_at_utc": observed_at,
-        "raw_sha256": digest,
+        "sdk_decoded_json_sha256": digest,
+        "evidence_representation": "deterministically re-encoded SDK-decoded JSON; NOT HTTP bytes",
+        "installed_nsemine_version": installed_version,
+        "installed_nsemine_module_path": module_path,
         "raw_size_bytes": len(raw),
         "local_entitlement_evidence": str(entitlement),
+        "preflight_inputs_are_operator_attestations": True,
         "limitations": [
             "Raw response has not been independently interpreted or canonicalized",
             "nsemine timestamp and EQ identity semantics are unverified",
+            "SDK historical symbol lookup does not explicitly enforce EQ series",
             "Not SF-079 Gate A approval or an SF-083 completed real-data acceptance",
         ],
     }
-    _write_exclusive(output / "raw-response.json", raw)
-    _write_exclusive(output / "acquisition-manifest.json", _json_bytes(acquisition))
+    # Publish both artifacts as a unit or remove our own partial writes.
+    raw_path = output / "sdk-decoded-response.json"
+    manifest_path = output / "acquisition-manifest.json"
+    try:
+        _write_exclusive(raw_path, raw)
+        _write_exclusive(manifest_path, _json_bytes(acquisition))
+    except Exception:
+        # Do not silently retain a response that has no matching manifest.
+        if manifest_path.exists():
+            manifest_path.unlink()
+        if raw_path.exists():
+            raw_path.unlink()
+        raise
     return acquisition
 
 
@@ -144,7 +177,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             result = verify(output=args.output, dataset_id=args.dataset_id)
-    except (ValueError, OSError, ImportError, AttributeError, TypeError) as exc:
+    except (ValueError, OSError, ImportError, AttributeError, TypeError,
+            OverflowError, RecursionError, RuntimeError) as exc:
         print(f"SF-083 blocked: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True, indent=2))
