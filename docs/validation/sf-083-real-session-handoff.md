@@ -31,7 +31,8 @@ unapproved source-semantics and provenance change.
    the derived 75 five-minute candle qualities.
 6. Save the canonical dataset using `LocalHistoricalDatasetStore` from
    SF-084. Disconnect network/provider access, construct a **fresh store**
-   instance, load by the frozen dataset ID, and assert exact identity, manifest,
+   instance in an OS-level network-isolated environment, load by the frozen dataset ID,
+   and assert exact identity, manifest,
    counts, hashes and 1m→5m derivation. Reject tampered/missing evidence.
 7. Produce a report carrying a source/raw digest, canonical dataset ID,
    source-use basis, observed first/last bucket, all data-quality counts,
@@ -43,8 +44,9 @@ unapproved source-semantics and provenance change.
 `tests/unit/research/test_sf083_offline_store_integration.py` uses 59
 synthetic provider-shaped one-minute records, including one deliberately absent
 minute, and checks 11 valid / 1 incomplete / 63 missing derived five-minute
-candles. It stores and reloads the canonical dataset with network disabled and
-checks integrity fail-closed after local mutation. It does **not** validate a
+candles. It stores and reloads the canonical dataset under a Python socket-constructor
+network guard, compares a hand-calculated synthetic OHLCV aggregate, and checks
+integrity fail-closed after local mutation. This is not OS-level network isolation. It does **not** validate a
 real nsemine response, provider licensing, calendar selection or actual source
 timestamp semantics.
 
