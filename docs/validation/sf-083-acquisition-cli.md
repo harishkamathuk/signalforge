@@ -52,7 +52,10 @@ python tools/research/sf083_acquire_sample.py acquire \
 ```
 
 If the installed VCS commit or repository differs from `--revision`, or PEP 610
-VCS provenance is absent, acquisition fails before provider import.
+VCS provenance is absent, acquisition fails before provider import. After import,
+the actual `nsemine.historical` module path must match the installed distribution's
+module location before any provider resolver or network access. PEP 610 is
+installation metadata, not cryptographic proof of package content or entitlement.
 
 ## Instrument identity
 
@@ -87,8 +90,11 @@ A historical request is not considered a successful bounded capture merely
 because an HTTP/SDK call returned.
 
 The decoded response must be a dictionary containing a **non-empty list** in
-`data`. An absent response, malformed payload, empty `data`, or non-list
-`data` is reported as BLOCKED and no success evidence artifacts are written.
+`data`, with non-empty dictionary entries and no explicit provider error or
+`success=false` indication. An absent response, malformed payload, empty
+`data`, non-list `data`, malformed rows or error-marked response is BLOCKED
+and no success evidence artifacts are written. This is only a structural
+capture gate, not canonical OHLCV validation.
 
 This check does not interpret timestamps, candle completion, OHLCV quality or
 session semantics. Those remain later evidence gates.
