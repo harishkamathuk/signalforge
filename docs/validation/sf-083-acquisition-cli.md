@@ -2,9 +2,10 @@
 
 The runnable CLI is `tools/research/sf083_acquire_sample.py`. Install SignalForge
 (`python -m pip install -e .`) and install the SignalForge nsemine fork by an
-**immutable Git commit**. For this corrective PR, the required fork change is in
-`harishkamathuk/signalforge-nsemine` PR #8; use its final reviewed commit when
-testing this branch.
+**immutable Git commit**. The required fork correction was reviewed in
+`harishkamathuk/signalforge-nsemine` PR #8 and merged as
+`1c864059880656ad32d137b2e8e342eb4b77021b`. The command below pins that
+exact merge commit; do not silently substitute another revision.
 
 A Git/VCS install is mandatory because the acquisition command verifies the
 installed distribution's PEP 610 `direct_url.json` provenance **before importing
@@ -34,18 +35,18 @@ relabelled.
 
 ## Commands
 
-After the corrective fork PR has passed its separate review, install its immutable
-reviewed commit and pass that same commit to the command:
+Install the reviewed fork merge commit and pass that same immutable commit to
+the acquisition command:
 
 ```bash
-python -m pip install "git+https://github.com/harishkamathuk/signalforge-nsemine.git@PINNED_REVIEWED_COMMIT"
+python -m pip install "git+https://github.com/harishkamathuk/signalforge-nsemine.git@1c864059880656ad32d137b2e8e342eb4b77021b"
 
 mkdir -p /path/outside-repository/sf083-sample
 python tools/research/sf083_acquire_sample.py acquire \
   --symbol TCS \
   --session 2026-10-09 \
   --series EQ \
-  --revision PINNED_REVIEWED_COMMIT \
+  --revision 1c864059880656ad32d137b2e8e342eb4b77021b \
   --calendar-reference NSE_REGULAR_SESSION_REFERENCE \
   --entitlement-evidence /path/private/source-use-evidence.txt \
   --output /path/outside-repository/sf083-sample
