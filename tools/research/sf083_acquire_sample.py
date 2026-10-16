@@ -67,6 +67,8 @@ def _normalized_repository_url(value: str) -> str:
     path = parsed.path.rstrip("/")
     if path.endswith(".git"):
         path = path[:-4]
+    if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.port:
+        raise ValueError("installed nsemine provenance URL contains unsupported components")
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, "", ""))
 
 
@@ -114,12 +116,19 @@ def _verify_installed_nsemine_revision(revision: str) -> dict[str, str]:
             "installed nsemine repository does not match SignalForge's pinned fork"
         )
 
+    # PEP 610 describes installation origin; bind it to the actual imported file
+    # so a shadowing module elsewhere on sys.path cannot inherit this claim.
+    expected_module_path = distribution.locate_file("nsemine/historical.py")
+    if not expected_module_path.is_file():
+        raise ValueError("installed nsemine distribution has no historical module file")
+
     version = distribution.version
     return {
         "repository": normalized_source,
         "commit_id": commit_id,
         "version": version,
         "provenance": "PEP610_direct_url_vcs_info",
+        "historical_module_path": str(expected_module_path.resolve()),
     }
 
 
@@ -163,6 +172,13 @@ def _select_equity_candidate(
             conflicts.append(f"candidate {index} for {original_symbol!r}: {exc}")
             continue
 
+        if (original_upper == composite and isinstance(provider_series, str)
+                and provider_series.upper() != requested_series):
+            conflicts.append(
+                f"candidate {index} for {original_symbol!r} has contradictory provider series"
+            )
+            continue
+
         series_from_symbol = original_upper == composite
         series_from_field = (
             isinstance(provider_series, str)
@@ -183,6 +199,8 @@ def _select_equity_candidate(
         )
         accepted.append((candidate, token, basis))
 
+    if accepted and any("contradictory provider series" in c for c in conflicts):
+        raise ValueError("instrument identity verification failed: contradictory provider series")
     if len(accepted) != 1:
         detail = "; ".join(conflicts) if conflicts else "no exact supported candidate"
         if len(accepted) > 1:
@@ -243,7 +261,12 @@ def acquire(
         },
         name="get_stock_historical_data_by_instrument",
     )
-    module_path = str(vars(historical).get("__file__") or "unavailable")
+    actual_module_file = vars(historical).get("__file__")
+    if not isinstance(actual_module_file, str) or (
+        str(Path(actual_module_file).resolve()) != installed_provenance["historical_module_path"]
+    ):
+        raise ValueError("imported nsemine module does not match the verified installed distribution")
+    module_path = str(Path(actual_module_file).resolve())
 
     search_parameters = {"stock_symbol": symbol, "segment": series, "scrip_type": None}
     raw_candidates = search(**search_parameters)
@@ -305,7 +328,9 @@ def acquire(
             "nsemine historical response is absent or not a decoded dictionary"
         )
     response_rows = response.get("data")
-    if not isinstance(response_rows, list) or not response_rows:
+    if (not isinstance(response_rows, list) or not response_rows
+            or any(not isinstance(row, dict) or not row for row in response_rows)
+            or response.get("error") or response.get("success") is False):
         raise ValueError(
             "nsemine historical response contains no non-empty data list; "
             "sample acquisition is BLOCKED and no success evidence is persisted"
