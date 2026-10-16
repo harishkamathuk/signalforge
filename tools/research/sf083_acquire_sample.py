@@ -270,7 +270,9 @@ def acquire(
     if not isinstance(actual_module_file, str) or (
         str(Path(actual_module_file).resolve()) != installed_provenance["historical_module_path"]
     ):
-        raise ValueError("imported nsemine module does not match the verified installed distribution")
+        raise ValueError(
+            "imported nsemine module does not match the verified installed distribution"
+        )
     module_path = str(Path(actual_module_file).resolve())
 
     search_parameters = {"stock_symbol": symbol, "segment": series, "scrip_type": None}
