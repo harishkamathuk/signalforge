@@ -144,6 +144,7 @@ def _select_equity_candidate(
     composite = f"{requested_symbol}-{requested_series}"
     accepted: list[tuple[dict[str, object], str, str]] = []
     conflicts: list[str] = []
+    contradictions: list[str] = []
 
     for index, candidate in enumerate(candidates):
         original_symbol = candidate.get("symbol")
@@ -161,22 +162,26 @@ def _select_equity_candidate(
             continue
 
         if not isinstance(provider_type, str) or provider_type.casefold() != "equity":
-            conflicts.append(
-                f"candidate {index} for {original_symbol!r} is not cash Equity"
-            )
+            message = f"candidate {index} for {original_symbol!r} is not cash Equity"
+            conflicts.append(message)
+            if original_upper == composite:
+                contradictions.append(message)
             continue
 
         try:
             token = _provider_token(candidate)
         except ValueError as exc:
-            conflicts.append(f"candidate {index} for {original_symbol!r}: {exc}")
+            message = f"candidate {index} for {original_symbol!r}: {exc}"
+            conflicts.append(message)
+            if original_upper == composite:
+                contradictions.append(message)
             continue
 
         if (original_upper == composite and isinstance(provider_series, str)
                 and provider_series.upper() != requested_series):
-            conflicts.append(
-                f"candidate {index} for {original_symbol!r} has contradictory provider series"
-            )
+            message = f"candidate {index} for {original_symbol!r} has contradictory provider series"
+            conflicts.append(message)
+            contradictions.append(message)
             continue
 
         series_from_symbol = original_upper == composite
@@ -199,8 +204,8 @@ def _select_equity_candidate(
         )
         accepted.append((candidate, token, basis))
 
-    if accepted and any("contradictory provider series" in c for c in conflicts):
-        raise ValueError("instrument identity verification failed: contradictory provider series")
+    if accepted and contradictions:
+        raise ValueError("instrument identity verification failed: " + "; ".join(contradictions))
     if len(accepted) != 1:
         detail = "; ".join(conflicts) if conflicts else "no exact supported candidate"
         if len(accepted) > 1:
