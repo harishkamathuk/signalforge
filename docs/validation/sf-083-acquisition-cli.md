@@ -3,7 +3,7 @@
 The runnable CLI is `tools/research/sf083_acquire_sample.py`. Install SignalForge
 (`python -m pip install -e .`) and install the SignalForge nsemine fork by an
 **immutable Git commit**. For this corrective PR, the required fork change is in
-`harishkamathuk/signalforge-nsemine` PR #7; use its final reviewed commit when
+`harishkamathuk/signalforge-nsemine` PR #8; use its final reviewed commit when
 testing this branch.
 
 A Git/VCS install is mandatory because the acquisition command verifies the
