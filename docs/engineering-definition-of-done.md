@@ -65,6 +65,12 @@ Review specifically for:
 
 A green test suite is necessary but is not by itself sufficient evidence of completion.
 
+### Review remediation and decision escalation
+
+Valid adversarial findings should normally be corrected, tested and re-reviewed without pausing for project-owner approval at each implementation iteration. Pause and obtain explicit project-owner approval **before implementing a proposed remediation** only when it materially changes accepted strategy semantics, capital exposure or execution correctness, durable-state integrity, restart/recovery contracts, auditability/reproducibility, or requires destructive or substantial hard-to-reverse architecture/API/schema changes. Record the decision in the appropriate authoritative Git artefact before proceeding.
+
+Clearly identify review provenance: an author-assisted critical review must not be represented as independent third-party reviewer approval. Neither automated remediation nor a green CI run bypasses the existing adversarial-review and completion requirements.
+
 ### Boundary and determinism review
 
 When a change introduces or materially changes a serialization, configuration, persistence,
@@ -166,6 +172,20 @@ The PR must state:
 - adversarial findings and their disposition;
 - focused and full validation results;
 - any unresolved blocker or required follow-up.
+
+
+## Merge method and post-merge housekeeping
+
+For normal implementation and documentation pull requests into `develop`, use GitHub's **Create a merge commit** method (`merge`), not squash or rebase. This preserves the original implementation and review-remediation commits in the repository history. An exception requires explicit project-owner approval and a rationale recorded in the PR. A merge commit does not replace adversarial review, tests or acceptance evidence.
+
+Only merge after the pre-merge adversarial-review and final CI/validation requirements above are satisfied for the PR's current head. The checks below are post-merge verification and housekeeping, not substitutes for those gates.
+
+After merging:
+
+1. Verify GitHub reports the PR merged into the intended base, record the merge commit SHA and confirm retrospectively that the required CI and review gates were satisfied for the merged head.
+2. Update the linked issue with the PR, merge commit, completion evidence and any remaining follow-up. Close it only when its own acceptance criteria are satisfied; partial PRs must leave the issue open.
+3. Delete the merged feature branch when safe (not needed by another open PR or active work). Never delete protected integration or release branches as routine housekeeping.
+4. Retain adversarial findings, dispositions and validation evidence in the PR or other canonical Git artefacts; do not rely on chat history alone.
 
 ## Completion rule
 
