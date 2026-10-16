@@ -6,7 +6,7 @@ that exposes evidence-safe instrument resolution and direct-token historical
 retrieval:
 
 ```bash
-python -m pip install "git+https://github.com/harishkamathuk/signalforge-nsemine.git@e2b1d03067c52b33b1b16167657880e1e5a1faea"
+python -m pip install "git+https://github.com/harishkamathuk/signalforge-nsemine.git@862a8b47921ced89346fdffcf71a38afdb70b35c"
 ```
 
 Neither nsemine nor broker credentials are imported by offline verification.
@@ -33,7 +33,7 @@ python tools/research/sf083_acquire_sample.py acquire \
   --symbol TCS \
   --session 2026-10-09 \
   --series EQ \
-  --revision e2b1d03067c52b33b1b16167657880e1e5a1faea \
+  --revision 862a8b47921ced89346fdffcf71a38afdb70b35c \
   --calendar-reference NSE_REGULAR_SESSION_REFERENCE \
   --entitlement-evidence /path/private/source-use-evidence.txt \
   --output /path/outside-repository/sf083-sample
@@ -50,21 +50,19 @@ The acquisition now performs two explicitly linked provider operations:
    `get_stock_historical_data_by_instrument(...)`. The direct-token API performs
    no second symbol resolution.
 
-A provider candidate such as `TCS-EQ` with type `Equity` can establish series
-identity directly. A base-symbol-only candidate such as `TCS` is blocked unless
-separate, attributable independent instrument-reference evidence links the exact
-provider token to NSE TCS/EQ. A CLI symbol, filename or operator label alone is
-never accepted as independent identity proof.
+A provider candidate such as `TCS-EQ` with type `Equity` can establish
+series identity directly. A base-symbol-only candidate such as `TCS` is
+accepted only if the provider response itself carries an explicit matching
+`series=EQ` field. Generic operator-supplied reference metadata is **not** an
+automatic identity override. If provider-native evidence does not establish the
+requested cash-equity series, acquisition stops before historical price
+retrieval and must be recorded as BLOCKED.
 
-If genuinely independent reference evidence is required, supply both
-`--instrument-reference-evidence` and `--instrument-reference-source`. The
-metadata JSON must identify an independent instrument-reference source, NSE,
-TCS/EQ, cash Equity, the exact nsemine provider token, a reproducible source
-reference, and the lowercase SHA-256 of the retained source snapshot. The CLI
-hashes the supplied source snapshot and requires an exact match before that
-reference can support identity. A metadata file by itself is rejected. The
-operator remains responsible for ensuring that the retained snapshot is genuinely
-from the attributed source and may be retained under its terms.
+Before importing nsemine or making any provider call, the CLI also verifies the
+installed Python distribution's PEP 610 `direct_url.json` VCS provenance. The
+recorded repository must be the SignalForge nsemine fork and its exact Git
+`commit_id` must equal `--revision`. Missing, non-Git, wrong-repository or
+wrong-commit provenance fails closed before provider access.
 
 ## Evidence artifacts
 
@@ -81,15 +79,18 @@ pre-existing empty private directory:
   installed package metadata, declared fork revision and limitations.
 
 If identity evidence is ambiguous, contradictory, unsupported, missing a usable
-token, or the direct-token nsemine API is unavailable, the command fails **before
-historical price acquisition**. If evidence publication fails, the command
-removes its own partial artifacts rather than leaving a misleading successful
-capture.
+token, the installed VCS provenance cannot be proven, or the direct-token nsemine
+API is unavailable, the command fails **before historical price acquisition**.
+A historical response must also contain a non-empty `data` list; empty or
+malformed payloads are reported as BLOCKED and no success artifacts are
+published. If evidence publication fails, the command removes its own partial
+artifacts rather than leaving a misleading successful capture.
 
-The fork revision, calendar reference and entitlement evidence are still partly
-operator-supplied provenance. They do not by themselves prove authorization or
-canonical timestamp semantics. No NSE request is made in CI; tests use fixtures
-and mocks only.
+The installed fork repository/commit is verified from Python distribution VCS
+provenance metadata before provider access. Calendar and entitlement evidence
+remain operator-supplied workflow inputs and do not by themselves prove
+authorization or canonical timestamp semantics. No NSE request is made in CI;
+tests use fixtures and mocks only.
 
 ## Canonicalization stop
 
