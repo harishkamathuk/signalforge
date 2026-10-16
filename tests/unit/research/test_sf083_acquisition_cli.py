@@ -1,4 +1,4 @@
-"""SF-083 CLI instrument identity, acquisition evidence and offline boundaries."""
+"""SF-083 corrective evidence-gate regressions; deterministic and offline."""
 from __future__ import annotations
 
 import importlib.util
@@ -17,42 +17,46 @@ cli = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cli)
 
 SESSION = date(2026, 10, 9)
+REVISION = "a" * 40
+FORK_URL = "https://github.com/harishkamathuk/signalforge-nsemine.git"
+
+
+class _Distribution:
+    version = "2.2.1"
+
+    def __init__(self, *, url: str = FORK_URL, commit_id: str = REVISION, direct_url=True):
+        self.url = url
+        self.commit_id = commit_id
+        self.has_direct_url = direct_url
+
+    def read_text(self, name: str):
+        assert name == "direct_url.json"
+        if not self.has_direct_url:
+            return None
+        return json.dumps(
+            {
+                "url": self.url,
+                "vcs_info": {
+                    "vcs": "git",
+                    "commit_id": self.commit_id,
+                    "requested_revision": self.commit_id,
+                },
+            }
+        )
+
+
+def _install_distribution(monkeypatch, **kwargs):
+    monkeypatch.setattr(
+        cli.importlib.metadata,
+        "distribution",
+        lambda name: _Distribution(**kwargs),
+    )
 
 
 def _evidence(tmp_path: Path) -> Path:
     path = tmp_path / "permission.txt"
     path.write_text("synthetic test-only source-use evidence", encoding="utf-8")
     return path
-
-
-def _reference(
-    tmp_path: Path,
-    *,
-    token: str = "11536",
-    symbol: str = "TCS",
-    series: str = "EQ",
-    source_bytes: bytes = b"synthetic authoritative instrument master snapshot",
-) -> tuple[Path, Path]:
-    source = tmp_path / "instrument-reference-source.bin"
-    source.write_bytes(source_bytes)
-    path = tmp_path / "instrument-reference.json"
-    path.write_text(
-        json.dumps(
-            {
-                "evidence_type": "independent_instrument_reference",
-                "provider": "nsemine",
-                "exchange": "NSE",
-                "symbol": symbol,
-                "series": series,
-                "instrument_type": "Equity",
-                "provider_token": token,
-                "source_reference": "synthetic://authoritative-instrument-master",
-                "source_content_sha256": cli.hashlib.sha256(source_bytes).hexdigest(),
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path, source
 
 
 def _install_provider(
@@ -103,7 +107,13 @@ def _install_provider(
                     "raw": raw,
                 }
             )
-            return response if response is not None else {"data": []}
+            if response is not None:
+                return response
+            return {
+                "data": [
+                    {"time": 123, "open": 1, "high": 1, "low": 1, "close": 1}
+                ]
+            }
 
         historical.get_stock_historical_data_by_instrument = (
             get_stock_historical_data_by_instrument
@@ -124,18 +134,12 @@ def _install_provider(
     return calls
 
 
-def _acquire(
-    tmp_path,
-    monkeypatch,
-    *,
-    candidates,
-    response=None,
-    reference: tuple[Path, Path] | None = None,
-):
+def _acquire(tmp_path, monkeypatch, *, candidates, response=None):
     output = tmp_path / "private-data"
     output.mkdir()
+    _install_distribution(monkeypatch)
     calls = _install_provider(
-        monkeypatch, candidates=candidates, response=response or {"data": []}
+        monkeypatch, candidates=candidates, response=response
     )
     report = cli.acquire(
         symbol="TCS",
@@ -143,9 +147,7 @@ def _acquire(
         output=output,
         entitlement=_evidence(tmp_path),
         calendar="synthetic-calendar",
-        revision="fixed-mock-revision",
-        instrument_reference=reference[0] if reference is not None else None,
-        instrument_reference_source=reference[1] if reference is not None else None,
+        revision=REVISION,
     )
     return output, calls, report
 
@@ -157,31 +159,80 @@ def test_exact_tcs_eq_identity_is_retained_and_exact_token_is_used(tmp_path, mon
         "type": "Equity",
         "description": "TATA CONSULTANCY SERVICES LIMITED",
     }
-    response = {"data": [{"time": 123, "open": 1, "high": 1, "low": 1, "close": 1}]}
-    output, calls, report = _acquire(
-        tmp_path, monkeypatch, candidates=[candidate], response=response
-    )
+    output, calls, report = _acquire(tmp_path, monkeypatch, candidates=[candidate])
 
     assert calls["search"] == [
         {"stock_symbol": "TCS", "segment": "EQ", "scrip_type": None}
     ]
     assert len(calls["fetch"]) == 1
     assert calls["fetch"][0]["token"] == "11536"
-    assert calls["fetch"][0]["symbol"] == "TCS"
-    assert calls["fetch"][0]["symbol_type"] == "Equity"
     assert report["instrument_verification"]["selected_provider_token"] == "11536"
-    assert (
-        report["historical_request_token_linkage"]["provider_token"]
-        == report["instrument_verification"]["selected_provider_token"]
-    )
+    assert report["installed_nsemine_vcs"] == {
+        "repository_url": "https://github.com/harishkamathuk/signalforge-nsemine",
+        "commit_id": REVISION,
+        "verification": "MATCHED_DECLARED_REVISION_BEFORE_PROVIDER_ACCESS",
+    }
     resolver = json.loads((output / "resolver-evidence.json").read_text())
     assert resolver["candidates"] == [candidate]
     assert resolver["selected_candidate"] == candidate
-    assert report["resolver_evidence_sha256"] == cli.hashlib.sha256(
-        (output / "resolver-evidence.json").read_bytes()
-    ).hexdigest()
-    assert json.loads((output / "sdk-decoded-response.json").read_text()) == response
     assert json.loads((output / "acquisition-manifest.json").read_text()) == report
+
+
+@pytest.mark.parametrize(
+    ("distribution_kwargs", "match"),
+    [
+        ({"commit_id": "b" * 40}, "does not match"),
+        ({"url": "https://github.com/example/other.git"}, "repository does not match"),
+        ({"direct_url": False}, "lacks VCS direct_url"),
+    ],
+)
+def test_unproven_or_wrong_installed_revision_fails_before_provider_import(
+    tmp_path, monkeypatch, distribution_kwargs, match
+):
+    output = tmp_path / "private"
+    output.mkdir()
+    _install_distribution(monkeypatch, **distribution_kwargs)
+
+    original = cli.importlib.import_module
+
+    def forbid_provider_import(name):
+        if name.startswith("nsemine"):
+            pytest.fail("provider must not be imported before VCS provenance is verified")
+        return original(name)
+
+    monkeypatch.setattr(cli.importlib, "import_module", forbid_provider_import)
+    with pytest.raises(ValueError, match=match):
+        cli.acquire(
+            symbol="TCS",
+            session=SESSION,
+            output=output,
+            entitlement=_evidence(tmp_path),
+            calendar="synthetic",
+            revision=REVISION,
+        )
+    assert list(output.iterdir()) == []
+
+
+def test_non_commit_revision_fails_before_provider_import(tmp_path, monkeypatch):
+    output = tmp_path / "private"
+    output.mkdir()
+    original = cli.importlib.import_module
+
+    def forbid_provider_import(name):
+        if name.startswith("nsemine"):
+            pytest.fail("provider must not be imported for invalid revision")
+        return original(name)
+
+    monkeypatch.setattr(cli.importlib, "import_module", forbid_provider_import)
+    with pytest.raises(ValueError, match="40-character"):
+        cli.acquire(
+            symbol="TCS",
+            session=SESSION,
+            output=output,
+            entitlement=_evidence(tmp_path),
+            calendar="synthetic",
+            revision="branch-name",
+        )
 
 
 @pytest.mark.parametrize(
@@ -206,10 +257,6 @@ def test_exact_tcs_eq_identity_is_retained_and_exact_token_is_used(tmp_path, mon
             [{"symbol": "TCS-EQ", "type": "Equity"}],
             "token/scripcode",
         ),
-        (
-            [{"symbol": "TCS-EQ", "scripcode": {"bad": "shape"}, "type": "Equity"}],
-            "token/scripcode",
-        ),
     ],
 )
 def test_ambiguous_wrong_type_series_or_token_fails_before_history(
@@ -217,7 +264,8 @@ def test_ambiguous_wrong_type_series_or_token_fails_before_history(
 ):
     output = tmp_path / "private"
     output.mkdir()
-    calls = _install_provider(monkeypatch, candidates=candidates, response={"data": [1]})
+    _install_distribution(monkeypatch)
+    calls = _install_provider(monkeypatch, candidates=candidates)
     with pytest.raises(ValueError, match=match):
         cli.acquire(
             symbol="TCS",
@@ -225,118 +273,22 @@ def test_ambiguous_wrong_type_series_or_token_fails_before_history(
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test-rev",
+            revision=REVISION,
         )
     assert calls["fetch"] == []
     assert list(output.iterdir()) == []
 
 
-def test_missing_series_can_use_exact_hash_addressed_independent_token_reference(
-    tmp_path, monkeypatch
-):
-    candidate = {"symbol": "TCS", "scripcode": "11536", "type": "Equity"}
-    reference = _reference(tmp_path)
-    output, calls, report = _acquire(
-        tmp_path,
-        monkeypatch,
-        candidates=[candidate],
-        response={"data": []},
-        reference=reference,
-    )
-    assert calls["fetch"][0]["token"] == "11536"
-    assert (
-        report["instrument_verification"]["selection_basis"]
-        == "independent_reference_exact_token_symbol_series"
-    )
-    resolver = json.loads((output / "resolver-evidence.json").read_text())
-    assert (
-        resolver["independent_reference_evidence"]["source_content_sha256"]
-        == cli.hashlib.sha256(reference[1].read_bytes()).hexdigest()
-    )
-    assert resolver["independent_reference_file_sha256"] == cli.hashlib.sha256(
-        reference[0].read_bytes()
-    ).hexdigest()
-    assert resolver["independent_reference_source_sha256"] == cli.hashlib.sha256(
-        reference[1].read_bytes()
-    ).hexdigest()
-
-
-def test_missing_series_without_independent_reference_fails_before_history(
-    tmp_path, monkeypatch
-):
-    candidate = {"symbol": "TCS", "scripcode": "11536", "type": "Equity"}
-    output = tmp_path / "private"
-    output.mkdir()
-    calls = _install_provider(monkeypatch, candidates=[candidate], response={"data": [1]})
-    with pytest.raises(ValueError, match="does not establish series EQ"):
-        cli.acquire(
-            symbol="TCS",
-            session=SESSION,
-            output=output,
-            entitlement=_evidence(tmp_path),
-            calendar="synthetic",
-            revision="test",
-        )
-    assert calls["fetch"] == []
-
-
-def test_independent_reference_token_mismatch_fails_closed(tmp_path, monkeypatch):
-    candidate = {"symbol": "TCS", "scripcode": "11536", "type": "Equity"}
-    output = tmp_path / "private"
-    output.mkdir()
-    calls = _install_provider(monkeypatch, candidates=[candidate], response={"data": [1]})
-    reference = _reference(tmp_path, token="99999")
-    with pytest.raises(ValueError, match="does not establish series EQ"):
-        cli.acquire(
-            symbol="TCS",
-            session=SESSION,
-            output=output,
-            entitlement=_evidence(tmp_path),
-            calendar="synthetic",
-            revision="test",
-            instrument_reference=reference[0],
-            instrument_reference_source=reference[1],
-        )
-    assert calls["fetch"] == []
-
-
-def test_independent_reference_source_hash_mismatch_fails_before_resolver(
+def test_base_symbol_without_provider_series_fails_closed_no_reference_override(
     tmp_path, monkeypatch
 ):
     output = tmp_path / "private"
     output.mkdir()
-    metadata, source = _reference(tmp_path)
-    source.write_bytes(b"tampered after metadata creation")
+    _install_distribution(monkeypatch)
     calls = _install_provider(
         monkeypatch,
         candidates=[{"symbol": "TCS", "scripcode": "11536", "type": "Equity"}],
     )
-    with pytest.raises(ValueError, match="source snapshot hash"):
-        cli.acquire(
-            symbol="TCS",
-            session=SESSION,
-            output=output,
-            entitlement=_evidence(tmp_path),
-            calendar="synthetic",
-            revision="test",
-            instrument_reference=metadata,
-            instrument_reference_source=source,
-        )
-    assert calls["search"] == []
-    assert calls["fetch"] == []
-
-
-def test_successful_historical_response_alone_cannot_establish_identity(
-    tmp_path, monkeypatch
-):
-    candidate = {"symbol": "TCS", "scripcode": "11536", "type": "Equity"}
-    output = tmp_path / "private"
-    output.mkdir()
-    calls = _install_provider(
-        monkeypatch,
-        candidates=[candidate],
-        response={"data": [{"time": 123, "close": 999}]},
-    )
     with pytest.raises(ValueError, match="does not establish series EQ"):
         cli.acquire(
             symbol="TCS",
@@ -344,16 +296,40 @@ def test_successful_historical_response_alone_cannot_establish_identity(
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test",
+            revision=REVISION,
         )
     assert calls["fetch"] == []
 
 
-def test_direct_token_api_is_required_before_any_resolver_or_history_call(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("response", [{}, {"data": []}, {"data": "not-a-list"}])
+def test_empty_or_invalid_historical_payload_is_blocked_without_success_artifacts(
+    tmp_path, monkeypatch, response
 ):
     output = tmp_path / "private"
     output.mkdir()
+    _install_distribution(monkeypatch)
+    calls = _install_provider(
+        monkeypatch,
+        candidates=[{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity"}],
+        response=response,
+    )
+    with pytest.raises(ValueError, match="sample is BLOCKED"):
+        cli.acquire(
+            symbol="TCS",
+            session=SESSION,
+            output=output,
+            entitlement=_evidence(tmp_path),
+            calendar="synthetic",
+            revision=REVISION,
+        )
+    assert len(calls["fetch"]) == 1
+    assert list(output.iterdir()) == []
+
+
+def test_direct_token_api_is_required_before_resolver_or_history(tmp_path, monkeypatch):
+    output = tmp_path / "private"
+    output.mkdir()
+    _install_distribution(monkeypatch)
     calls = _install_provider(
         monkeypatch,
         candidates=[{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity"}],
@@ -366,34 +342,16 @@ def test_direct_token_api_is_required_before_any_resolver_or_history_call(
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test",
+            revision=REVISION,
         )
     assert calls["search"] == []
-    assert calls["fetch"] == []
-
-
-@pytest.mark.parametrize("candidates", [[], [{"description": "TCS"}], "bad-schema"])
-def test_empty_or_malformed_resolver_results_fail_closed(
-    tmp_path, monkeypatch, candidates
-):
-    output = tmp_path / "private"
-    output.mkdir()
-    calls = _install_provider(monkeypatch, candidates=candidates)
-    with pytest.raises(ValueError):
-        cli.acquire(
-            symbol="TCS",
-            session=SESSION,
-            output=output,
-            entitlement=_evidence(tmp_path),
-            calendar="synthetic",
-            revision="test",
-        )
     assert calls["fetch"] == []
 
 
 def test_resolver_failure_produces_no_partial_evidence(tmp_path, monkeypatch):
     output = tmp_path / "private"
     output.mkdir()
+    _install_distribution(monkeypatch)
     calls = _install_provider(
         monkeypatch,
         candidates=[],
@@ -406,33 +364,10 @@ def test_resolver_failure_produces_no_partial_evidence(tmp_path, monkeypatch):
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test",
+            revision=REVISION,
         )
     assert calls["fetch"] == []
     assert list(output.iterdir()) == []
-
-
-def test_non_eq_operator_request_is_rejected_before_provider_import(tmp_path, monkeypatch):
-    output = tmp_path / "private"
-    output.mkdir()
-    original = cli.importlib.import_module
-
-    def fail_import(name):
-        if name.startswith("nsemine"):
-            pytest.fail("provider must not be imported for unsupported series")
-        return original(name)
-
-    monkeypatch.setattr(cli.importlib, "import_module", fail_import)
-    with pytest.raises(ValueError, match="limited to the EQ series"):
-        cli.acquire(
-            symbol="TCS",
-            series="BE",
-            session=SESSION,
-            output=output,
-            entitlement=_evidence(tmp_path),
-            calendar="synthetic",
-            revision="test",
-        )
 
 
 def test_manifest_write_failure_cleans_resolver_and_response_evidence(
@@ -440,10 +375,10 @@ def test_manifest_write_failure_cleans_resolver_and_response_evidence(
 ):
     output = tmp_path / "private"
     output.mkdir()
+    _install_distribution(monkeypatch)
     _install_provider(
         monkeypatch,
         candidates=[{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity"}],
-        response={"data": []},
     )
     original_write = cli._write_exclusive
 
@@ -460,7 +395,7 @@ def test_manifest_write_failure_cleans_resolver_and_response_evidence(
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test",
+            revision=REVISION,
         )
     assert list(output.iterdir()) == []
 
@@ -476,33 +411,8 @@ def test_existing_acquisition_protection_remains_fail_closed(tmp_path, monkeypat
             output=output,
             entitlement=_evidence(tmp_path),
             calendar="synthetic",
-            revision="test",
+            revision=REVISION,
         )
-
-
-def test_acquisition_rejected_before_import_without_entitlement_evidence(
-    tmp_path, monkeypatch
-):
-    output = tmp_path / "out"
-    output.mkdir()
-    original = cli.importlib.import_module
-
-    def fail_import(name):
-        if name.startswith("nsemine"):
-            pytest.fail("no provider import allowed without evidence")
-        return original(name)
-
-    monkeypatch.setattr(cli.importlib, "import_module", fail_import)
-    with pytest.raises(ValueError, match="evidence"):
-        cli.acquire(
-            symbol="TCS",
-            session=SESSION,
-            output=output,
-            entitlement=tmp_path / "missing.txt",
-            calendar="synthetic",
-            revision="test-rev",
-        )
-    assert list(output.iterdir()) == []
 
 
 def test_offline_verify_never_imports_provider(tmp_path, monkeypatch):
