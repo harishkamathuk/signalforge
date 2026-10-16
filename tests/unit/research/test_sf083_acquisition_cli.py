@@ -35,6 +35,10 @@ class _Distribution:
         self._repository = repository
         self._direct_url = direct_url
 
+    def locate_file(self, name: str):
+        assert name == "nsemine/historical.py"
+        return SCRIPT
+
     def read_text(self, name: str):
         assert name == "direct_url.json"
         if not self._direct_url:
@@ -68,6 +72,7 @@ def _install_distribution(monkeypatch, distribution: _Distribution | None = None
 def _install_provider(monkeypatch, *, candidates, response=None):
     nsemine = ModuleType("nsemine")
     historical = ModuleType("nsemine.historical")
+    historical.__file__ = str(SCRIPT)
     calls: dict[str, list[dict[str, object]]] = {"search": [], "fetch": []}
 
     def search_stock_instruments(*, stock_symbol, segment=None, scrip_type=None):
@@ -242,6 +247,15 @@ def test_invalid_revision_format_fails_before_provider_import(
             "not cash Equity",
         ),
         (
+            [{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity", "series": "BE"}],
+            "contradictory provider series",
+        ),
+        (
+            [{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity", "series": "EQ"},
+             {"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity", "series": "BE"}],
+            "contradictory provider series",
+        ),
+        (
             [{"symbol": "TCS-EQ", "type": "Equity"}],
             "token/scripcode",
         ),
@@ -272,7 +286,10 @@ def test_identity_ambiguity_or_missing_provider_series_fails_before_history(
     assert list(output.iterdir()) == []
 
 
-@pytest.mark.parametrize("response", [{}, {"data": []}, {"data": "not-a-list"}])
+@pytest.mark.parametrize("response", [{}, {"data": []}, {"data": "not-a-list"},
+                                     {"data": [None]}, {"data": [{}]},
+                                     {"data": [{"time": 123}], "error": "provider failed"},
+                                     {"data": [{"time": 123}], "success": False}])
 def test_empty_or_invalid_historical_payload_is_blocked_without_success_artifacts(
     tmp_path, monkeypatch, response
 ):
@@ -389,3 +406,34 @@ def test_offline_verify_never_imports_provider(tmp_path, monkeypatch):
     assert summary["dataset_id"] == str(identity)
     assert summary["canonical_bars"] == 375
     assert summary["derived_5m"] == {"valid": 75, "incomplete": 0, "missing": 0}
+
+
+def test_shadowed_import_rejected_before_resolver(tmp_path, monkeypatch):
+    output = tmp_path / "private"
+    output.mkdir()
+    _install_distribution(monkeypatch)
+    calls = _install_provider(
+        monkeypatch,
+        candidates=[{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity"}],
+    )
+    sys.modules["nsemine.historical"].__file__ = str(tmp_path / "shadow.py")
+    with pytest.raises(ValueError, match="does not match the verified installed distribution"):
+        cli.acquire(symbol="TCS", session=SESSION, output=output,
+                    entitlement=_evidence(tmp_path), calendar="synthetic", revision=REVISION)
+    assert calls["search"] == []
+    assert calls["fetch"] == []
+    assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize("repository", [
+    "https://github.com/harishkamathuk/signalforge-nsemine.git?ref=other",
+    "https://github.com/harishkamathuk/signalforge-nsemine.git#fragment",
+])
+def test_repository_url_with_ignored_components_fails_closed(tmp_path, monkeypatch, repository):
+    output = tmp_path / "private"
+    output.mkdir()
+    _install_distribution(monkeypatch, _Distribution(repository=repository))
+    with pytest.raises(ValueError, match="unsupported components"):
+        cli.acquire(symbol="TCS", session=SESSION, output=output,
+                    entitlement=_evidence(tmp_path), calendar="synthetic", revision=REVISION)
+    assert list(output.iterdir()) == []
