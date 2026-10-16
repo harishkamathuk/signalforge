@@ -15,11 +15,14 @@ import os
 import sys
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from signalforge.domain.ids import DatasetId
 from signalforge.domain.time import IST
 from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute
 from signalforge.research.historical_dataset_store import LocalHistoricalDatasetStore
+
+_NSEMINE_REPOSITORY = "https://github.com/harishkamathuk/signalforge-nsemine"
 
 
 def _write_exclusive(path: Path, payload: bytes) -> None:
@@ -57,80 +60,76 @@ def _provider_token(candidate: dict[str, object]) -> str:
     raise ValueError("provider candidate token/scripcode is absent or malformed")
 
 
-def _load_reference_evidence(
-    path: Path | None,
-    source_path: Path | None,
-) -> tuple[dict[str, object] | None, str | None, str | None]:
-    if path is None and source_path is None:
-        return None, None, None
-    if path is None or source_path is None:
-        raise ValueError(
-            "independent instrument-reference metadata and source snapshot are both required"
-        )
-    if not path.is_file():
-        raise ValueError("independent instrument-reference evidence file does not exist")
-    if not source_path.is_file():
-        raise ValueError("independent instrument-reference source snapshot does not exist")
+def _normalized_repository_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("installed nsemine provenance is not a GitHub HTTPS VCS install")
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.port:
+        raise ValueError("installed nsemine provenance URL contains unsupported components")
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, "", ""))
 
-    raw = path.read_bytes()
-    metadata_digest = hashlib.sha256(raw).hexdigest()
-    source_bytes = source_path.read_bytes()
-    if not source_bytes:
-        raise ValueError("independent instrument-reference source snapshot is empty")
-    source_digest = hashlib.sha256(source_bytes).hexdigest()
+
+def _verify_installed_nsemine_revision(revision: str) -> dict[str, str]:
+    """Verify immutable installed VCS provenance before importing provider code."""
+    if (
+        len(revision) != 40
+        or any(char not in "0123456789abcdef" for char in revision)
+    ):
+        raise ValueError("revision must be a lowercase 40-character Git commit SHA")
 
     try:
-        value = json.loads(raw)
+        distribution = importlib.metadata.distribution("nsemine")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise ValueError("nsemine is not installed") from exc
+
+    direct_url_text = distribution.read_text("direct_url.json")
+    if not direct_url_text:
+        raise ValueError(
+            "installed nsemine has no PEP 610 direct_url.json VCS provenance"
+        )
+    try:
+        direct_url = json.loads(direct_url_text)
     except json.JSONDecodeError as exc:
-        raise ValueError("independent instrument-reference evidence is not valid JSON") from exc
-    if not isinstance(value, dict):
-        raise ValueError("independent instrument-reference evidence must be a JSON object")
-    required_strings = {
-        "evidence_type": "independent_instrument_reference",
-        "provider": "nsemine",
-        "exchange": "NSE",
-        "instrument_type": "Equity",
+        raise ValueError("installed nsemine direct_url.json is malformed") from exc
+    if not isinstance(direct_url, dict):
+        raise ValueError("installed nsemine direct_url.json must be a JSON object")
+
+    source_url = direct_url.get("url")
+    vcs_info = direct_url.get("vcs_info")
+    if not isinstance(source_url, str) or not isinstance(vcs_info, dict):
+        raise ValueError("installed nsemine is not a verifiable VCS installation")
+    if vcs_info.get("vcs") != "git":
+        raise ValueError("installed nsemine provenance is not Git")
+    commit_id = vcs_info.get("commit_id")
+    if not isinstance(commit_id, str) or commit_id != revision:
+        raise ValueError(
+            "installed nsemine commit does not match the requested pinned revision"
+        )
+
+    normalized_source = _normalized_repository_url(source_url)
+    normalized_expected = _normalized_repository_url(_NSEMINE_REPOSITORY)
+    if normalized_source != normalized_expected:
+        raise ValueError(
+            "installed nsemine repository does not match SignalForge's pinned fork"
+        )
+
+    # PEP 610 describes installation origin; bind it to the actual imported file
+    # so a shadowing module elsewhere on sys.path cannot inherit this claim.
+    expected_module_path = distribution.locate_file("nsemine/historical.py")
+    if not expected_module_path.is_file():
+        raise ValueError("installed nsemine distribution has no historical module file")
+
+    version = distribution.version
+    return {
+        "repository": normalized_source,
+        "commit_id": commit_id,
+        "version": version,
+        "provenance": "PEP610_direct_url_vcs_info",
+        "historical_module_path": str(expected_module_path.resolve()),
     }
-    for field, expected in required_strings.items():
-        if value.get(field) != expected:
-            raise ValueError(
-                f"independent instrument-reference evidence has invalid {field}"
-            )
-    for field in ("symbol", "series", "provider_token", "source_reference"):
-        if not isinstance(value.get(field), str) or not str(value[field]).strip():
-            raise ValueError(
-                f"independent instrument-reference evidence is missing {field}"
-            )
-    declared_source_hash = value.get("source_content_sha256")
-    if (
-        not isinstance(declared_source_hash, str)
-        or len(declared_source_hash) != 64
-        or any(char not in "0123456789abcdef" for char in declared_source_hash)
-    ):
-        raise ValueError(
-            "independent instrument-reference evidence requires a lowercase source hash"
-        )
-    if declared_source_hash != source_digest:
-        raise ValueError(
-            "independent instrument-reference source snapshot hash does not match metadata"
-        )
-    return value, metadata_digest, source_digest
-
-
-def _reference_supports_candidate(
-    reference: dict[str, object] | None,
-    *,
-    symbol: str,
-    series: str,
-    token: str,
-) -> bool:
-    if reference is None:
-        return False
-    return (
-        str(reference.get("symbol", "")).upper() == symbol.upper()
-        and str(reference.get("series", "")).upper() == series.upper()
-        and reference.get("provider_token") == token
-    )
 
 
 def _select_equity_candidate(
@@ -138,14 +137,14 @@ def _select_equity_candidate(
     *,
     symbol: str,
     series: str,
-    reference: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], str, str]:
-    """Select exactly one candidate whose evidence proves SYMBOL/SERIES."""
+    """Select exactly one provider-native candidate proving SYMBOL/SERIES."""
     requested_symbol = symbol.upper()
     requested_series = series.upper()
     composite = f"{requested_symbol}-{requested_series}"
     accepted: list[tuple[dict[str, object], str, str]] = []
     conflicts: list[str] = []
+    contradictions: list[str] = []
 
     for index, candidate in enumerate(candidates):
         original_symbol = candidate.get("symbol")
@@ -153,6 +152,7 @@ def _select_equity_candidate(
         provider_series = candidate.get("series")
 
         if not isinstance(original_symbol, str):
+            conflicts.append(f"candidate {index} has no usable provider symbol")
             continue
         original_upper = original_symbol.upper()
         base_matches = original_upper == requested_symbol or original_upper.startswith(
@@ -162,15 +162,27 @@ def _select_equity_candidate(
             continue
 
         if not isinstance(provider_type, str) or provider_type.casefold() != "equity":
-            conflicts.append(
-                f"candidate {index} for {original_symbol!r} is not cash Equity"
-            )
+            message = f"candidate {index} for {original_symbol!r} is not cash Equity"
+            conflicts.append(message)
+            if original_upper == composite:
+                contradictions.append(message)
             continue
 
         try:
             token = _provider_token(candidate)
         except ValueError as exc:
-            conflicts.append(f"candidate {index} for {original_symbol!r}: {exc}")
+            message = f"candidate {index} for {original_symbol!r}: {exc}"
+            conflicts.append(message)
+            if original_upper == composite:
+                contradictions.append(message)
+            continue
+
+        if (original_upper == composite and provider_series is not None
+                and (not isinstance(provider_series, str)
+                     or provider_series.upper() != requested_series)):
+            message = f"candidate {index} for {original_symbol!r} has contradictory provider series"
+            conflicts.append(message)
+            contradictions.append(message)
             continue
 
         series_from_symbol = original_upper == composite
@@ -179,27 +191,22 @@ def _select_equity_candidate(
             and provider_series.upper() == requested_series
             and original_upper == requested_symbol
         )
-        series_from_reference = (
-            original_upper == requested_symbol
-            and _reference_supports_candidate(
-                reference, symbol=symbol, series=series, token=token
-            )
-        )
-        if not (series_from_symbol or series_from_field or series_from_reference):
+        if not (series_from_symbol or series_from_field):
             conflicts.append(
                 f"candidate {index} for {original_symbol!r} does not establish "
                 f"series {requested_series}"
             )
             continue
 
-        if series_from_symbol:
-            basis = "original_provider_symbol_exact_symbol_series"
-        elif series_from_field:
-            basis = "original_provider_symbol_plus_series_field"
-        else:
-            basis = "independent_reference_exact_token_symbol_series"
+        basis = (
+            "original_provider_symbol_exact_symbol_series"
+            if series_from_symbol
+            else "original_provider_symbol_plus_series_field"
+        )
         accepted.append((candidate, token, basis))
 
+    if accepted and contradictions:
+        raise ValueError("instrument identity verification failed: " + "; ".join(contradictions))
     if len(accepted) != 1:
         detail = "; ".join(conflicts) if conflicts else "no exact supported candidate"
         if len(accepted) > 1:
@@ -218,16 +225,14 @@ def acquire(
     calendar: str,
     revision: str,
     series: str = "EQ",
-    instrument_reference: Path | None = None,
-    instrument_reference_source: Path | None = None,
 ) -> dict[str, object]:
     """Resolve and verify one instrument, then acquire one declared session."""
     if not symbol or not symbol.isascii() or not symbol.replace("-", "").isalnum():
         raise ValueError("provide an explicit NSE symbol")
     if series != "EQ":
         raise ValueError("SF-083 experiment is limited to the EQ series")
-    if not calendar.strip() or not revision.strip():
-        raise ValueError("calendar evidence and pinned revision are required")
+    if not calendar.strip():
+        raise ValueError("calendar evidence is required")
     if session >= datetime.now(IST).date():
         raise ValueError("session must be a completed prior trading date")
     if not entitlement.is_file() or not entitlement.read_text(encoding="utf-8").strip():
@@ -238,6 +243,8 @@ def acquire(
         raise ValueError("create the private local output directory before acquisition")
     if any(output.iterdir()):
         raise FileExistsError("output directory must be empty; no implicit overwrite")
+
+    installed_provenance = _verify_installed_nsemine_revision(revision)
 
     historical = importlib.import_module("nsemine.historical")
     search = getattr(historical, "search_stock_instruments", None)
@@ -260,23 +267,14 @@ def acquire(
         },
         name="get_stock_historical_data_by_instrument",
     )
-
-    try:
-        installed_version = importlib.metadata.version("nsemine")
-    except importlib.metadata.PackageNotFoundError:
-        installed_version = "unknown (source checkout or mocked install)"
-    module_path = str(vars(historical).get("__file__") or "unavailable")
-
-    reference, reference_file_digest, reference_source_digest = _load_reference_evidence(
-        instrument_reference, instrument_reference_source
-    )
-    if reference is not None and (
-        str(reference["symbol"]).upper() != symbol.upper()
-        or str(reference["series"]).upper() != series.upper()
+    actual_module_file = vars(historical).get("__file__")
+    if not isinstance(actual_module_file, str) or (
+        str(Path(actual_module_file).resolve()) != installed_provenance["historical_module_path"]
     ):
         raise ValueError(
-            "independent instrument-reference evidence contradicts requested identity"
+            "imported nsemine module does not match the verified installed distribution"
         )
+    module_path = str(Path(actual_module_file).resolve())
 
     search_parameters = {"stock_symbol": symbol, "segment": series, "scrip_type": None}
     raw_candidates = search(**search_parameters)
@@ -286,7 +284,7 @@ def acquire(
         raise ValueError("provider resolver returned an invalid candidate collection")
     candidates: list[dict[str, object]] = raw_candidates
     selected, token, match_basis = _select_equity_candidate(
-        candidates, symbol=symbol, series=series, reference=reference
+        candidates, symbol=symbol, series=series
     )
     selected_symbol = selected.get("symbol")
     selected_type = selected.get("type")
@@ -307,9 +305,6 @@ def acquire(
         "selected_provider_token": token,
         "selection_basis": match_basis,
         "verification_outcome": "VERIFIED_EXACT_PROVIDER_IDENTITY",
-        "independent_reference_evidence": reference,
-        "independent_reference_file_sha256": reference_file_digest,
-        "independent_reference_source_sha256": reference_source_digest,
     }
     resolver_bytes = _json_bytes(resolver_evidence)
     resolver_digest = hashlib.sha256(resolver_bytes).hexdigest()
@@ -336,10 +331,22 @@ def acquire(
         interval=1,
         raw=True,
     )
-    if response is None:
-        raise ValueError("nsemine returned no historical response; nothing persisted")
     if not isinstance(response, dict):
-        raise ValueError("expected decoded dictionary from nsemine raw=True")
+        raise ValueError(
+            "nsemine historical response is absent or not a decoded dictionary"
+        )
+    response_rows = response.get("data")
+    if (not isinstance(response_rows, list) or not response_rows
+            or any(not isinstance(row, dict) or not row for row in response_rows)
+            or response.get("error") or response.get("success") is False
+            or str(response.get("status", "")).casefold() in {"error", "failed", "failure"}
+            or any(row.get("error") or row.get("success") is False
+                   for row in response_rows if isinstance(row, dict))):
+        raise ValueError(
+            "nsemine historical response contains no non-empty data list; "
+            "sample acquisition is BLOCKED and no success evidence is persisted"
+        )
+
     raw = _json_bytes(response)
     if len(raw) > 20_000_000:
         raise ValueError("decoded provider response exceeds 20 MB bounded sample limit")
@@ -356,8 +363,8 @@ def acquire(
         "series": series,
         "session": session.isoformat(),
         "calendar_reference": calendar,
-        "declared_revision": revision,
-        "installed_nsemine_version": installed_version,
+        "verified_revision": revision,
+        "installed_nsemine_provenance": installed_provenance,
         "installed_nsemine_module_path": module_path,
         "acquired_at_utc": observed_at,
         "sdk_decoded_json_sha256": response_digest,
@@ -376,23 +383,19 @@ def acquire(
             "deterministically re-encoded SDK-decoded JSON; NOT HTTP bytes"
         ),
         "raw_size_bytes": len(raw),
+        "raw_row_count": len(response_rows),
         "local_entitlement_evidence": str(entitlement),
         "source_fact_vs_attestation": {
             "provider_candidates_and_selected_token": "provider source facts",
-            "independent_reference_evidence": (
-                "metadata verified against a retained external source snapshot hash"
-                if reference is not None
-                else "not supplied/not required"
-            ),
             "historical_request_token": "direct SDK call argument recorded by this CLI",
-            "declared_revision": "operator attestation",
+            "installed_revision": "verified from PEP 610 VCS provenance before provider import",
             "calendar_reference": "operator attestation/reference",
             "entitlement_evidence_path": "operator-supplied local evidence pointer",
         },
         "limitations": [
             "Historical response is not yet canonicalized by this command",
             "Timestamp interpretation remains evidence-qualified under SF-081",
-            "Declared fork revision is not cryptographically derived from the installed package",
+            "Source-use/retention authorization remains an external evidence gate",
             "Not SF-079 Gate A approval or an SF-083 completed real-data acceptance",
         ],
     }
@@ -448,22 +451,6 @@ def main(argv: list[str] | None = None) -> int:
     acquire_parser.add_argument("--entitlement-evidence", type=Path, required=True)
     acquire_parser.add_argument("--calendar-reference", required=True)
     acquire_parser.add_argument("--revision", required=True)
-    acquire_parser.add_argument(
-        "--instrument-reference-evidence",
-        type=Path,
-        help=(
-            "optional independent-reference metadata JSON; required only when "
-            "provider candidate fields do not themselves establish EQ identity"
-        ),
-    )
-    acquire_parser.add_argument(
-        "--instrument-reference-source",
-        type=Path,
-        help=(
-            "local retained source snapshot whose SHA-256 must match the independent "
-            "reference metadata"
-        ),
-    )
     verify_parser = modes.add_parser(
         "offline-verify", help="load a frozen canonical ID"
     )
@@ -480,8 +467,6 @@ def main(argv: list[str] | None = None) -> int:
                 calendar=args.calendar_reference,
                 revision=args.revision,
                 series=args.series,
-                instrument_reference=args.instrument_reference_evidence,
-                instrument_reference_source=args.instrument_reference_source,
             )
         else:
             result = verify(output=args.output, dataset_id=args.dataset_id)
