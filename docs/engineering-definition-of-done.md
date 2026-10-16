@@ -65,6 +65,12 @@ Review specifically for:
 
 A green test suite is necessary but is not by itself sufficient evidence of completion.
 
+### Review remediation and decision escalation
+
+Valid adversarial findings should normally be corrected, tested and re-reviewed without pausing for project-owner approval at each implementation iteration. Pause and obtain explicit project-owner approval **before implementing a proposed remediation** only when it materially changes accepted strategy semantics, capital exposure or execution correctness, durable-state integrity, restart/recovery contracts, auditability/reproducibility, or requires destructive or substantial hard-to-reverse architecture/API/schema changes. Record the decision in the appropriate authoritative Git artefact before proceeding.
+
+Clearly identify review provenance: an author-assisted critical review must not be represented as independent third-party reviewer approval. Neither automated remediation nor a green CI run bypasses the existing adversarial-review and completion requirements.
+
 ### Boundary and determinism review
 
 When a change introduces or materially changes a serialization, configuration, persistence,
