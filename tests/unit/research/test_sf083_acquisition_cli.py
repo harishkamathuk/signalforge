@@ -157,6 +157,7 @@ def test_exact_provider_identity_and_verified_revision_are_persisted(
         "commit_id": REVISION,
         "version": "2.2.1",
         "provenance": "PEP610_direct_url_vcs_info",
+        "historical_module_path": str(SCRIPT.resolve()),
     }
     assert report["raw_row_count"] == 1
     resolver = json.loads((output / "resolver-evidence.json").read_text())
