@@ -239,6 +239,11 @@ def test_invalid_revision_format_fails_before_provider_import(
             "indistinguishable",
         ),
         (
+            [{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity"},
+             {"symbol": "TCS-EQ", "scripcode": "11536", "type": "Futures"}],
+            "not cash Equity",
+        ),
+        (
             [{"symbol": "TCS-BE", "scripcode": "11536", "type": "Equity"}],
             "does not establish series EQ",
         ),
