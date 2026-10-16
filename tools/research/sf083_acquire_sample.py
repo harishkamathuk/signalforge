@@ -177,8 +177,9 @@ def _select_equity_candidate(
                 contradictions.append(message)
             continue
 
-        if (original_upper == composite and isinstance(provider_series, str)
-                and provider_series.upper() != requested_series):
+        if (original_upper == composite and provider_series is not None
+                and (not isinstance(provider_series, str)
+                     or provider_series.upper() != requested_series)):
             message = f"candidate {index} for {original_symbol!r} has contradictory provider series"
             conflicts.append(message)
             contradictions.append(message)
@@ -337,7 +338,10 @@ def acquire(
     response_rows = response.get("data")
     if (not isinstance(response_rows, list) or not response_rows
             or any(not isinstance(row, dict) or not row for row in response_rows)
-            or response.get("error") or response.get("success") is False):
+            or response.get("error") or response.get("success") is False
+            or str(response.get("status", "")).casefold() in {"error", "failed", "failure"}
+            or any(row.get("error") or row.get("success") is False
+                   for row in response_rows if isinstance(row, dict))):
         raise ValueError(
             "nsemine historical response contains no non-empty data list; "
             "sample acquisition is BLOCKED and no success evidence is persisted"
