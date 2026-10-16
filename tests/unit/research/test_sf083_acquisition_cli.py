@@ -253,6 +253,10 @@ def test_invalid_revision_format_fails_before_provider_import(
             "not cash Equity",
         ),
         (
+            [{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity", "series": 123}],
+            "contradictory provider series",
+        ),
+        (
             [{"symbol": "TCS-EQ", "scripcode": "11536", "type": "Equity", "series": "BE"}],
             "contradictory provider series",
         ),
@@ -295,7 +299,9 @@ def test_identity_ambiguity_or_missing_provider_series_fails_before_history(
 @pytest.mark.parametrize("response", [{}, {"data": []}, {"data": "not-a-list"},
                                      {"data": [None]}, {"data": [{}]},
                                      {"data": [{"time": 123}], "error": "provider failed"},
-                                     {"data": [{"time": 123}], "success": False}])
+                                     {"data": [{"time": 123}], "success": False},
+                                     {"data": [{"error": "provider failed"}]},
+                                     {"data": [{"time": 123}], "status": "error"}])
 def test_empty_or_invalid_historical_payload_is_blocked_without_success_artifacts(
     tmp_path, monkeypatch, response
 ):
