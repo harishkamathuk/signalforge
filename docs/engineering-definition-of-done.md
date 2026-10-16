@@ -167,6 +167,18 @@ The PR must state:
 - focused and full validation results;
 - any unresolved blocker or required follow-up.
 
+
+## Merge method and post-merge housekeeping
+
+For normal implementation and documentation pull requests into `develop`, use GitHub's **Create a merge commit** method (`merge`), not squash or rebase. This preserves the original implementation and review-remediation commits in the repository history. An exception requires explicit project-owner approval and a rationale recorded in the PR. A merge commit does not replace adversarial review, tests or acceptance evidence.
+
+After merging:
+
+1. Verify GitHub reports the PR merged into the intended base, record the merge commit SHA and confirm the final required CI and review gates were satisfied for the merged head.
+2. Update the linked issue with the PR, merge commit, completion evidence and any remaining follow-up. Close it only when its own acceptance criteria are satisfied; partial PRs must leave the issue open.
+3. Delete the merged feature branch when safe (not needed by another open PR or active work). Never delete protected integration or release branches as routine housekeeping.
+4. Retain adversarial findings, dispositions and validation evidence in the PR or other canonical Git artefacts; do not rely on chat history alone.
+
 ## Completion rule
 
 A work item is complete only when:
