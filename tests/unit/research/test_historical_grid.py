@@ -102,3 +102,46 @@ def test_grid_rejects_non_aligned_and_overlapping_coverage():
                 CandleInterval(start + timedelta(minutes=5), start + timedelta(minutes=15)),
             ),
         )
+
+
+def test_distinct_coverage_segments_do_not_invent_intervening_minutes():
+    start = datetime(2026, 10, 9, 0, 2, tzinfo=UTC)
+    grid = HistoricalBarGrid(
+        "split-utc", "1",
+        (
+            CandleInterval(start, start + timedelta(minutes=5)),
+            CandleInterval(start + timedelta(minutes=60), start + timedelta(minutes=70)),
+        ),
+    )
+    assert grid.expected_minute_count == 15
+    assert len(tuple(grid.five_minute_intervals())) == 3
+    assert not grid.contains_minute(start + timedelta(minutes=20))
+
+
+def test_grid_version_changes_semantic_identity(tmp_path):
+    legacy = load_historical_bar_fixture(_FIXTURE)
+    start = datetime(2026, 10, 9, 0, 2, tzinfo=UTC)
+    bar = replace(
+        legacy.bars[0],
+        interval=CandleInterval(start, start + timedelta(minutes=1)),
+    )
+    coverage = (CandleInterval(start, start + timedelta(minutes=15)),)
+    manifest = replace(
+        legacy.manifest,
+        expected_session_dates=(),
+        grid=HistoricalBarGrid("bounded", "1", coverage),
+        requested_start=start,
+        requested_end=start + timedelta(minutes=15),
+        returned_start=start,
+        returned_end=start + timedelta(minutes=1),
+        raw_row_count=1,
+        canonical_row_count=1,
+        missing_interval_count=14,
+        duplicate_observation_count=0,
+        corrupt_rejected_count=0,
+    )
+    first = HistoricalBarDataset(manifest, (bar,))
+    second = HistoricalBarDataset(
+        replace(manifest, grid=HistoricalBarGrid("bounded", "2", coverage)), (bar,)
+    )
+    assert first.dataset_id != second.dataset_id
