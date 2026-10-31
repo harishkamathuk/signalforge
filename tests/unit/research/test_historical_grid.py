@@ -1,17 +1,20 @@
 """Three market-neutral canonical coverage proofs, including store round-trip."""
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from signalforge.domain.market import CandleQuality
 from signalforge.domain.time import CandleInterval
 from signalforge.research.historical_bars import (
     HistoricalBarDataset,
     aggregate_one_minute_to_five_minute,
     load_historical_bar_fixture,
+    parse_historical_bar_fixture_json,
 )
 from signalforge.research.historical_dataset_store import LocalHistoricalDatasetStore
 from signalforge.research.historical_grid import HistoricalBarGrid
@@ -77,6 +80,9 @@ def test_continuous_out_of_nse_hours_canonical_dataset_round_trip(tmp_path):
     assert len(candles) == 3
     assert candles[0].interval.start == start
     assert candles[0].source_event_count == 1
+    assert [c.quality for c in candles] == [
+        CandleQuality.INCOMPLETE, CandleQuality.MISSING, CandleQuality.MISSING
+    ]
     assert LocalHistoricalDatasetStore(tmp_path).save(dataset) == dataset.dataset_id
     assert LocalHistoricalDatasetStore(tmp_path).load(dataset.dataset_id) == dataset
 
@@ -145,3 +151,80 @@ def test_grid_version_changes_semantic_identity(tmp_path):
         replace(manifest, grid=HistoricalBarGrid("bounded", "2", coverage)), (bar,)
     )
     assert first.dataset_id != second.dataset_id
+
+
+@pytest.mark.parametrize(
+    "legacy_dates",
+    [["2026-10-09"], ["not-a-date"], "not-an-array", None],
+)
+def test_explicit_grid_rejects_conflicting_or_malformed_session_evidence(legacy_dates):
+    payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    payload["manifest"]["grid"] = {
+        "grid_id": "utc-test", "version": "1",
+        "coverage": [{
+            "start": "2026-10-09T03:45:00+00:00",
+            "end": "2026-10-09T10:00:00+00:00",
+        }],
+    }
+    payload["manifest"]["expected_session_dates"] = legacy_dates
+    with pytest.raises(ValueError):
+        parse_historical_bar_fixture_json(json.dumps(payload))
+
+
+def test_explicit_grid_rejects_null_grid_and_malformed_coverage():
+    payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    payload["manifest"]["grid"] = None
+    with pytest.raises(ValueError, match="must not be null"):
+        parse_historical_bar_fixture_json(json.dumps(payload))
+    payload["manifest"].pop("expected_session_dates")
+    payload["manifest"]["grid"] = {
+        "grid_id": "bad", "version": "1", "coverage": "not-an-array"
+    }
+    with pytest.raises(ValueError, match="coverage"):
+        parse_historical_bar_fixture_json(json.dumps(payload))
+
+
+def test_grid_rejects_unaligned_minute_boundaries():
+    start = datetime(2026, 10, 9, 0, 2, 1, tzinfo=UTC)
+    with pytest.raises(ValueError, match="exact minutes"):
+        HistoricalBarGrid(
+            "bad", "1", (CandleInterval(start, start + timedelta(minutes=5)),)
+        )
+
+
+def test_segmented_grid_aggregation_does_not_fill_undeclared_gap():
+    legacy = load_historical_bar_fixture(_FIXTURE)
+    start = datetime(2026, 10, 9, 0, 2, tzinfo=UTC)
+    grid = HistoricalBarGrid(
+        "gap-proof", "1",
+        (
+            CandleInterval(start, start + timedelta(minutes=5)),
+            CandleInterval(start + timedelta(minutes=60), start + timedelta(minutes=70)),
+        ),
+    )
+    bar = replace(
+        legacy.bars[0], interval=CandleInterval(start, start + timedelta(minutes=1))
+    )
+    manifest = replace(
+        legacy.manifest, expected_session_dates=(), grid=grid,
+        requested_start=start, requested_end=start + timedelta(minutes=70),
+        returned_start=start, returned_end=start + timedelta(minutes=1),
+        raw_row_count=1, canonical_row_count=1, missing_interval_count=14,
+        duplicate_observation_count=0, corrupt_rejected_count=0,
+    )
+    candles = aggregate_one_minute_to_five_minute(
+        HistoricalBarDataset(manifest=manifest, bars=(bar,))
+    )
+    assert [c.interval.start for c in candles] == [
+        start, start + timedelta(minutes=60), start + timedelta(minutes=65)
+    ]
+    assert [c.quality for c in candles] == [
+        CandleQuality.INCOMPLETE, CandleQuality.MISSING, CandleQuality.MISSING
+    ]
+    with pytest.raises(ValueError, match="outside declared coverage"):
+        HistoricalBarDataset(
+            replace(manifest, returned_start=start + timedelta(minutes=20)),
+            (replace(bar, interval=CandleInterval(
+                start + timedelta(minutes=20), start + timedelta(minutes=21)
+            )),),
+        )
