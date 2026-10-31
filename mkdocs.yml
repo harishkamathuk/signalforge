@@ -20,6 +20,7 @@ nav:
       - Cross-Strategy Proof: validation/cross-strategy-proof.md
       - SF-078 Historical Execution Proof: validation/sf-078-historical-execution-proof.md
       - SF-079 Phase A Source Qualification: validation/sf-079-phase-a-source-qualification.md
+      - SF-087 Delta BTCUSD Historical Qualification: validation/sf-087-delta-btc-history-qualification.md
       - M7 Recovery Golden: validation/m7-recovery-golden.md
   - Architecture:
       - ADR-001 — Single-Security MVP Runtime Architecture: architecture/decisions/ADR-001-single-security-mvp-runtime-architecture.md
