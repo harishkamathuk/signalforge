@@ -19,7 +19,7 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.ids import DatasetId, InstrumentId
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
-from signalforge.domain.time import IST, CandleInterval, require_aware, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, require_aware, to_utc
 from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 from signalforge.runtime.strategy import CompletedCandleStrategyContext, StrategyDecision
