@@ -254,7 +254,7 @@ def test_canonical_delta_dataset_has_explicit_price_basis_and_offline_round_trip
     changed_dataset = replace(dataset, manifest=changed_basis)
     assert changed_dataset.dataset_id != dataset.dataset_id
 
-    changed_product = replace(product, tick_size=Decimal("1.0"))
+    changed_product = replace(product, contract_value=Decimal("0.002"))
     changed_product_dataset = canonicalize_delta_one_minute(
         candles=candles,
         product=changed_product,
