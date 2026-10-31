@@ -57,24 +57,29 @@ class DeltaTimestampContract:
         if self.timestamp_unit != "seconds":
             raise ValueError("Delta qualification currently requires epoch-second timestamps")
 
-    def provider_bounds(self, start: datetime, end: datetime) -> tuple[int, int]:
-        """Translate canonical half-open minute coverage to provider request bounds."""
+    def provider_bounds(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        interval: timedelta = _ONE_MINUTE,
+    ) -> tuple[int, int]:
+        """Translate canonical half-open coverage to provider request bounds."""
 
         require_aware(start)
         require_aware(end)
         start_utc, end_utc = to_utc(start), to_utc(end)
         if start_utc.second or start_utc.microsecond or end_utc.second or end_utc.microsecond:
             raise ValueError("Delta qualification bounds must align to exact minutes")
-        if end_utc <= start_utc:
-            raise ValueError("Delta qualification range must be increasing")
+        if interval <= timedelta(0) or interval % _ONE_MINUTE:
+            raise ValueError("Delta qualification interval must be positive whole minutes")
+        if end_utc <= start_utc or (end_utc - start_utc) % interval:
+            raise ValueError("Delta qualification range must contain complete intervals")
         if self.timestamp_label is not DeltaTimestampLabel.CANDLE_OPEN:
             raise ValueError("Canonical mapping requires candle-open timestamp evidence")
         if not self.start_inclusive:
             raise ValueError("Unsupported Delta start-bound semantics for canonical mapping")
-        if self.end_inclusive:
-            provider_end = end_utc - _ONE_MINUTE
-        else:
-            provider_end = end_utc
+        provider_end = end_utc - interval if self.end_inclusive else end_utc
         return int(start_utc.timestamp()), int(provider_end.timestamp())
 
 
@@ -498,7 +503,9 @@ def capture_delta_bundle(
     if repeats <= 0:
         raise ValueError("Delta capture repeats must be positive")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Raw qualification evidence is write-once. Reusing a directory would destroy
+    # the acquisition/repeatability audit trail by replacing prior provider bytes.
+    output_dir.mkdir(parents=True, exist_ok=False)
     product = acquire_delta_response(
         f"/v2/products/{symbol}",
         api_origin=api_origin,
