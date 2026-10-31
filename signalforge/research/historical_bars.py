@@ -199,6 +199,10 @@ class HistoricalDatasetManifest:
         if to_utc(self.requested_start) != grid.coverage[0].start or (
             to_utc(self.requested_end) != grid.coverage[-1].end
         ):
+            if self.grid is None:
+                raise ValueError(
+                    "DATA-004 requested range must span complete declared regular NSE sessions"
+                )
             raise ValueError("Historical requested range must match grid coverage bounds")
         if self.grid is not None and self.expected_session_dates:
             raise ValueError("Explicit historical grid must not also declare NSE sessions")
@@ -298,6 +302,10 @@ class HistoricalBarDataset:
             if bar.canonicalisation_version != self.manifest.canonicalisation_version:
                 raise ValueError("Historical bar canonicalisation version contradicts manifest")
             if not self.manifest.effective_grid.contains_minute(bar.interval.start):
+                if self.manifest.grid is None:
+                    raise ValueError(
+                        "Historical bar session date is not declared by dataset manifest"
+                    )
                 raise ValueError("Historical bar interval is outside declared coverage grid")
             start = bar.interval.start
             existing = by_start.get(start)
