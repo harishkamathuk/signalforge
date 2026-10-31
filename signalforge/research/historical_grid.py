@@ -5,9 +5,9 @@ segment's beginning, not at a market open or a UTC-midnight convention.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from collections.abc import Iterator
 
 from signalforge.domain.time import CandleInterval, require_aware, to_utc
 
