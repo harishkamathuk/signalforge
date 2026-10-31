@@ -1,0 +1,116 @@
+name: SF-087 volume semantic probe
+
+on:
+  push:
+    branches:
+      - feat/sf087-delta-btc-history-qualification
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.head_commit.message == 'chore(research): run temporary Delta volume probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install probe dependencies
+        run: python -m pip install --disable-pip-version-check requests websockets
+      - name: Compare one full minute of trades with historical candle volume
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio
+          import hashlib
+          import json
+          import time
+          from decimal import Decimal
+          from datetime import datetime, timezone
+
+          import requests
+          import websockets
+
+          SYMBOL = "BTCUSD"
+          WS_URL = "wss://public-socket.india.delta.exchange"
+          REST_URL = "https://api.india.delta.exchange/v2/history/candles"
+
+          def exact_json(text: str):
+              return json.loads(text, parse_float=Decimal, parse_int=Decimal)
+
+          async def main():
+              now = time.time()
+              target_start = (int(now) // 60 + 1) * 60
+              target_end = target_start + 60
+              sizes = []
+              raw_trade_lines = []
+
+              async with websockets.connect(WS_URL, ping_interval=20, close_timeout=5) as ws:
+                  await ws.send(json.dumps({
+                      "type": "subscribe",
+                      "payload": {
+                          "channels": [{"name": "trades", "symbols": [SYMBOL]}]
+                      },
+                  }))
+                  while time.time() < target_end + 3:
+                      timeout = max(1, target_end + 3 - time.time())
+                      try:
+                          message = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                      except asyncio.TimeoutError:
+                          break
+                      data = exact_json(message)
+                      if not isinstance(data, dict) or data.get("type") != "trades":
+                          continue
+                      if data.get("sy") != SYMBOL:
+                          continue
+                      trade_time = data.get("t")
+                      size = data.get("s")
+                      if trade_time is None or size is None:
+                          continue
+                      trade_us = int(trade_time)
+                      if target_start * 1_000_000 <= trade_us < target_end * 1_000_000:
+                          sizes.append(Decimal(size))
+                          raw_trade_lines.append(message)
+
+              response = requests.get(
+                  REST_URL,
+                  params={
+                      "resolution": "1m",
+                      "symbol": SYMBOL,
+                      "start": target_start,
+                      "end": target_start,
+                  },
+                  headers={"Accept": "application/json"},
+                  timeout=30,
+              )
+              response.raise_for_status()
+              payload = exact_json(response.text)
+              rows = payload.get("result", [])
+              if len(rows) != 1:
+                  raise RuntimeError(f"Expected exactly one candle, got {len(rows)}: {payload}")
+              candle = rows[0]
+              candle_volume = Decimal(candle["volume"])
+              trade_sum = sum(sizes, Decimal(0))
+
+              result = {
+                  "symbol": SYMBOL,
+                  "minute_start_epoch": target_start,
+                  "minute_start_utc": datetime.fromtimestamp(target_start, timezone.utc).isoformat(),
+                  "trade_count": len(sizes),
+                  "trade_size_sum": str(trade_sum),
+                  "candle_volume": str(candle_volume),
+                  "equal": trade_sum == candle_volume,
+                  "trade_messages_sha256": hashlib.sha256(
+                      "\n".join(raw_trade_lines).encode("utf-8")
+                  ).hexdigest(),
+                  "candle_response_sha256": hashlib.sha256(response.content).hexdigest(),
+              }
+              print("SF087_VOLUME_PROBE=" + json.dumps(result, sort_keys=True))
+              if not sizes:
+                  raise RuntimeError("No BTCUSD trades observed in the full minute")
+              if trade_sum != candle_volume:
+                  raise RuntimeError(
+                      f"Trade-size sum {trade_sum} != candle volume {candle_volume}"
+                  )
+
+          asyncio.run(main())
+          PY
