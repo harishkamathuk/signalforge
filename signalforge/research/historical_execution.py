@@ -21,7 +21,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST, CandleInterval, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
