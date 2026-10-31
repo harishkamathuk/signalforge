@@ -375,3 +375,45 @@ def test_capture_bundle_refuses_to_overwrite_existing_evidence(tmp_path) -> None
             repeats=1,
             output_dir=tmp_path,
         )
+
+
+
+def test_canonicalization_refuses_off_tick_prices() -> None:
+    start = datetime(2026, 10, 30, tzinfo=UTC)
+    product = parse_delta_product_response(_product_capture(), expected_symbol="BTCUSD")
+    contract = DeltaTimestampContract(
+        timestamp_unit="seconds",
+        timestamp_label=DeltaTimestampLabel.CANDLE_OPEN,
+        start_inclusive=True,
+        end_inclusive=True,
+    )
+    off_tick = parse_delta_candles_response(
+        _capture(
+            {
+                "success": True,
+                "result": [
+                    {
+                        "time": int(start.timestamp()),
+                        "open": "65000.1",
+                        "high": "65000.6",
+                        "low": "64999.6",
+                        "close": "65000.1",
+                        "volume": "10",
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="tick size"):
+        canonicalize_delta_one_minute(
+            candles=off_tick,
+            product=product,
+            instrument_id=InstrumentId("DELTA:BTCUSD"),
+            requested_start=start,
+            requested_end=start + timedelta(minutes=5),
+            acquired_at=datetime(2026, 10, 31, 12, tzinfo=UTC),
+            timestamp_contract=contract,
+            acquisition_version="sf087-test",
+            canonicalisation_version="delta-traded-v1",
+        )
