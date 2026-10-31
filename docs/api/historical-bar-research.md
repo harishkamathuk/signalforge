@@ -9,7 +9,7 @@ canonical historical 1m bars
         ↓
 validation / immutable dataset identity
         ↓
-deterministic NSE-anchored 1m → 5m aggregation
+deterministic coverage-grid-anchored 1m → 5m aggregation
         ↓
 canonical CompletedCandle
         ↓
@@ -26,7 +26,7 @@ target, fill, or exit chronology.
 
 ::: signalforge.research.historical_bars.HistoricalBar
 
-Canonical source bars are exact one-minute, regular-session observations with strictly
+Canonical source bars are exact one-minute observations with strictly
 positive OHLC, non-negative integral volume, explicit provider timestamp evidence, and
 an explicit canonicalisation version. Stored source observations are `VALID`; missing
 minutes are represented by absence and detected during aggregation rather than by
@@ -34,16 +34,22 @@ fabricated flat rows.
 
 ## Dataset provenance and identity
 
+::: signalforge.research.historical_grid.HistoricalBarGrid
+
+
 ::: signalforge.research.historical_bars.HistoricalDatasetManifest
 
 ::: signalforge.research.historical_bars.HistoricalBarDataset
 
 The dataset identity is derived from semantic canonical content and interpretation
 provenance. Operational acquisition time and local file location are not dataset
-identity. The manifest explicitly declares the expected regular NSE session dates;
-the requested range must span those complete sessions from 09:15 through 15:30 IST.
-This keeps holidays/non-trading dates out of the thin vertical without inferring an
-exchange calendar. Contradictory duplicates fail explicitly. Canonical row/missing counts must reconcile
+identity. Legacy manifests declare explicit NSE regular session dates and keep their
+original semantic identities. New manifests instead declare versioned
+`HistoricalBarGrid` coverage intervals: half-open, aware UTC timestamps with
+exact minute boundaries, non-overlapping ordered segments of complete 5-minute
+length. Each segment anchors its own 5-minute buckets. The requested bounds
+must match coverage endpoints. This is **expected coverage**, not provider
+metadata or an exchange-calendar rule engine. Contradictory duplicates fail explicitly. Canonical row/missing counts must reconcile
 with canonical content. Raw-row, duplicate, and corrupt-rejected counts are retained as
 operational acquisition provenance and do not alter semantic dataset identity.
 
@@ -51,9 +57,12 @@ operational acquisition provenance and do not alter semantic dataset identity.
 
 ::: signalforge.research.historical_bars.aggregate_one_minute_to_five_minute
 
-The aggregator builds the regular NSE 09:15–15:30 five-minute grid for every
-explicitly declared expected session date, including a declared session for which the
-provider returned no rows. It uses half-open intervals. A bucket is:
+The aggregator enumerates the manifest's expected coverage grid, including
+segments with no returned rows. Legacy NSE manifests resolve to the unchanged
+09:15–15:30 IST regular session (375 minutes and 75 five-minute buckets).
+Continuous UTC coverage can span a whole day (1,440/288); a bounded grid
+starting at 00:02 UTC anchors its buckets at 00:02, 00:07, 00:12, rather than
+silently aligning to midnight. It uses half-open intervals. A bucket is:
 
 - `VALID` with all five expected valid one-minute constituents;
 - `INCOMPLETE` with at least one but fewer than five constituents;
