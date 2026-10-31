@@ -16,7 +16,10 @@ from signalforge.research.historical_bars import (
 from signalforge.research.historical_dataset_store import LocalHistoricalDatasetStore
 from signalforge.research.historical_grid import HistoricalBarGrid
 
-_FIXTURE = Path(__file__).resolve().parents[3] / "examples/research/historical-bars-one-session.json"
+_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "examples/research/historical-bars-one-session.json"
+)
 
 
 @pytest.mark.parametrize(
