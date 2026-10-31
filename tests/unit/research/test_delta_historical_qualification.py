@@ -153,10 +153,14 @@ def test_timestamp_contract_translates_half_open_grid_without_session_assumption
 
     inclusive_start, inclusive_end = inclusive.provider_bounds(start, end)
     exclusive_start, exclusive_end = exclusive.provider_bounds(start, end)
+    _, five_minute_end = inclusive.provider_bounds(
+        start, end, interval=timedelta(minutes=5)
+    )
 
     assert inclusive_start == exclusive_start
     assert inclusive_end == int((end - timedelta(minutes=1)).timestamp())
     assert exclusive_end == int(end.timestamp())
+    assert five_minute_end == int((end - timedelta(minutes=5)).timestamp())
 
     with pytest.raises(ValueError, match="candle-open"):
         replace(inclusive, timestamp_label=DeltaTimestampLabel.UNKNOWN).provider_bounds(
@@ -335,13 +339,14 @@ def test_capture_bundle_makes_independent_requests_and_records_hashes(
         )
 
     monkeypatch.setattr(delta_qualification, "acquire_delta_response", fake_acquire)
+    output_dir = tmp_path / "capture"
     manifest = delta_qualification.capture_delta_bundle(
         symbol="BTCUSD",
         resolution="1m",
         start_epoch=1793318400,
         end_epoch=1793319000,
         repeats=2,
-        output_dir=tmp_path,
+        output_dir=output_dir,
     )
 
     assert [call[0] for call in calls] == [
@@ -349,11 +354,24 @@ def test_capture_bundle_makes_independent_requests_and_records_hashes(
         "/v2/history/candles",
         "/v2/history/candles",
     ]
-    assert (tmp_path / "product.json").exists()
-    assert (tmp_path / "candles-1m-1.json").exists()
-    assert (tmp_path / "candles-1m-2.json").exists()
-    assert (tmp_path / "capture-manifest.json").exists()
+    assert (output_dir / "product.json").exists()
+    assert (output_dir / "candles-1m-1.json").exists()
+    assert (output_dir / "candles-1m-2.json").exists()
+    assert (output_dir / "capture-manifest.json").exists()
     candles = manifest["candles"]
     assert isinstance(candles, list)
     assert len(candles) == 2
     assert candles[0]["request_url"] != candles[1]["request_url"]
+
+
+
+def test_capture_bundle_refuses_to_overwrite_existing_evidence(tmp_path) -> None:
+    with pytest.raises(FileExistsError):
+        delta_qualification.capture_delta_bundle(
+            symbol="BTCUSD",
+            resolution="1m",
+            start_epoch=1793318400,
+            end_epoch=1793319000,
+            repeats=1,
+            output_dir=tmp_path,
+        )
