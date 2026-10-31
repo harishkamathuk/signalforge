@@ -1,0 +1,49 @@
+name: SF-087 Delta evidence probe
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  stage-a:
+    if: github.head_ref == 'feat/sf087-delta-btc-history-qualification'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project
+        run: python -m pip install -e .
+
+      - name: Capture Stage A boundary probes
+        run: |
+          mkdir -p /tmp/sf087-stage-a
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 1m --start-epoch 1793318400 --end-epoch 1793319000 \
+            --repeats 1 --output-dir /tmp/sf087-stage-a/full
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 1m --start-epoch 1793318400 --end-epoch 1793318940 \
+            --repeats 1 --output-dir /tmp/sf087-stage-a/end-minus-one
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 1m --start-epoch 1793318460 --end-epoch 1793319000 \
+            --repeats 1 --output-dir /tmp/sf087-stage-a/start-plus-one
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 5m --start-epoch 1793318400 --end-epoch 1793319000 \
+            --repeats 1 --output-dir /tmp/sf087-stage-a/five-minute
+
+      - name: Upload private qualification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sf087-stage-a-${{ github.sha }}
+          path: /tmp/sf087-stage-a
+          if-no-files-found: error
+          retention-days: 7
