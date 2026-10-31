@@ -8,8 +8,8 @@ from decimal import Decimal
 
 import pytest
 
-from signalforge.domain.ids import InstrumentId
 import signalforge.research.delta_historical_qualification as delta_qualification
+from signalforge.domain.ids import InstrumentId
 from signalforge.research.delta_historical_qualification import (
     DeltaRawCapture,
     DeltaTimestampContract,
@@ -305,7 +305,6 @@ def test_canonicalization_refuses_fractional_volume_and_out_of_grid_rows() -> No
             acquisition_version="sf087-test",
             canonicalisation_version="delta-traded-v1",
         )
-
 
 
 def test_capture_bundle_makes_independent_requests_and_records_hashes(
