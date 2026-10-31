@@ -7,12 +7,14 @@ general broker/provider framework.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -463,3 +465,115 @@ def acquire_delta_response(
         content_sha256=hashlib.sha256(content).hexdigest(),
         content=content,
     )
+
+
+
+def capture_delta_bundle(
+    *,
+    symbol: str,
+    resolution: str,
+    start_epoch: int,
+    end_epoch: int,
+    repeats: int,
+    output_dir: Path,
+    api_origin: str = _DELTA_PRODUCTION_ORIGIN,
+) -> dict[str, object]:
+    """Capture uncached provider evidence without canonicalizing or running strategy logic."""
+
+    if not symbol.strip():
+        raise ValueError("Delta capture symbol must not be empty")
+    if resolution not in {"1m", "5m"}:
+        raise ValueError("SF-087 capture resolution must be 1m or 5m")
+    if start_epoch <= 0 or end_epoch <= start_epoch:
+        raise ValueError("Delta capture epoch bounds must be positive and increasing")
+    if repeats <= 0:
+        raise ValueError("Delta capture repeats must be positive")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    product = acquire_delta_response(
+        f"/v2/products/{symbol}",
+        api_origin=api_origin,
+    )
+    product_name = "product.json"
+    (output_dir / product_name).write_bytes(product.content)
+
+    candle_entries: list[dict[str, object]] = []
+    for index in range(repeats):
+        capture = acquire_delta_response(
+            "/v2/history/candles",
+            params={
+                "resolution": resolution,
+                "symbol": symbol,
+                "start": start_epoch,
+                "end": end_epoch,
+            },
+            api_origin=api_origin,
+        )
+        file_name = f"candles-{resolution}-{index + 1}.json"
+        (output_dir / file_name).write_bytes(capture.content)
+        candle_entries.append(
+            {
+                "file": file_name,
+                "request_url": capture.request_url,
+                "acquired_at": capture.acquired_at.isoformat(),
+                "sha256": capture.content_sha256,
+            }
+        )
+
+    manifest: dict[str, object] = {
+        "provider": "delta_exchange_india",
+        "api_origin": api_origin,
+        "symbol": symbol,
+        "resolution": resolution,
+        "start_epoch": start_epoch,
+        "end_epoch": end_epoch,
+        "product": {
+            "file": product_name,
+            "request_url": product.request_url,
+            "acquired_at": product.acquired_at.isoformat(),
+            "sha256": product.content_sha256,
+        },
+        "candles": candle_entries,
+    }
+    manifest_path = output_dir / "capture-manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def _capture_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m signalforge.research.delta_historical_qualification",
+        description="Capture bounded Delta public historical evidence for SF-087.",
+    )
+    parser.add_argument("--symbol", default="BTCUSD")
+    parser.add_argument("--resolution", choices=("1m", "5m"), required=True)
+    parser.add_argument("--start-epoch", type=int, required=True)
+    parser.add_argument("--end-epoch", type=int, required=True)
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--api-origin", default=_DELTA_PRODUCTION_ORIGIN)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the explicit SF-087 raw evidence capture command."""
+
+    args = _capture_parser().parse_args(argv)
+    manifest = capture_delta_bundle(
+        symbol=args.symbol,
+        resolution=args.resolution,
+        start_epoch=args.start_epoch,
+        end_epoch=args.end_epoch,
+        repeats=args.repeats,
+        output_dir=args.output_dir,
+        api_origin=args.api_origin,
+    )
+    print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
