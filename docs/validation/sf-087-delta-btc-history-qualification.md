@@ -222,7 +222,7 @@ research and is not collapsed into historical candle semantics here.
 1. **SOURCE IDENTITY — PASS**
 2. **SOURCE SEMANTICS — PASS**
 3. **CANONICAL REPRESENTABILITY — PASS**
-4. **BOUNDED OFFLINE REUSE — BLOCKED on explicit rights/terms evidence**
+4. **BOUNDED OFFLINE REUSE — PASS for bounded personal/internal academic research use**
 
 Delta's official public `trades` WebSocket documentation labels BTCUSD trade field `s` as
 "size in contracts". A bounded live semantic probe on 2026-10-31 then observed one complete BTCUSD
@@ -243,18 +243,29 @@ instrument necessarily uses the same volume unit. A different product/asset clas
 own source semantics.
 
 Delta's official support/API material expressly presents historical data for quantitative analysis
-and strategy backtesting. The public terms reviewed during SF-087 did not provide sufficiently
-explicit language granting the exact project requirement to retain bounded raw/reference market-data
-responses locally and reuse them later offline through SF-084. SignalForge therefore does not infer
-that permission merely from public API access or backtesting purpose.
+and strategy backtesting. Delta Exchange India's Terms permit use of Exchange content for the user's
+own personal use and apply the stated restrictions expressly to API data; the Terms restrict
+non-personal, public or commercial use without prior written consent. The Terms also contemplate
+information being stored/backed up on a user's own systems.
 
-No redistribution/publication right is claimed. Broad archival rights remain unresolved.
+SignalForge's qualified workflow is deliberately narrower than those restricted uses: bounded
+acquisition through the documented API, protected local retention, offline SF-084 reload and repeated
+personal/internal academic research into strategy provenance. On that stated non-public,
+non-commercial basis, SF-087 treats bounded offline reuse as sufficiently supported.
+
+This qualification does **not** establish redistribution, publication of raw Delta market data,
+resale, third-party data-service use, or broader commercial archival rights. Raw provider OHLCV
+remains outside Git; only sanitized hashes and qualification reports are retained in the repository.
 
 `research_retention_depth = PARTIAL`: bounded one-year and two-year probes succeeded, but a full
 research horizon has not been acquired and continuity across that horizon has not been validated.
 
-Because Gate 4 remains blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest is
-authorized from this result.
+All four SF-087 gates now PASS, so this bounded source contract is **QUALIFIED** for SignalForge's
+personal/internal academic research workflow.
+
+This does not mean the 24-hour qualification sample is a sufficient research dataset. The next
+research step still requires an appropriately sized historical dataset and separately defined BTC
+strategy semantics before any performance backtest.
 
 
 ## Durable evidence identifiers
