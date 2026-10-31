@@ -36,6 +36,17 @@ class CorporateActionPolicy(StrEnum):
     RAW_UNADJUSTED = "raw_unadjusted"
     SPLIT_ADJUSTED = "split_adjusted"
     DIVIDEND_ADJUSTED = "dividend_adjusted"
+    NOT_APPLICABLE = "not_applicable"
+    OTHER = "other"
+    UNKNOWN = "unknown"
+
+
+class HistoricalPriceBasis(StrEnum):
+    """Economic price series represented by one historical dataset."""
+
+    TRADED = "traded"
+    MARK = "mark"
+    INDEX = "index"
     OTHER = "other"
     UNKNOWN = "unknown"
 
@@ -164,6 +175,7 @@ class HistoricalDatasetManifest:
     corporate_action_policy: CorporateActionPolicy
     limitations: tuple[str, ...] = ()
     grid: HistoricalBarGrid | None = None
+    price_basis: HistoricalPriceBasis | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -274,6 +286,8 @@ class HistoricalDatasetManifest:
         }
         if self.grid is not None:
             result["grid"] = self.grid.semantic_mapping()
+        if self.price_basis is not None:
+            result["price_basis"] = self.price_basis.value
         return result
 
 
@@ -651,6 +665,11 @@ def parse_historical_bar_fixture_json(
         ),
         limitations=tuple(_string_list(manifest_raw.get("limitations"), "limitations")),
         grid=_parse_grid(manifest_raw.get("grid")),
+        price_basis=(
+            HistoricalPriceBasis(_string(manifest_raw, "price_basis"))
+            if "price_basis" in manifest_raw
+            else None
+        ),
     )
 
     bars: list[HistoricalBar] = []
