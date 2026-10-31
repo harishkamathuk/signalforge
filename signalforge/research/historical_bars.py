@@ -26,10 +26,8 @@ from signalforge.runtime.strategy import CompletedCandleStrategyContext, Strateg
 
 _ONE_MINUTE = timedelta(minutes=1)
 _FIVE_MINUTES = timedelta(minutes=5)
-_SESSION_OPEN = time(9, 15)
-_SESSION_END = time(15, 30)
-_EXPECTED_ONE_MINUTE_BARS = 375
-_EXPECTED_FIVE_MINUTE_BARS = 75
+_SESSION_OPEN = time(9, 15)  # Legacy NSE fixture coverage only.
+_SESSION_END = time(15, 30)  # Never applied to explicit grids.
 
 
 class CorporateActionPolicy(StrEnum):
