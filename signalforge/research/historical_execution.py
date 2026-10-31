@@ -21,7 +21,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST, CandleInterval, to_ist, to_utc
+from signalforge.domain.time import IST, CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
@@ -984,13 +984,8 @@ def _blocked(
 
 
 def _expected_minute_starts(dataset: HistoricalBarDataset) -> Iterator[datetime]:
-    for session_date in dataset.manifest.expected_session_dates:
-        current = to_utc(datetime.combine(session_date, _SESSION_OPEN, tzinfo=IST))
-        end = to_utc(datetime.combine(session_date, _SESSION_END, tzinfo=IST))
-        while current < end:
-            yield current
-            current += timedelta(minutes=1)
-
+    """Use canonical coverage rather than reconstructing an NSE session."""
+    yield from dataset.manifest.effective_grid.minute_starts()
 
 def _forced_exit_at(at: datetime) -> datetime:
     local = to_ist(at)
