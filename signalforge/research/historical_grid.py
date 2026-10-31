@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterator
+from collections.abc import Iterator
 
 from signalforge.domain.time import CandleInterval, require_aware, to_utc
 
