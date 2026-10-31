@@ -224,7 +224,7 @@ def test_segmented_grid_aggregation_does_not_fill_undeclared_gap():
     ]
     with pytest.raises(ValueError, match="outside declared coverage"):
         HistoricalBarDataset(
-            replace(manifest, returned_start=start + timedelta(minutes=20)),
+            manifest,
             (replace(bar, interval=CandleInterval(
                 start + timedelta(minutes=20), start + timedelta(minutes=21)
             )),),
