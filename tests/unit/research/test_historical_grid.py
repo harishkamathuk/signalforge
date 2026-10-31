@@ -1,6 +1,7 @@
 """Three market-neutral canonical coverage proofs, including store round-trip."""
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -228,3 +229,23 @@ def test_segmented_grid_aggregation_does_not_fill_undeclared_gap():
                 start + timedelta(minutes=20), start + timedelta(minutes=21)
             )),),
         )
+
+
+def test_prechange_legacy_semantic_id_and_immutable_bytes_golden(tmp_path):
+    """Pre-PR develop reference fixture: semantic ID and frozen store bytes."""
+    dataset = load_historical_bar_fixture(_FIXTURE)
+    expected_id = "39e76db3a6ac8bf255561e45833572f44727fced9503cdba7e8fcbbf9192f947"
+    expected_file_digest = (
+        "b389e0145e604a22f2898fcfb04879ff3468495559bff593d5686e89dd81c30b"
+    )
+    assert str(dataset.dataset_id) == expected_id
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    assert str(identity) == expected_id
+    stored = (tmp_path / f"{expected_id}.json").read_bytes()
+    assert hashlib.sha256(stored).hexdigest() == expected_file_digest
+    assert (tmp_path / f"{expected_id}.sha256").read_text() == (
+        expected_file_digest + "\n"
+    )
+    # Offline reload of bytes using the pre-change schema must preserve identity.
+    assert store.load(identity) == dataset
