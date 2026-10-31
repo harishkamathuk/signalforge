@@ -157,6 +157,7 @@ class DeltaCandleSummary:
 
     row_count: int
     strictly_increasing: bool
+    strictly_decreasing: bool
     duplicate_times: tuple[int, ...]
     exact_minute_aligned: bool
     integral_volume: bool
@@ -298,10 +299,17 @@ def summarize_delta_candles(
     duplicates = tuple(sorted({value for value in times if times.count(value) > 1}))
     return DeltaCandleSummary(
         row_count=len(candles),
-        strictly_increasing=all(left < right for left, right in zip(times, times[1:])),
+        strictly_increasing=all(
+            left < right for left, right in zip(times, times[1:], strict=False)
+        ),
+        strictly_decreasing=all(
+            left > right for left, right in zip(times, times[1:], strict=False)
+        ),
         duplicate_times=duplicates,
         exact_minute_aligned=all(candle.time % 60 == 0 for candle in candles),
-        integral_volume=all(candle.volume == candle.volume.to_integral_value() for candle in candles),
+        integral_volume=all(
+            candle.volume == candle.volume.to_integral_value() for candle in candles
+        ),
         tick_aligned_prices=all(
             value % tick_size == 0
             for candle in candles
