@@ -220,20 +220,27 @@ research and is not collapsed into historical candle semantics here.
 ## Current gate status
 
 1. **SOURCE IDENTITY — PASS**
-2. **SOURCE SEMANTICS — BLOCKED on historical candle volume meaning/unit**
-3. **CANONICAL REPRESENTABILITY — BLOCKED while volume semantics remain unknown**
+2. **SOURCE SEMANTICS — PASS**
+3. **CANONICAL REPRESENTABILITY — PASS**
 4. **BOUNDED OFFLINE REUSE — BLOCKED on explicit rights/terms evidence**
 
-Delta's official OHLC documentation exposes a numeric `volume` field, and the bounded Stage B
-sample proved that all observed values were mathematically integral and aggregated exactly from
-1m to 5m. However, the public documentation reviewed for SF-087 does **not** define the economic
-meaning/unit of historical candle `volume`. Product lot size/contract metadata does not prove
-whether the OHLC field represents contracts, lots, BTC, notional or another provider quantity.
+Delta's official public `trades` WebSocket documentation labels BTCUSD trade field `s` as
+"size in contracts". A bounded live semantic probe on 2026-10-31 then observed one complete BTCUSD
+minute, 21:46:00Z to 21:47:00Z:
 
-SF-087 therefore does not treat the diagnostic Stage B mapping as a source-qualified canonical
-dataset. Its SF-084 round-trip remains useful representability evidence, but canonical qualification
-is blocked until the candle-volume semantic is established authoritatively or the issue contract is
-explicitly changed.
+- 26 public trades were observed for the minute;
+- the exact sum of documented trade sizes was `473.0` contracts;
+- the matching historical 1m candle reported `volume = 473.0`;
+- equality was exact.
+
+Combined with the existing Stage B evidence that all historical 1m volumes were mathematically
+integral and that all 288 provider 5m volumes exactly equalled the sum of their constituent 1m
+volumes, this establishes the bounded BTCUSD traded-price historical candle volume semantic as
+**contract quantity**, losslessly representable by canonical integer `HistoricalBar.volume`.
+
+This is a bounded source-contract qualification result, not a claim that every future Delta
+instrument necessarily uses the same volume unit. A different product/asset class must qualify its
+own source semantics.
 
 Delta's official support/API material expressly presents historical data for quantitative analysis
 and strategy backtesting. The public terms reviewed during SF-087 did not provide sufficiently
@@ -246,8 +253,8 @@ No redistribution/publication right is claimed. Broad archival rights remain unr
 `research_retention_depth = PARTIAL`: bounded one-year and two-year probes succeeded, but a full
 research horizon has not been acquired and continuity across that horizon has not been validated.
 
-Because Gates 2, 3 and 4 are blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest
-is authorized from this result.
+Because Gate 4 remains blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest is
+authorized from this result.
 
 
 ## Durable evidence identifiers
@@ -273,6 +280,20 @@ Stage B provider evidence:
   `7f8dd51556757efc1730dcb3a1ff202409e1fca83b8b80cc2e24068569b9870d`
 - matching 5m response SHA-256:
   `1975113b213529ed280309a29edbb32b94247578bc9116bcb1ece256c924ada2`
+
+
+Volume semantic probe:
+- GitHub Actions run: `41245086613`
+- job id: `124666740617`
+- observed UTC minute: `2026-10-31T21:46:00Z`
+- public trade count: `26`
+- exact sum of trade sizes: `473.0` contracts
+- matching historical 1m candle volume: `473.0`
+- exact equality: `true`
+- trade-message evidence SHA-256:
+  `3ecf2ec2290b5d48d002e530c9483188329c52b918ce3bb599ac117e8e55208e`
+- candle-response SHA-256:
+  `50c8017ede3f365cebf76d3349946ae9bf0680c00783d536f652e5edc637248f`
 
 Retention probes:
 - 2025-10-29 1m response SHA-256:
