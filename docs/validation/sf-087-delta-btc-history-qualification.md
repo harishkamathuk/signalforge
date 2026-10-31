@@ -193,14 +193,17 @@ The pre-registered Stage B canonical range was
 - byte-identical independent one-minute acquisitions;
 - 288 / 288 exact provider-5m versus deterministic 5×1m OHLCV matches.
 
-The canonical Stage B dataset was saved and reloaded through SF-084 without provider access:
+A diagnostic Stage B mapping was saved and reloaded through SF-084 without provider access:
 
 - instrument: `DELTA:BTCUSD`;
 - price basis: `traded`;
 - adjustment policy: `not_applicable`;
-- dataset id:
-  `9de91e8e0d19ad555344cda5caec6c262e5e14b3f130bf8fa1493f9bd2f3b93f`;
 - derived five-minute candles after reload: 288.
+
+The earlier diagnostic dataset id
+`9de91e8e0d19ad555344cda5caec6c262e5e14b3f130bf8fa1493f9bd2f3b93f`
+predated binding the interpretation-critical product metadata digest into semantic provenance and is
+therefore **superseded**. It must not be treated as the durable identity of a qualified dataset.
 
 Pre-registered 10-minute one-minute retention probes on 2025-10-29 and 2024-10-29 each returned
 10 rows. This proves bounded availability at those dates, not uninterrupted two-year continuity.
