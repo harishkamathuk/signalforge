@@ -125,6 +125,29 @@ class DeltaProductSnapshot:
         if len(self.raw_sha256) != 64:
             raise ValueError("Delta product snapshot requires a SHA-256 digest")
 
+    @property
+    def semantic_sha256(self) -> str:
+        """Stable digest of the product metadata used to interpret canonical data."""
+
+        payload = {
+            "product_id": self.product_id,
+            "symbol": self.symbol,
+            "contract_type": self.contract_type,
+            "contract_value": str(self.contract_value),
+            "contract_unit_currency": self.contract_unit_currency,
+            "tick_size": str(self.tick_size),
+            "underlying_asset_symbol": self.underlying_asset_symbol,
+            "quoting_asset_symbol": self.quoting_asset_symbol,
+            "settling_asset_symbol": self.settling_asset_symbol,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+        return hashlib.sha256(encoded).hexdigest()
+
 
 @dataclass(frozen=True, slots=True)
 class DeltaCandle:
@@ -453,8 +476,9 @@ def canonicalize_delta_one_minute(
             corrupt_rejected_count=0,
             corporate_action_policy=CorporateActionPolicy.NOT_APPLICABLE,
             limitations=(
-                f"delta_api_origin={product.api_origin}",
-                f"delta_product_id={product.product_id}",
+                f"source_api_origin={product.api_origin}",
+                f"source_product_id={product.product_id}",
+                f"source_instrument_metadata_sha256={product.semantic_sha256}",
             ),
             grid=grid,
             price_basis=HistoricalPriceBasis.TRADED,
