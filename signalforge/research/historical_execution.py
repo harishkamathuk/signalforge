@@ -984,13 +984,8 @@ def _blocked(
 
 
 def _expected_minute_starts(dataset: HistoricalBarDataset) -> Iterator[datetime]:
-    for session_date in dataset.manifest.expected_session_dates:
-        current = to_utc(datetime.combine(session_date, _SESSION_OPEN, tzinfo=IST))
-        end = to_utc(datetime.combine(session_date, _SESSION_END, tzinfo=IST))
-        while current < end:
-            yield current
-            current += timedelta(minutes=1)
-
+    """Use canonical coverage rather than reconstructing an NSE session."""
+    yield from dataset.manifest.effective_grid.minute_starts()
 
 def _forced_exit_at(at: datetime) -> datetime:
     local = to_ist(at)
