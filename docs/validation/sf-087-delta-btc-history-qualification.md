@@ -206,14 +206,31 @@ Pre-registered 10-minute one-minute retention probes on 2025-10-29 and 2024-10-2
 10 rows. This proves bounded availability at those dates, not uninterrupted two-year continuity.
 
 The provider-native product evidence resolved BTCUSD product id 27 as a perpetual future with
-contract value 0.001 BTC, tick size 0.5, underlying BTC, quote USD and settlement USD.
+contract value 0.001 BTC, tick size 0.5, underlying asset BTC, quoting asset USD and
+`settling_asset=USD`.
+
+Do not interpret Delta's API `settling_asset` field as SignalForge's effective/user settlement
+currency. Delta India's current BTCUSD contract specification separately describes
+"Margin & Effective Settlement Currency" as INR. That distinction belongs to later execution/margin
+research and is not collapsed into historical candle semantics here.
 
 ## Current gate status
 
 1. **SOURCE IDENTITY — PASS**
-2. **SOURCE SEMANTICS — PASS for the bounded qualification sample**
-3. **CANONICAL REPRESENTABILITY — PASS**
+2. **SOURCE SEMANTICS — BLOCKED on historical candle volume meaning/unit**
+3. **CANONICAL REPRESENTABILITY — BLOCKED while volume semantics remain unknown**
 4. **BOUNDED OFFLINE REUSE — BLOCKED on explicit rights/terms evidence**
+
+Delta's official OHLC documentation exposes a numeric `volume` field, and the bounded Stage B
+sample proved that all observed values were mathematically integral and aggregated exactly from
+1m to 5m. However, the public documentation reviewed for SF-087 does **not** define the economic
+meaning/unit of historical candle `volume`. Product lot size/contract metadata does not prove
+whether the OHLC field represents contracts, lots, BTC, notional or another provider quantity.
+
+SF-087 therefore does not treat the diagnostic Stage B mapping as a source-qualified canonical
+dataset. Its SF-084 round-trip remains useful representability evidence, but canonical qualification
+is blocked until the candle-volume semantic is established authoritatively or the issue contract is
+explicitly changed.
 
 Delta's official support/API material expressly presents historical data for quantitative analysis
 and strategy backtesting. The public terms reviewed during SF-087 did not provide sufficiently
@@ -226,8 +243,45 @@ No redistribution/publication right is claimed. Broad archival rights remain unr
 `research_retention_depth = PARTIAL`: bounded one-year and two-year probes succeeded, but a full
 research horizon has not been acquired and continuity across that horizon has not been validated.
 
-Because Gate 4 is blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest is
-authorized from this result.
+Because Gates 2, 3 and 4 are blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest
+is authorized from this result.
+
+
+## Durable evidence identifiers
+
+Raw provider OHLCV artifacts remain outside Git pending rights clarification. The following
+non-market-data identifiers are retained durably so the evidence chain does not disappear when
+temporary Actions artifacts expire.
+
+Qualification workflow:
+- GitHub Actions run: `41236336078`
+- artifact id: `13055606961`
+- artifact digest:
+  `sha256:1382ee96d06ef4fbb41f6d9a00acf3dd0edde9b209913835a78efd6d2a6d28ca`
+
+Stage B provider evidence:
+- product metadata raw SHA-256:
+  `20c5934250bedc469f9eb951343e6894223268d0fdedb430210dd80b3a46ae4d`
+- interpreted product metadata semantic SHA-256:
+  `ed75ad70ae87faa95deba5f9c2860067ca63c09f6c4b5d3dc5f7aa6d384b1355`
+- independent 1m response #1 SHA-256:
+  `7f8dd51556757efc1730dcb3a1ff202409e1fca83b8b80cc2e24068569b9870d`
+- independent 1m response #2 SHA-256:
+  `7f8dd51556757efc1730dcb3a1ff202409e1fca83b8b80cc2e24068569b9870d`
+- matching 5m response SHA-256:
+  `1975113b213529ed280309a29edbb32b94247578bc9116bcb1ece256c924ada2`
+
+Retention probes:
+- 2025-10-29 1m response SHA-256:
+  `6d12eaec03c742b2dcefe474c2602530a235c51904c691afacf4529654befdd9`
+- 2024-10-29 1m response SHA-256:
+  `ad879cda37a608cf7f46d64d409d8a7b662687bdf72037bc965f07a38bd274c4`
+
+The provider's raw product-response bytes differed for later retention probes even though the
+interpretation-critical product fields used by SignalForge remained equal. For dataset provenance,
+SignalForge therefore binds the stable semantic digest of those interpretation-critical fields,
+while retaining raw-response hashes separately as acquisition evidence.
+
 
 ## Repository implementation status
 
