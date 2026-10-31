@@ -610,6 +610,11 @@ def parse_historical_bar_fixture_json(
     if not isinstance(bars_raw, list):
         raise ValueError("Historical fixture bars must be a list")
 
+    if "grid" not in manifest_raw and "expected_session_dates" not in manifest_raw:
+        raise ValueError("Legacy historical fixture requires expected_session_dates")
+    if "grid" in manifest_raw and manifest_raw["grid"] is None:
+        raise ValueError("Explicit historical grid must not be null")
+
     instrument_id = InstrumentId(_string(manifest_raw, "instrument_id"))
     manifest = HistoricalDatasetManifest(
         provider=_string(manifest_raw, "provider"),
@@ -629,9 +634,11 @@ def parse_historical_bar_fixture_json(
         ),
         timezone_interpretation=_string(manifest_raw, "timezone_interpretation"),
         canonicalisation_version=_string(manifest_raw, "canonicalisation_version"),
-        expected_session_dates=tuple(
-            _date_list(manifest_raw.get("expected_session_dates"), "expected_session_dates")
-        ) if manifest_raw.get("grid") is None else (),
+        expected_session_dates=(
+            tuple(_date_list(manifest_raw["expected_session_dates"], "expected_session_dates"))
+            if "expected_session_dates" in manifest_raw
+            else ()
+        ),
         raw_row_count=_integer(manifest_raw, "raw_row_count"),
         canonical_row_count=_integer(manifest_raw, "canonical_row_count"),
         missing_interval_count=_integer(manifest_raw, "missing_interval_count"),
