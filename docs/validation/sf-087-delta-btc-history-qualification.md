@@ -170,11 +170,68 @@ Only four PASS results permit **QUALIFIED**.
 Report historical retention separately as `PROVEN`, `PARTIAL` or `UNKNOWN`. A successful
 24-hour qualification sample is not by itself a research-period dataset.
 
-## Current repository status
+## Qualification evidence observed on 2026-10-31
 
-The repository implementation provides deterministic parsing, source-shape inspection,
-timestamp-bound translation, exact 1m→5m comparison, canonical mapping and raw-evidence capture.
+Stage A used a pre-registered bounded probe around 2026-10-30 00:00 UTC. The observed REST contract
+was:
 
-The real-provider SF-087 gates remain unproven until Stage A and Stage B are executed against the
-public Delta endpoint and the bounded-use/retention evidence is recorded. CI intentionally remains
-offline and does not convert synthetic tests into provider qualification evidence.
+- returned `time` values are Unix seconds aligned to exact minute boundaries;
+- returned rows are ordered newest-first;
+- both `start` and `end` request bounds were inclusive in the bounded probe;
+- matching provider 5m rows exactly equalled deterministic 5×1m OHLCV aggregation for complete
+  probe buckets, supporting a candle-open interpretation of `time`.
+
+The pre-registered Stage B canonical range was
+`[2026-10-29T00:00:00Z, 2026-10-30T00:00:00Z)`. It produced:
+
+- 1,440 / 1,440 expected one-minute observations;
+- 288 / 288 expected five-minute observations;
+- no duplicate or missing expected timestamps;
+- exact minute alignment;
+- provider-tick alignment for all observed OHLC values;
+- mathematically integral volume for all observed rows;
+- byte-identical independent one-minute acquisitions;
+- 288 / 288 exact provider-5m versus deterministic 5×1m OHLCV matches.
+
+The canonical Stage B dataset was saved and reloaded through SF-084 without provider access:
+
+- instrument: `DELTA:BTCUSD`;
+- price basis: `traded`;
+- adjustment policy: `not_applicable`;
+- dataset id:
+  `9de91e8e0d19ad555344cda5caec6c262e5e14b3f130bf8fa1493f9bd2f3b93f`;
+- derived five-minute candles after reload: 288.
+
+Pre-registered 10-minute one-minute retention probes on 2025-10-29 and 2024-10-29 each returned
+10 rows. This proves bounded availability at those dates, not uninterrupted two-year continuity.
+
+The provider-native product evidence resolved BTCUSD product id 27 as a perpetual future with
+contract value 0.001 BTC, tick size 0.5, underlying BTC, quote USD and settlement USD.
+
+## Current gate status
+
+1. **SOURCE IDENTITY — PASS**
+2. **SOURCE SEMANTICS — PASS for the bounded qualification sample**
+3. **CANONICAL REPRESENTABILITY — PASS**
+4. **BOUNDED OFFLINE REUSE — BLOCKED on explicit rights/terms evidence**
+
+Delta's official support/API material expressly presents historical data for quantitative analysis
+and strategy backtesting. The public terms reviewed during SF-087 did not provide sufficiently
+explicit language granting the exact project requirement to retain bounded raw/reference market-data
+responses locally and reuse them later offline through SF-084. SignalForge therefore does not infer
+that permission merely from public API access or backtesting purpose.
+
+No redistribution/publication right is claimed. Broad archival rights remain unresolved.
+
+`research_retention_depth = PARTIAL`: bounded one-year and two-year probes succeeded, but a full
+research horizon has not been acquired and continuity across that horizon has not been validated.
+
+Because Gate 4 is blocked, SF-087 is **BLOCKED, not QUALIFIED**. No performance backtest is
+authorized from this result.
+
+## Repository implementation status
+
+The implementation provides deterministic exact-numeric parsing, source-shape inspection,
+timestamp-bound translation, exact 1m→5m comparison, canonical mapping and write-once raw-evidence
+capture. Normal repository CI remains offline. The temporary provider-evidence workflow used to
+obtain the bounded evidence is not part of the intended permanent CI surface.
