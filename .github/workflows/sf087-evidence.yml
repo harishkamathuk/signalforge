@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  stage-a:
+  stage-b:
     if: github.head_ref == 'feat/sf087-delta-btc-history-qualification'
     runs-on: ubuntu-latest
     steps:
@@ -24,26 +24,23 @@ jobs:
       - name: Install project
         run: python -m pip install -e .
 
-      - name: Capture Stage A boundary probes
+      - name: Capture Stage B one-minute evidence twice
         run: |
-          mkdir -p /tmp/sf087-stage-a
+          mkdir -p /tmp/sf087-stage-b
           python -m signalforge.research.delta_historical_qualification \
-            --resolution 1m --start-epoch 1793318400 --end-epoch 1793319000 \
-            --repeats 1 --output-dir /tmp/sf087-stage-a/full
+            --resolution 1m --start-epoch 1793232000 --end-epoch 1793318340 \
+            --repeats 2 --output-dir /tmp/sf087-stage-b/one-minute
+
+      - name: Capture Stage B matching five-minute evidence
+        run: |
           python -m signalforge.research.delta_historical_qualification \
-            --resolution 1m --start-epoch 1793318400 --end-epoch 1793318940 \
-            --repeats 1 --output-dir /tmp/sf087-stage-a/end-minus-one
-          python -m signalforge.research.delta_historical_qualification \
-            --resolution 1m --start-epoch 1793318460 --end-epoch 1793319000 \
-            --repeats 1 --output-dir /tmp/sf087-stage-a/start-plus-one
-          python -m signalforge.research.delta_historical_qualification \
-            --resolution 5m --start-epoch 1793318400 --end-epoch 1793319000 \
-            --repeats 1 --output-dir /tmp/sf087-stage-a/five-minute
+            --resolution 5m --start-epoch 1793232000 --end-epoch 1793318100 \
+            --repeats 1 --output-dir /tmp/sf087-stage-b/five-minute
 
       - name: Upload private qualification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: sf087-stage-a-${{ github.sha }}
-          path: /tmp/sf087-stage-a
+          name: sf087-stage-b-${{ github.sha }}
+          path: /tmp/sf087-stage-b
           if-no-files-found: error
           retention-days: 7
