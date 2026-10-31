@@ -37,6 +37,7 @@ def _payload(dataset: HistoricalBarDataset) -> bytes:
     manifest = {
         field.name: _serialize(getattr(dataset.manifest, field.name))
         for field in fields(dataset.manifest)
+        if field.name != "grid"
     }
     if dataset.manifest.grid is not None:
         manifest["grid"] = dataset.manifest.grid.semantic_mapping()
