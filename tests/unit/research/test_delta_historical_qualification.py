@@ -85,6 +85,7 @@ def test_product_snapshot_is_exact_provider_native_identity() -> None:
     assert product.quoting_asset_symbol == "USD"
     assert product.settling_asset_symbol == "USD"
     assert product.raw_sha256 == capture.content_sha256
+    assert len(product.semantic_sha256) == 64
 
     with pytest.raises(ValueError, match="contradicts requested symbol"):
         parse_delta_product_response(capture, expected_symbol="ETHUSD")
@@ -252,6 +253,20 @@ def test_canonical_delta_dataset_has_explicit_price_basis_and_offline_round_trip
     )
     changed_dataset = replace(dataset, manifest=changed_basis)
     assert changed_dataset.dataset_id != dataset.dataset_id
+
+    changed_product = replace(product, tick_size=Decimal("1.0"))
+    changed_product_dataset = canonicalize_delta_one_minute(
+        candles=candles,
+        product=changed_product,
+        instrument_id=InstrumentId("DELTA:BTCUSD"),
+        requested_start=start,
+        requested_end=start + timedelta(minutes=5),
+        acquired_at=datetime(2026, 10, 31, 12, tzinfo=UTC),
+        timestamp_contract=contract,
+        acquisition_version="sf087-test",
+        canonicalisation_version="delta-traded-v1",
+    )
+    assert changed_product_dataset.dataset_id != dataset.dataset_id
 
 
 def test_canonicalization_refuses_fractional_volume_and_out_of_grid_rows() -> None:
