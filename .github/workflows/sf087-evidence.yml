@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  stage-b:
+  qualification-evidence:
     if: github.head_ref == 'feat/sf087-delta-btc-history-qualification'
     runs-on: ubuntu-latest
     steps:
@@ -24,23 +24,196 @@ jobs:
       - name: Install project
         run: python -m pip install -e .
 
-      - name: Capture Stage B one-minute evidence twice
+      - name: Capture pre-registered Stage B evidence
         run: |
           mkdir -p /tmp/sf087-stage-b
           python -m signalforge.research.delta_historical_qualification \
             --resolution 1m --start-epoch 1793232000 --end-epoch 1793318340 \
             --repeats 2 --output-dir /tmp/sf087-stage-b/one-minute
-
-      - name: Capture Stage B matching five-minute evidence
-        run: |
           python -m signalforge.research.delta_historical_qualification \
             --resolution 5m --start-epoch 1793232000 --end-epoch 1793318100 \
             --repeats 1 --output-dir /tmp/sf087-stage-b/five-minute
 
+      - name: Capture pre-registered retention probes
+        run: |
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 1m --start-epoch 1761696000 --end-epoch 1761696540 \
+            --repeats 1 --output-dir /tmp/sf087-stage-b/retention-1y
+          python -m signalforge.research.delta_historical_qualification \
+            --resolution 1m --start-epoch 1730160000 --end-epoch 1730160540 \
+            --repeats 1 --output-dir /tmp/sf087-stage-b/retention-2y
+
+      - name: Validate canonical Stage B and offline SF-084 reuse
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          from signalforge.domain.ids import InstrumentId
+          from signalforge.research.delta_historical_qualification import (
+              DeltaRawCapture,
+              DeltaTimestampContract,
+              DeltaTimestampLabel,
+              canonicalize_delta_one_minute,
+              compare_delta_five_minute_candles,
+              parse_delta_candles_response,
+              parse_delta_product_response,
+              summarize_delta_candles,
+          )
+          from signalforge.research.historical_bars import (
+              CorporateActionPolicy,
+              HistoricalPriceBasis,
+              aggregate_one_minute_to_five_minute,
+          )
+          from signalforge.research.historical_dataset_store import LocalHistoricalDatasetStore
+
+          root = Path("/tmp/sf087-stage-b")
+
+          def capture(path: Path, request_url: str, acquired_at: str) -> DeltaRawCapture:
+              content = path.read_bytes()
+              return DeltaRawCapture(
+                  request_url=request_url,
+                  acquired_at=datetime.fromisoformat(acquired_at),
+                  content_sha256=hashlib.sha256(content).hexdigest(),
+                  content=content,
+              )
+
+          one_manifest = json.loads((root / "one-minute/capture-manifest.json").read_text())
+          five_manifest = json.loads((root / "five-minute/capture-manifest.json").read_text())
+
+          product_meta = one_manifest["product"]
+          product = parse_delta_product_response(
+              capture(
+                  root / "one-minute" / product_meta["file"],
+                  product_meta["request_url"],
+                  product_meta["acquired_at"],
+              ),
+              expected_symbol="BTCUSD",
+          )
+
+          one_captures = []
+          for item in one_manifest["candles"]:
+              one_captures.append(
+                  capture(
+                      root / "one-minute" / item["file"],
+                      item["request_url"],
+                      item["acquired_at"],
+                  )
+              )
+          one_first = parse_delta_candles_response(one_captures[0])
+          one_second = parse_delta_candles_response(one_captures[1])
+          if one_first != one_second:
+              raise AssertionError("independent Stage B 1m responses differ")
+
+          five_meta = five_manifest["candles"][0]
+          five = parse_delta_candles_response(
+              capture(
+                  root / "five-minute" / five_meta["file"],
+                  five_meta["request_url"],
+                  five_meta["acquired_at"],
+              )
+          )
+
+          one_summary = summarize_delta_candles(one_first, tick_size=product.tick_size)
+          five_summary = summarize_delta_candles(five, tick_size=product.tick_size)
+          comparison = compare_delta_five_minute_candles(one_first, five)
+
+          if one_summary.row_count != 1440:
+              raise AssertionError("Stage B 1m row count is not 1440")
+          if five_summary.row_count != 288:
+              raise AssertionError("Stage B 5m row count is not 288")
+          if one_summary.duplicate_times or five_summary.duplicate_times:
+              raise AssertionError("Stage B contains duplicate candle timestamps")
+          if not one_summary.exact_minute_aligned or not five_summary.exact_minute_aligned:
+              raise AssertionError("Stage B timestamps are not aligned")
+          if not one_summary.integral_volume or not five_summary.integral_volume:
+              raise AssertionError("Stage B volume is not losslessly integral")
+          if not one_summary.tick_aligned_prices or not five_summary.tick_aligned_prices:
+              raise AssertionError("Stage B prices violate provider tick size")
+          if comparison.compared_buckets != 288 or comparison.mismatches:
+              raise AssertionError("Stage B 1m->5m exact comparison failed")
+
+          contract = DeltaTimestampContract(
+              timestamp_unit="seconds",
+              timestamp_label=DeltaTimestampLabel.CANDLE_OPEN,
+              start_inclusive=True,
+              end_inclusive=True,
+          )
+          dataset = canonicalize_delta_one_minute(
+              candles=one_first,
+              product=product,
+              instrument_id=InstrumentId("DELTA:BTCUSD"),
+              requested_start=datetime(2026, 10, 29, tzinfo=UTC),
+              requested_end=datetime(2026, 10, 30, tzinfo=UTC),
+              acquired_at=one_captures[0].acquired_at,
+              timestamp_contract=contract,
+              acquisition_version="sf087-pr224-v1",
+              canonicalisation_version="delta-traded-v1",
+          )
+          store = LocalHistoricalDatasetStore(root / "canonical-store")
+          dataset_id = store.save(dataset)
+          reloaded = store.load(dataset_id)
+          if reloaded != dataset:
+              raise AssertionError("SF-084 offline reload differs from canonical Stage B")
+          derived = aggregate_one_minute_to_five_minute(reloaded)
+          if len(derived) != 288:
+              raise AssertionError("canonical Stage B did not derive 288 5m candles")
+
+          retention = {}
+          for label in ("retention-1y", "retention-2y"):
+              manifest = json.loads((root / label / "capture-manifest.json").read_text())
+              item = manifest["candles"][0]
+              rows = parse_delta_candles_response(
+                  capture(
+                      root / label / item["file"],
+                      item["request_url"],
+                      item["acquired_at"],
+                  )
+              )
+              retention[label] = len(rows)
+
+          report = {
+              "dataset_id": str(dataset_id),
+              "instrument_id": str(dataset.manifest.instrument_id),
+              "price_basis": dataset.manifest.price_basis.value,
+              "corporate_action_policy": dataset.manifest.corporate_action_policy.value,
+              "one_minute_rows": one_summary.row_count,
+              "one_minute_descending": one_summary.strictly_decreasing,
+              "one_minute_integral_volume": one_summary.integral_volume,
+              "one_minute_tick_aligned": one_summary.tick_aligned_prices,
+              "five_minute_rows": five_summary.row_count,
+              "five_minute_descending": five_summary.strictly_decreasing,
+              "five_minute_compared": comparison.compared_buckets,
+              "five_minute_mismatches": len(comparison.mismatches),
+              "derived_five_minute_candles": len(derived),
+              "independent_1m_sha256_equal": (
+                  one_captures[0].content_sha256 == one_captures[1].content_sha256
+              ),
+              "retention_rows": retention,
+              "product": {
+                  "id": product.product_id,
+                  "symbol": product.symbol,
+                  "contract_type": product.contract_type,
+                  "contract_value": str(product.contract_value),
+                  "contract_unit_currency": product.contract_unit_currency,
+                  "tick_size": str(product.tick_size),
+                  "underlying": product.underlying_asset_symbol,
+                  "quote": product.quoting_asset_symbol,
+                  "settlement": product.settling_asset_symbol,
+              },
+          }
+          (root / "qualification-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\n"
+          )
+          print(json.dumps(report, sort_keys=True))
+          PY
+
       - name: Upload private qualification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: sf087-stage-b-${{ github.sha }}
+          name: sf087-qualified-evidence-${{ github.sha }}
           path: /tmp/sf087-stage-b
           if-no-files-found: error
           retention-days: 7
