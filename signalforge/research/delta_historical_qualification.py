@@ -292,6 +292,8 @@ def summarize_delta_candles(
 ) -> DeltaCandleSummary:
     """Return mechanical quality evidence without inventing missing observations."""
 
+    if tick_size <= 0:
+        raise ValueError("Delta tick_size must be positive")
     times = [candle.time for candle in candles]
     duplicates = tuple(sorted({value for value in times if times.count(value) > 1}))
     return DeltaCandleSummary(
@@ -465,7 +467,6 @@ def acquire_delta_response(
         content_sha256=hashlib.sha256(content).hexdigest(),
         content=content,
     )
-
 
 
 def capture_delta_bundle(
