@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 
 from signalforge.domain.ids import InstrumentId
+import signalforge.research.delta_historical_qualification as delta_qualification
 from signalforge.research.delta_historical_qualification import (
     DeltaRawCapture,
     DeltaTimestampContract,
@@ -304,3 +305,56 @@ def test_canonicalization_refuses_fractional_volume_and_out_of_grid_rows() -> No
             acquisition_version="sf087-test",
             canonicalisation_version="delta-traded-v1",
         )
+
+
+
+def test_capture_bundle_makes_independent_requests_and_records_hashes(
+    tmp_path, monkeypatch
+) -> None:
+    calls: list[tuple[str, dict[str, str | int] | None]] = []
+
+    def fake_acquire(
+        path: str,
+        *,
+        params: dict[str, str | int] | None = None,
+        api_origin: str,
+        timeout_seconds: float = 30.0,
+    ) -> DeltaRawCapture:
+        del timeout_seconds
+        calls.append((path, params))
+        suffix = len(calls)
+        payload = (
+            _product_capture().content
+            if path.startswith("/v2/products/")
+            else _capture(_candles_payload(1793318400, 1)).content
+        )
+        return DeltaRawCapture(
+            request_url=f"{api_origin}{path}?call={suffix}",
+            acquired_at=datetime(2026, 10, 31, 12, suffix, tzinfo=UTC),
+            content_sha256=hashlib.sha256(payload).hexdigest(),
+            content=payload,
+        )
+
+    monkeypatch.setattr(delta_qualification, "acquire_delta_response", fake_acquire)
+    manifest = delta_qualification.capture_delta_bundle(
+        symbol="BTCUSD",
+        resolution="1m",
+        start_epoch=1793318400,
+        end_epoch=1793319000,
+        repeats=2,
+        output_dir=tmp_path,
+    )
+
+    assert [call[0] for call in calls] == [
+        "/v2/products/BTCUSD",
+        "/v2/history/candles",
+        "/v2/history/candles",
+    ]
+    assert (tmp_path / "product.json").exists()
+    assert (tmp_path / "candles-1m-1.json").exists()
+    assert (tmp_path / "candles-1m-2.json").exists()
+    assert (tmp_path / "capture-manifest.json").exists()
+    candles = manifest["candles"]
+    assert isinstance(candles, list)
+    assert len(candles) == 2
+    assert candles[0]["request_url"] != candles[1]["request_url"]
