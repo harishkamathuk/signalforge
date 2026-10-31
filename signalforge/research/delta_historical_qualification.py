@@ -399,6 +399,11 @@ def canonicalize_delta_one_minute(
             raise ValueError("Delta candle does not align to an exact UTC minute")
         if candle.volume != candle.volume.to_integral_value():
             raise ValueError("Delta volume is not losslessly representable as integer volume")
+        if any(
+            value % product.tick_size
+            for value in (candle.open, candle.high, candle.low, candle.close)
+        ):
+            raise ValueError("Delta price is not aligned to provider product tick size")
 
     grid = HistoricalBarGrid(
         grid_id="continuous-explicit-utc",
