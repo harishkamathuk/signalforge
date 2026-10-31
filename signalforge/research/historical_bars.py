@@ -20,6 +20,7 @@ from signalforge.domain.ids import DatasetId, InstrumentId
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.time import IST, CandleInterval, require_aware, to_ist, to_utc
+from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
 from signalforge.runtime.strategy import CompletedCandleStrategyContext, StrategyDecision
 
@@ -62,18 +63,12 @@ class HistoricalBar:
     def __post_init__(self) -> None:
         if self.interval.end - self.interval.start != _ONE_MINUTE:
             raise ValueError("HistoricalBar interval must be exactly one minute")
-        start_ist = to_ist(self.interval.start)
-        end_ist = to_ist(self.interval.end)
-        if start_ist.second or start_ist.microsecond:
+        start_utc = to_utc(self.interval.start)
+        end_utc = to_utc(self.interval.end)
+        if start_utc.second or start_utc.microsecond:
             raise ValueError("HistoricalBar start must align to an exact minute")
-        if end_ist.second or end_ist.microsecond:
+        if end_utc.second or end_utc.microsecond:
             raise ValueError("HistoricalBar end must align to an exact minute")
-        local_start = start_ist.time().replace(tzinfo=None)
-        local_end = end_ist.time().replace(tzinfo=None)
-        if not (_SESSION_OPEN <= local_start < _SESSION_END):
-            raise ValueError("HistoricalBar must start within the regular NSE session")
-        if not (time(9, 16) <= local_end <= _SESSION_END):
-            raise ValueError("HistoricalBar must end within the regular NSE session")
         if self.quality is not CandleQuality.VALID:
             raise ValueError("Canonical source HistoricalBar quality must be VALID")
         if not self.source_provider.strip():
@@ -170,6 +165,7 @@ class HistoricalDatasetManifest:
     corrupt_rejected_count: int
     corporate_action_policy: CorporateActionPolicy
     limitations: tuple[str, ...] = ()
+    grid: HistoricalBarGrid | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -195,23 +191,17 @@ class HistoricalDatasetManifest:
             require_aware(getattr(self, name))
         if self.requested_end <= self.requested_start:
             raise ValueError("Historical dataset requested range must be increasing")
-        if not self.expected_session_dates:
-            raise ValueError("Historical dataset requires at least one expected session date")
         if self.expected_session_dates != tuple(sorted(set(self.expected_session_dates))):
             raise ValueError("Historical expected session dates must be unique and ordered")
-        requested_start_ist = to_ist(self.requested_start)
-        requested_end_ist = to_ist(self.requested_end)
-        first_session = self.expected_session_dates[0]
-        last_session = self.expected_session_dates[-1]
-        expected_request_start = datetime.combine(first_session, _SESSION_OPEN, tzinfo=IST)
-        expected_request_end = datetime.combine(last_session, _SESSION_END, tzinfo=IST)
-        if (
-            requested_start_ist != expected_request_start
-            or requested_end_ist != expected_request_end
+        if self.grid is None and not self.expected_session_dates:
+            raise ValueError("Legacy historical dataset requires expected session dates")
+        grid = self.effective_grid
+        if to_utc(self.requested_start) != grid.coverage[0].start or (
+            to_utc(self.requested_end) != grid.coverage[-1].end
         ):
-            raise ValueError(
-                "DATA-004 requested range must span complete declared regular NSE sessions"
-            )
+            raise ValueError("Historical requested range must match grid coverage bounds")
+        if self.grid is not None and self.expected_session_dates:
+            raise ValueError("Explicit historical grid must not also declare NSE sessions")
         if self.returned_end <= self.returned_start:
             raise ValueError("Historical dataset returned range must be increasing")
         if (
@@ -237,10 +227,27 @@ class HistoricalDatasetManifest:
         for name in timestamp_fields:
             object.__setattr__(self, name, to_utc(getattr(self, name)))
 
+    @property
+    def effective_grid(self) -> HistoricalBarGrid:
+        """Resolve legacy NSE coverage without changing existing dataset identities."""
+        if self.grid is not None:
+            return self.grid
+        return HistoricalBarGrid(
+            grid_id="nse-regular-session",
+            version="legacy-v1",
+            coverage=tuple(
+                CandleInterval(
+                    datetime.combine(day, _SESSION_OPEN, tzinfo=IST),
+                    datetime.combine(day, _SESSION_END, tzinfo=IST),
+                )
+                for day in self.expected_session_dates
+            ),
+        )
+
     def semantic_mapping(self) -> dict[str, object]:
         """Return interpretation provenance excluding operational acquisition time."""
 
-        return {
+        result = {
             "provider": self.provider,
             "acquisition_adapter": self.acquisition_adapter,
             "acquisition_version": self.acquisition_version,
@@ -263,6 +270,9 @@ class HistoricalDatasetManifest:
             "corporate_action_policy": self.corporate_action_policy.value,
             "limitations": list(self.limitations),
         }
+        if self.grid is not None:
+            result["grid"] = self.grid.semantic_mapping()
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,9 +297,8 @@ class HistoricalBarDataset:
                 raise ValueError("Historical bar provider contradicts dataset manifest")
             if bar.canonicalisation_version != self.manifest.canonicalisation_version:
                 raise ValueError("Historical bar canonicalisation version contradicts manifest")
-            session_date = to_ist(bar.interval.start).date()
-            if session_date not in self.manifest.expected_session_dates:
-                raise ValueError("Historical bar session date is not declared by dataset manifest")
+            if not self.manifest.effective_grid.contains_minute(bar.interval.start):
+                raise ValueError("Historical bar interval is outside declared coverage grid")
             start = bar.interval.start
             existing = by_start.get(start)
             if existing is not None:
@@ -314,10 +323,7 @@ class HistoricalBarDataset:
         )
         if self.manifest.raw_row_count != expected_raw_rows:
             raise ValueError("Historical raw row count contradicts canonical dataset content")
-        expected_missing = (
-            len(self.manifest.expected_session_dates) * _EXPECTED_ONE_MINUTE_BARS
-            - len(canonical)
-        )
+        expected_missing = self.manifest.effective_grid.expected_minute_count - len(canonical)
         if self.manifest.missing_interval_count != expected_missing:
             raise ValueError("Historical missing interval count contradicts expected session grid")
         first = canonical[0].interval.start
@@ -441,26 +447,20 @@ class HistoricalBarResearchResult:
 def aggregate_one_minute_to_five_minute(
     dataset: HistoricalBarDataset,
 ) -> tuple[CompletedCandle, ...]:
-    """Derive the complete canonical NSE five-minute grid for covered sessions."""
+    """Derive complete five-minute buckets from the declared coverage grid."""
 
     by_start = {bar.interval.start: bar for bar in dataset.bars}
     output: list[CompletedCandle] = []
 
-    for session_date in dataset.manifest.expected_session_dates:
-        session_start = datetime.combine(session_date, _SESSION_OPEN, tzinfo=IST)
-        for index in range(_EXPECTED_FIVE_MINUTE_BARS):
-            bucket_start_ist = session_start + index * _FIVE_MINUTES
-            bucket_start = to_utc(bucket_start_ist)
+    for interval in dataset.manifest.effective_grid.five_minute_intervals():
+            bucket_start = interval.start
             expected_starts = tuple(
                 bucket_start + minute * _ONE_MINUTE for minute in range(5)
             )
             constituents = tuple(
                 by_start[start] for start in expected_starts if start in by_start
             )
-            interval = CandleInterval(
-                start=bucket_start,
-                end=bucket_start + _FIVE_MINUTES,
-            )
+            interval = CandleInterval(start=bucket_start, end=bucket_start + _FIVE_MINUTES)
             if not constituents:
                 output.append(
                     CompletedCandle(
@@ -625,7 +625,7 @@ def parse_historical_bar_fixture_json(
         canonicalisation_version=_string(manifest_raw, "canonicalisation_version"),
         expected_session_dates=tuple(
             _date_list(manifest_raw.get("expected_session_dates"), "expected_session_dates")
-        ),
+        ) if manifest_raw.get("grid") is None else (),
         raw_row_count=_integer(manifest_raw, "raw_row_count"),
         canonical_row_count=_integer(manifest_raw, "canonical_row_count"),
         missing_interval_count=_integer(manifest_raw, "missing_interval_count"),
@@ -637,6 +637,7 @@ def parse_historical_bar_fixture_json(
             _string(manifest_raw, "corporate_action_policy")
         ),
         limitations=tuple(_string_list(manifest_raw.get("limitations"), "limitations")),
+        grid=_parse_grid(manifest_raw.get("grid")),
     )
 
     bars: list[HistoricalBar] = []
@@ -737,3 +738,25 @@ def _date_list(value: object, field: str) -> list[date]:
             raise ValueError(f"Historical fixture {field} must be a list of ISO dates")
         items.append(date.fromisoformat(item))
     return items
+
+
+def _parse_grid(value: object) -> HistoricalBarGrid | None:
+    """Parse optional explicit coverage while retaining legacy fixture compatibility."""
+    if value is None:
+        return None
+    raw = _mapping(value, "grid")
+    coverage_raw = raw.get("coverage")
+    if not isinstance(coverage_raw, list):
+        raise ValueError("Historical grid coverage must be an array")
+    coverage = tuple(
+        CandleInterval(
+            start=_datetime(_mapping(item, "grid.coverage"), "start"),
+            end=_datetime(_mapping(item, "grid.coverage"), "end"),
+        )
+        for item in coverage_raw
+    )
+    return HistoricalBarGrid(
+        grid_id=_string(raw, "grid_id"),
+        version=_string(raw, "version"),
+        coverage=coverage,
+    )
