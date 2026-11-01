@@ -301,3 +301,99 @@ def test_offline_verification_is_only_ready_promotion_path(tmp_path, monkeypatch
     assert report["offline_verification_required"] is False
     assert (evidence_dir / "sf088-offline-verification.json").exists()
     assert (evidence_dir / "sf088-final-report.json").exists()
+
+
+def test_evidence_only_captures_missing_metadata_without_canonical_store(
+    tmp_path, monkeypatch
+) -> None:
+    """Historical metadata absence must not block protected raw capture."""
+    start = acquisition.SF088_START
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=2))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 2)
+    monkeypatch.setattr(acquisition, "SF088_CHUNK_MINUTES", 1)
+
+    requests: list[str] = []
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        requests.append(path)
+        if path.endswith("/BTCUSD"):
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27,
+                    "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                    "underlying_asset": {"symbol": "BTC"},
+                    "quoting_asset": {"symbol": "USD"},
+                    "settling_asset": {"symbol": "USD"},
+                },
+            }
+        else:
+            assert params is not None
+            body = {
+                "success": True,
+                "result": [{
+                    "time": int(params["start"]),
+                    "open": "65000.1",
+                    "high": "65000.1",
+                    "low": "65000.1",
+                    "close": "65000.1",
+                    "volume": "1",
+                }],
+            }
+        raw = json.dumps(body, separators=(",", ":")).encode()
+        return DeltaRawCapture(
+            request_url=f"https://api.india.delta.exchange{path}",
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    evidence = tmp_path / "evidence"
+    report = acquisition.acquire_sf088_evidence_only(evidence_dir=evidence)
+    assert report["disposition"] == "UNQUALIFIED_SOURCE_EVIDENCE"
+    assert report["historical_metadata_applicability"] == "UNRESOLVED"
+    assert report["missing_product_metadata_fields"] == [
+        "created_at", "updated_at"
+    ]
+    assert report["canonical_dataset_published"] is False
+    assert len(requests) == 6
+    assert (evidence / "evidence-only" / "pass-1" / "chunk-000000.json").exists()
+    assert not (evidence / "sf088-finalization-report.json").exists()
+
+    requests.clear()
+    assert acquisition.acquire_sf088_evidence_only(evidence_dir=evidence) == report
+    assert requests == []
+
+    with pytest.raises(ValueError, match="created_at/updated_at"):
+        acquisition.acquire_sf088_pass(
+            output_dir=tmp_path / "strict",
+            pass_name="pass-1",
+            chunk_plan=acquisition.build_sf088_chunk_plan(),
+        )
+
+
+def test_evidence_only_detects_raw_tampering_without_network(tmp_path, monkeypatch) -> None:
+    """A raw/meta pair mismatch must fail closed before attempting acquisition."""
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+    # A partially written product pair is never repaired or overwritten.
+    output = tmp_path / "evidence"
+    path = output / "pass-1"
+    path.mkdir(parents=True)
+    (path / "product.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete existing SF-088 product evidence"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
