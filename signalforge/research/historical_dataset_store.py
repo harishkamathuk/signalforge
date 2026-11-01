@@ -22,6 +22,7 @@ from signalforge.domain.ids import DatasetId
 from signalforge.research.historical_bars import (
     HistoricalBarDataset,
     parse_historical_bar_fixture_json,
+    parse_historical_bar_storage_payload,
 )
 
 _PARQUET_MIN_ROWS = 100_000
@@ -313,14 +314,8 @@ class LocalHistoricalDatasetStore:
             if not isinstance(manifest, dict):
                 raise HistoricalDatasetStoreError("stored historical manifest must be an object")
             rows = self._rows_from_parquet(table)
-            combined = json.dumps(
+            dataset = parse_historical_bar_storage_payload(
                 {"manifest": manifest, "bars": rows},
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            )
-            dataset = parse_historical_bar_fixture_json(
-                combined,
                 canonical_storage=True,
             )
             if dataset.dataset_id != dataset_id:
