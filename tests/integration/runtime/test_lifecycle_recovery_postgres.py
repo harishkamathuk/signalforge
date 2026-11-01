@@ -47,6 +47,7 @@ from signalforge.persistence.repositories import (
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
@@ -184,6 +185,7 @@ def test_postgres_open_restart_hydrates_read_only_and_continues_from_frozen_econ
         instrument_id=INSTRUMENT,
         reference_price=trigger.reference_price,
         quantity=Quantity(10),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         execution_mode=ExecutionMode.PAPER,
         created_at=trigger.observed_at,
         run=run,
