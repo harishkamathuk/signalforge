@@ -288,7 +288,6 @@ def _load_existing_chunk(
     meta_path: Path,
     chunk: DeltaResearchChunk,
     product: DeltaProductSnapshot,
-    *,
     evidence_only: bool = False,
 ) -> DeltaCapturedChunk:
     raw = raw_path.read_bytes()
