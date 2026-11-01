@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Protocol
 
-from signalforge.domain.session import (
-    NSE_REGULAR_SESSION_BOUNDARY,
-    NSE_REGULAR_SESSION_OPEN,
-)
 from signalforge.domain.provenance import (
     LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY,
     MarketSessionPolicyIdentity,
+)
+from signalforge.domain.session import (
+    NSE_REGULAR_SESSION_BOUNDARY,
+    NSE_REGULAR_SESSION_OPEN,
 )
 from signalforge.domain.time import IST, require_aware
 
