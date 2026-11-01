@@ -181,6 +181,7 @@ class LiveRuntime:
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
         strategy: Strategy,
+        market_session_policy: MarketSessionPolicy,
         session_factory: SessionFactory,
         decision_projector: DecisionProjector,
         evaluation_context_factory: EvaluationContextFactory,
