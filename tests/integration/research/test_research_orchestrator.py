@@ -10,6 +10,7 @@ from signalforge.domain.ids import InstrumentId
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
+from signalforge.domain.provenance import MarketSessionPolicyIdentity
 from signalforge.research.contracts import (
     DatasetDefinition,
     DatasetSourceDefinition,
@@ -144,8 +145,8 @@ def test_orchestrator_validates_complete_source_mapping_before_running_any_instr
 
     with pytest.raises(ResearchExperimentError, match="missing=.*NSE:BBB"):
         ResearchOrchestrator(
-        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
-    ).run(
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+        ).run(
             experiment=experiment,
             sources={A: source_a},
         )
@@ -168,8 +169,8 @@ def test_orchestrator_does_not_mask_unexpected_backtest_defects(
 
     with pytest.raises(RuntimeError, match="internal backtest defect"):
         ResearchOrchestrator(
-        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
-    ).run(
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+        ).run(
             experiment=experiment,
             sources={A: source_a, B: source_b},
         )
@@ -196,11 +197,54 @@ def test_orchestrator_reports_instrument_when_independent_backtest_fails() -> No
 
     with pytest.raises(ResearchExperimentError, match="instrument NSE:BBB") as exc_info:
         ResearchOrchestrator(
-        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
-    ).run(
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+        ).run(
             experiment=experiment,
             sources={A: source_a, B: bad_b},
         )
 
     assert exc_info.value.__cause__ is not None
     assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+
+class _AlternateResearchPolicy:
+    @property
+    def identity(self) -> MarketSessionPolicyIdentity:
+        return MarketSessionPolicyIdentity("synthetic_research", "1.0.0")
+
+    def accepts_event(self, at: datetime) -> bool:
+        return True
+
+    def trading_date(self, at: datetime) -> date:
+        return at.date()
+
+    def compulsory_exit_at(self, at: datetime) -> datetime:
+        return at.replace(hour=23, minute=59, second=0, microsecond=0)
+
+
+def test_complete_research_path_uses_alternate_market_session_policy() -> None:
+    policy = _AlternateResearchPolicy()
+    source_a = _source(A)
+    events = _events(A)
+    experiment = ExperimentDefinition.create(
+        strategy_selection=StrategySelection("intraday_momentum_v1", "1.0.0", {}),
+        universe=UniverseDefinition((A,)),
+        dataset=DatasetDefinition(
+            (DatasetSourceDefinition(A, source_a.identity.source_id),),
+            events[0].exchange_timestamp,
+            events[-1].exchange_timestamp,
+        ),
+        engine_calculation_version="engine-v1",
+        market_session_policy=policy,
+        execution=(_execution(A),),
+    )
+
+    result = ResearchOrchestrator(market_session_policy=policy).run(
+        experiment=experiment,
+        sources={A: source_a},
+    )
+
+    assert result.experiment_id == experiment.experiment_id
+    assert experiment.market_session_policy == policy.identity
+    assert result.instrument_results[0].run.market_session_policy == policy.identity
