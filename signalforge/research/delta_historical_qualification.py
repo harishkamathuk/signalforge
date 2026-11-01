@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -343,7 +344,8 @@ def summarize_delta_candles(
     if tick_size <= 0:
         raise ValueError("Delta tick_size must be positive")
     times = [candle.time for candle in candles]
-    duplicates = tuple(sorted({value for value in times if times.count(value) > 1}))
+    counts = Counter(times)
+    duplicates = tuple(sorted(value for value, count in counts.items() if count > 1))
     return DeltaCandleSummary(
         row_count=len(candles),
         strictly_increasing=all(
