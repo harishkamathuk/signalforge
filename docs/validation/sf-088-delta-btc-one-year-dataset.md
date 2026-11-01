@@ -65,14 +65,15 @@ dataset, save Parquet bars, or authorize strategy analysis.
 
 ```bash
 python -m signalforge.research.delta_historical_dataset_acquisition evidence-only \\
-  --evidence-dir .signalforge-data/sf088/evidence
+  --evidence-dir .signalforge-data/sf088/evidence \
+  --generation generation-0001
 ```
 
 Use a protected local directory with `umask 077`. Evidence is written to
-`<evidence-dir>/evidence-only/pass-1` and `pass-2`. The command runs the
+`<evidence-dir>/evidence-only/<generation>/pass-1` and `pass-2`. The command runs the
 frozen 263-chunk plan in each pass, records raw and structural candle-content
 hashes, compares the passes and produces
-`<evidence-dir>/evidence-only/evidence-only-report.json`.
+`<evidence-dir>/evidence-only/<generation>/evidence-only-report.json`.
 Missing product timestamps are reported as
 `historical_metadata_applicability=UNRESOLVED`. Retain the first-seen raw
 responses locally, outside Git. Resume reuses already-captured and
@@ -88,6 +89,28 @@ command until an authoritative historical specification or effective-dated
 schedule establishes metadata applicability. The strict `acquire` command
 continues to reject missing timestamps, and `verify-offline` cannot promote
 evidence-only output without a qualifying canonical dataset.
+
+### Immutable generations and offline handoff
+
+Use an explicit generation name, such as `generation-0001`. If a provider
+revision, malformed response, or interruption leaves incompatible or incomplete
+evidence, preserve that entire generation and record its hashes. Start a new
+generation under a different name rather than rewriting the original.
+
+After historical product metadata applicability has been independently established,
+the existing strict qualification can consume completed evidence offline:
+
+```bash
+python -m signalforge.research.delta_historical_dataset_acquisition qualify-evidence-offline \\
+  --evidence-dir .signalforge-data/sf088/evidence \\
+  --generation generation-0001 \\
+  --store-dir .signalforge-data/sf088/store
+```
+
+This checks pre-existing captures and never downloads missing chunks. It still
+requires the existing `validate_product_applicability()` guard to pass.
+With missing Delta product timestamps, qualification remains blocked.
+A future effective-dated schedule requires separate reviewed support.
 
 ## Two-pass acquisition
 
