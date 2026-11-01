@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -114,6 +115,8 @@ class DeltaProductSnapshot:
     quoting_asset_symbol: str | None
     settling_asset_symbol: str | None
     raw_sha256: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.api_origin.strip() or not self.symbol.strip() or not self.contract_type.strip():
@@ -124,6 +127,11 @@ class DeltaProductSnapshot:
             raise ValueError("Delta contract value and tick size must be positive")
         if len(self.raw_sha256) != 64:
             raise ValueError("Delta product snapshot requires a SHA-256 digest")
+        for field_name in ("created_at", "updated_at"):
+            value = getattr(self, field_name)
+            if value is not None:
+                require_aware(value)
+                object.__setattr__(self, field_name, to_utc(value))
 
     @property
     def semantic_sha256(self) -> str:
@@ -235,6 +243,16 @@ def _decimal(value: object, field: str) -> Decimal:
     raise ValueError(f"Delta {field} must be numeric")
 
 
+def _optional_datetime(value: object, field: str) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Delta {field} must be an ISO datetime string or null")
+    parsed = datetime.fromisoformat(value)
+    require_aware(parsed)
+    return to_utc(parsed)
+
+
 def _optional_asset_symbol(value: object) -> str | None:
     if value is None:
         return None
@@ -283,6 +301,8 @@ def parse_delta_product_response(
         quoting_asset_symbol=_optional_asset_symbol(result.get("quoting_asset")),
         settling_asset_symbol=_optional_asset_symbol(result.get("settling_asset")),
         raw_sha256=capture.content_sha256,
+        created_at=_optional_datetime(result.get("created_at"), "created_at"),
+        updated_at=_optional_datetime(result.get("updated_at"), "updated_at"),
     )
 
 
@@ -324,7 +344,8 @@ def summarize_delta_candles(
     if tick_size <= 0:
         raise ValueError("Delta tick_size must be positive")
     times = [candle.time for candle in candles]
-    duplicates = tuple(sorted({value for value in times if times.count(value) > 1}))
+    counts = Counter(times)
+    duplicates = tuple(sorted(value for value, count in counts.items() if count > 1))
     return DeltaCandleSummary(
         row_count=len(candles),
         strictly_increasing=all(

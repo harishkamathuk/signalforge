@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 from signalforge.research.historical_bars import load_historical_bar_fixture
@@ -223,3 +224,105 @@ def test_canonical_storage_rejects_undeclared_duplicates_and_false_raw_counts(tm
     )
     with pytest.raises(HistoricalDatasetStoreError):
         store.load(identity)
+
+
+
+def test_parquet_roundtrip_preserves_semantic_dataset_identity(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1)
+
+    identity = store.save(dataset)
+    directory = tmp_path / str(identity)
+
+    assert directory.is_dir()
+    assert not (tmp_path / (str(identity) + ".json")).exists()
+    assert {item.name for item in directory.iterdir()} == {
+        "manifest.json",
+        "bars.parquet",
+        "content-manifest.json",
+        "content-manifest.sha256",
+    }
+
+    restored = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1).load(identity)
+    assert restored == dataset
+    assert restored.dataset_id == identity
+    assert restored.content_hash == dataset.content_hash
+
+
+def test_parquet_schema_uses_exact_decimal_utc_and_integer_types(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    identity = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1).save(dataset)
+    table = pq.read_table(tmp_path / str(identity) / "bars.parquet")
+    schema = table.schema
+
+    for field_name in ("open", "high", "low", "close"):
+        assert str(schema.field(field_name).type).startswith("decimal128(")
+    assert str(schema.field("bucket_start").type) == "timestamp[us, tz=UTC]"
+    assert str(schema.field("provider_timestamp_interpreted").type) == (
+        "timestamp[us, tz=UTC]"
+    )
+    assert str(schema.field("volume").type) == "int64"
+
+
+def test_parquet_component_tamper_fails_closed(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1)
+    identity = store.save(dataset)
+    parquet_path = tmp_path / str(identity) / "bars.parquet"
+    parquet_path.write_bytes(parquet_path.read_bytes() + b"tamper")
+
+    with pytest.raises(HistoricalDatasetStoreError, match="component"):
+        store.load(identity)
+    with pytest.raises(HistoricalDatasetStoreError):
+        store.save(dataset)
+
+
+def test_parquet_content_manifest_tamper_fails_closed(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    store = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1)
+    identity = store.save(dataset)
+    manifest_path = tmp_path / str(identity) / "content-manifest.json"
+    payload = json.loads(manifest_path.read_text())
+    payload["schema_version"] = "tampered"
+    manifest_path.write_text(json.dumps(payload))
+
+    with pytest.raises(HistoricalDatasetStoreError, match="content manifest"):
+        store.load(identity)
+
+
+def test_same_dataset_id_cannot_exist_in_both_representations(tmp_path):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    identity = LocalHistoricalDatasetStore(tmp_path).save(dataset)
+    directory = tmp_path / str(identity)
+    directory.mkdir()
+
+    with pytest.raises(HistoricalDatasetStoreError, match="conflicting storage"):
+        LocalHistoricalDatasetStore(tmp_path).load(identity)
+
+
+
+def test_legacy_json_store_works_without_pyarrow(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    import signalforge.research.historical_dataset_store as store_module
+
+    monkeypatch.setattr(store_module, "pa", None)
+    monkeypatch.setattr(store_module, "pq", None)
+
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    restored = store.load(identity)
+
+    assert restored == dataset
+    assert (tmp_path / (str(identity) + ".json")).exists()
+
+
+def test_parquet_operation_without_research_extra_fails_actionably(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    import signalforge.research.historical_dataset_store as store_module
+
+    monkeypatch.setattr(store_module, "pa", None)
+    monkeypatch.setattr(store_module, "pq", None)
+
+    store = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1)
+    with pytest.raises(HistoricalDatasetStoreError, match="research extra"):
+        store.save(dataset)

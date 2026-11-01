@@ -176,6 +176,7 @@ class HistoricalDatasetManifest:
     limitations: tuple[str, ...] = ()
     grid: HistoricalBarGrid | None = None
     price_basis: HistoricalPriceBasis | None = None
+    acquisition_evidence: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -619,6 +620,19 @@ def parse_historical_bar_fixture_json(
     payload = json.loads(content)
     if not isinstance(payload, dict):
         raise ValueError("Historical fixture root must be an object")
+    return parse_historical_bar_storage_payload(
+        payload,
+        canonical_storage=canonical_storage,
+    )
+
+
+def parse_historical_bar_storage_payload(
+    payload: Mapping[str, object],
+    *,
+    canonical_storage: bool = False,
+) -> HistoricalBarDataset:
+    """Parse an already-materialized canonical historical storage payload."""
+
     manifest_raw = _mapping(payload.get("manifest"), "manifest")
     bars_raw = payload.get("bars")
     if not isinstance(bars_raw, list):
@@ -664,6 +678,9 @@ def parse_historical_bar_fixture_json(
             _string(manifest_raw, "corporate_action_policy")
         ),
         limitations=tuple(_string_list(manifest_raw.get("limitations"), "limitations")),
+        acquisition_evidence=tuple(
+            _string_list(manifest_raw.get("acquisition_evidence"), "acquisition_evidence")
+        ),
         grid=_parse_grid(manifest_raw.get("grid")),
         price_basis=(
             HistoricalPriceBasis(_string(manifest_raw, "price_basis"))
