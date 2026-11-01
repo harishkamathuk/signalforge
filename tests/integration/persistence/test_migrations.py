@@ -686,8 +686,93 @@ def test_sf095_existing_rows_survive_width_upgrade(postgres_engine: Engine) -> N
                 ).mappings().one()
             )
 
+        # Persist a representative, FK-complete open trade at revision 0009.
+        # Its immutable signal/trigger/intent/fill chain must remain unchanged.
+        with postgres_engine.begin() as connection:
+            tables = Base.metadata.tables
+            stamp = datetime(2026, 10, 1, 4, 0, tzinfo=UTC)
+            finish = stamp + timedelta(minutes=5)
+            common = {
+                "run_id": "sf095-preservation-run",
+                "instrument_id": "NSE:SF095",
+            }
+            connection.execute(
+                sa.insert(tables["signals"]).values(
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    interval_start=stamp,
+                    interval_end=finish,
+                    signal_close=Decimal("100"),
+                    signal_low=Decimal("99"),
+                    created_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["trigger_events"]).values(
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100"),
+                    observed_price=Decimal("100.10"),
+                    observed_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["entry_intents"]).values(
+                    entry_intent_id="sf095-preservation-intent",
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100.10"),
+                    quantity=1,
+                    execution_mode="paper",
+                    created_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["fills"]).values(
+                    fill_id="sf095-preservation-fill",
+                    entry_intent_id="sf095-preservation-intent",
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100.10"),
+                    fill_price=Decimal("100.10"),
+                    quantity=1,
+                    execution_mode="paper",
+                    filled_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["trades"]).values(
+                    trade_id="sf095-preservation-trade",
+                    entry_fill_id="sf095-preservation-fill",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    entry_price=Decimal("100.10"),
+                    stop_price=Decimal("99"),
+                    raw_target_price=Decimal("101.75"),
+                    tradable_target_price=Decimal("101.80"),
+                    risk_per_share=Decimal("1.10"),
+                    quantity=1,
+                    opened_at=finish,
+                    state="open",
+                )
+            )
+            before_trade = dict(
+                connection.execute(
+                    sa.text("SELECT * FROM trades WHERE trade_id = 'sf095-preservation-trade'")
+                ).mappings().one()
+            )
+
         command.upgrade(config, "head")
         with postgres_engine.connect() as connection:
+            restored_trade = dict(
+                connection.execute(
+                    sa.text("SELECT * FROM trades WHERE trade_id = 'sf095-preservation-trade'")
+                ).mappings().one()
+            )
+            assert restored_trade == before_trade
             restored_checkpoint = dict(
                 connection.execute(
                     sa.text(
