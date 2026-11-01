@@ -129,6 +129,8 @@ def _build_runtime(
         config_identity.config_hash,
         source.identity.source_id,
         config.engine_calculation_version,
+        NSE_INTRADAY_MARKET_SESSION_POLICY.identity.policy_id,
+        NSE_INTRADAY_MARKET_SESSION_POLICY.identity.policy_version,
     )
     run = RunIdentity(
         run_id=run_id,
@@ -136,6 +138,7 @@ def _build_runtime(
         config_id=config_identity.config_id,
         config_hash=config_identity.config_hash,
         engine_calculation_version=config.engine_calculation_version,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY.identity,
     )
     tick_schedule = TickSizeSchedule(
         instrument_id=instrument_id,
