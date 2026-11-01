@@ -25,7 +25,11 @@ from signalforge.domain.ids import (
     deterministic_id,
 )
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.provenance import (
+    LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY,
+    RunIdentity,
+    StrategyIdentity,
+)
 from signalforge.domain.time import to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
@@ -226,14 +230,22 @@ class BacktestRunner:
         if source.identity.source_id != source_definition.source_id:
             raise ValueError("Replay source identity contradicts experiment dataset source_id")
 
-        run_id = deterministic_id(
-            RunId,
+        run_id_parts = [
             strategy.config_identity.config_hash,
             source.identity.source_id,
             experiment.engine_calculation_version,
-            self._market_session_policy.identity.policy_id,
-            self._market_session_policy.identity.policy_version,
-        )
+        ]
+        if (
+            self._market_session_policy.identity
+            != LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY
+        ):
+            run_id_parts.extend(
+                (
+                    self._market_session_policy.identity.policy_id,
+                    self._market_session_policy.identity.policy_version,
+                )
+            )
+        run_id = deterministic_id(RunId, *run_id_parts)
         backtest_run_id = deterministic_id(
             BacktestRunId,
             str(experiment.experiment_id),
