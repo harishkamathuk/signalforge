@@ -174,6 +174,7 @@ class HistoricalDatasetManifest:
     corrupt_rejected_count: int
     corporate_action_policy: CorporateActionPolicy
     limitations: tuple[str, ...] = ()
+    acquisition_evidence: tuple[str, ...] = ()
     grid: HistoricalBarGrid | None = None
     price_basis: HistoricalPriceBasis | None = None
 
@@ -677,6 +678,9 @@ def parse_historical_bar_storage_payload(
             _string(manifest_raw, "corporate_action_policy")
         ),
         limitations=tuple(_string_list(manifest_raw.get("limitations"), "limitations")),
+        acquisition_evidence=tuple(
+            _string_list(manifest_raw.get("acquisition_evidence"), "acquisition_evidence")
+        ),
         grid=_parse_grid(manifest_raw.get("grid")),
         price_basis=(
             HistoricalPriceBasis(_string(manifest_raw, "price_basis"))
