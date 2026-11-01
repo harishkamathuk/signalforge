@@ -13,10 +13,10 @@ from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEven
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.time import IST, CandleInterval
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.strategy import (
     ArmedPolicyIntent,
     ArmedSetupView,
