@@ -297,6 +297,7 @@ def test_postgres_open_restart_hydrates_read_only_and_continues_from_frozen_econ
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     hydrated = LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
