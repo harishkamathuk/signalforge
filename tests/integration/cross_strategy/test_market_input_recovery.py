@@ -120,6 +120,7 @@ def _runtime(
         candle_engine=candle_engine,
         indicator_engine=indicator_engine,
         lifecycle=lifecycle,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -145,6 +146,7 @@ def test_reference_strategy_uses_same_forming_candle_recovery_path(
         runtime=_runtime(source, run, strategy),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_rsi_mean_reversion_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     for item in inputs[:3]:
         durable.process_input(item)
@@ -191,6 +193,7 @@ def test_reference_strategy_uses_same_forming_candle_recovery_path(
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_rsi_mean_reversion_decision,
         checkpoint=checkpoint,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     assert resumed.process_input(inputs[2]).duplicate
