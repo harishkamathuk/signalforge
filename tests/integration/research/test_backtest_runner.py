@@ -269,7 +269,7 @@ def test_backtest_rejects_off_session_history_before_business_logic() -> None:
     )
     events = (off_session, *regular)
 
-    with pytest.raises(ValueError, match="outside the canonical NSE regular-session"):
+    with pytest.raises(ValueError, match="outside the configured market-session"):
         BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
             experiment=_experiment(events),
             instrument_id=INSTRUMENT,
