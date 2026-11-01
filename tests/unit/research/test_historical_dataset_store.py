@@ -298,3 +298,31 @@ def test_same_dataset_id_cannot_exist_in_both_representations(tmp_path):
 
     with pytest.raises(HistoricalDatasetStoreError, match="conflicting storage"):
         LocalHistoricalDatasetStore(tmp_path).load(identity)
+
+
+
+def test_legacy_json_store_works_without_pyarrow(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    import signalforge.research.historical_dataset_store as store_module
+
+    monkeypatch.setattr(store_module, "pa", None)
+    monkeypatch.setattr(store_module, "pq", None)
+
+    store = LocalHistoricalDatasetStore(tmp_path)
+    identity = store.save(dataset)
+    restored = store.load(identity)
+
+    assert restored == dataset
+    assert (tmp_path / (str(identity) + ".json")).exists()
+
+
+def test_parquet_operation_without_research_extra_fails_actionably(tmp_path, monkeypatch):
+    dataset = load_historical_bar_fixture(FIXTURE)
+    import signalforge.research.historical_dataset_store as store_module
+
+    monkeypatch.setattr(store_module, "pa", None)
+    monkeypatch.setattr(store_module, "pq", None)
+
+    store = LocalHistoricalDatasetStore(tmp_path, parquet_min_rows=1)
+    with pytest.raises(HistoricalDatasetStoreError, match="research extra"):
+        store.save(dataset)
