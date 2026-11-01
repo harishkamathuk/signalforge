@@ -15,8 +15,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+try:
+    import pyarrow as pa  # type: ignore[import-untyped]
+    import pyarrow.parquet as pq  # type: ignore[import-untyped]
+except ModuleNotFoundError:
+    pa = None
+    pq = None
 
 from signalforge.domain.ids import DatasetId
 from signalforge.research.historical_bars import (
@@ -95,7 +99,17 @@ def _payload(dataset: HistoricalBarDataset) -> bytes:
     ).encode()
 
 
-def _decimal_type(values: list[Decimal]) -> pa.DataType:
+def _require_pyarrow() -> tuple[Any, Any]:
+    if pa is None or pq is None:
+        raise HistoricalDatasetStoreError(
+            "Parquet historical storage requires the SignalForge research extra: "
+            "pip install -e '.[research]'"
+        )
+    return pa, pq
+
+
+def _decimal_type(values: list[Decimal]) -> Any:
+    arrow, _ = _require_pyarrow()
     max_scale = 0
     max_integer_digits = 1
     for value in values:
@@ -113,10 +127,11 @@ def _decimal_type(values: list[Decimal]) -> pa.DataType:
         raise HistoricalDatasetStoreError(
             "Parquet decimal128 cannot losslessly represent historical price precision"
         )
-    return pa.decimal128(precision, max_scale)
+    return arrow.decimal128(precision, max_scale)
 
 
-def _parquet_table(dataset: HistoricalBarDataset) -> pa.Table:
+def _parquet_table(dataset: HistoricalBarDataset) -> Any:
+    arrow, _ = _require_pyarrow()
     opens = [bar.open.value for bar in dataset.bars]
     highs = [bar.high.value for bar in dataset.bars]
     lows = [bar.low.value for bar in dataset.bars]
@@ -124,21 +139,21 @@ def _parquet_table(dataset: HistoricalBarDataset) -> pa.Table:
     decimal_type = _decimal_type(opens + highs + lows + closes)
 
     arrays = [
-        pa.array([bar.interval.start for bar in dataset.bars], type=pa.timestamp("us", tz="UTC")),
-        pa.array(opens, type=decimal_type),
-        pa.array(highs, type=decimal_type),
-        pa.array(lows, type=decimal_type),
-        pa.array(closes, type=decimal_type),
-        pa.array([bar.volume for bar in dataset.bars], type=pa.int64()),
-        pa.array([bar.quality.value for bar in dataset.bars], type=pa.string()),
-        pa.array([bar.source_provider for bar in dataset.bars], type=pa.string()),
-        pa.array([bar.source_record_count for bar in dataset.bars], type=pa.int32()),
-        pa.array([bar.provider_timestamp_raw for bar in dataset.bars], type=pa.string()),
-        pa.array(
+        arrow.array([bar.interval.start for bar in dataset.bars], type=arrow.timestamp("us", tz="UTC")),
+        arrow.array(opens, type=decimal_type),
+        arrow.array(highs, type=decimal_type),
+        arrow.array(lows, type=decimal_type),
+        arrow.array(closes, type=decimal_type),
+        arrow.array([bar.volume for bar in dataset.bars], type=arrow.int64()),
+        arrow.array([bar.quality.value for bar in dataset.bars], type=arrow.string()),
+        arrow.array([bar.source_provider for bar in dataset.bars], type=arrow.string()),
+        arrow.array([bar.source_record_count for bar in dataset.bars], type=arrow.int32()),
+        arrow.array([bar.provider_timestamp_raw for bar in dataset.bars], type=arrow.string()),
+        arrow.array(
             [bar.provider_timestamp_interpreted for bar in dataset.bars],
-            type=pa.timestamp("us", tz="UTC"),
+            type=arrow.timestamp("us", tz="UTC"),
         ),
-        pa.array([bar.canonicalisation_version for bar in dataset.bars], type=pa.string()),
+        arrow.array([bar.canonicalisation_version for bar in dataset.bars], type=arrow.string()),
     ]
     names = [
         "bucket_start",
@@ -154,10 +169,10 @@ def _parquet_table(dataset: HistoricalBarDataset) -> pa.Table:
         "provider_timestamp_interpreted",
         "canonicalisation_version",
     ]
-    return pa.Table.from_arrays(arrays, names=names)
+    return arrow.Table.from_arrays(arrays, names=names)
 
 
-def _schema_fingerprint(schema: pa.Schema) -> str:
+def _schema_fingerprint(schema: Any) -> str:
     material = json.dumps(
         {
             "schema_version": _PARQUET_SCHEMA_VERSION,
@@ -178,9 +193,10 @@ def _schema_fingerprint(schema: pa.Schema) -> str:
 
 
 def _parquet_bytes(dataset: HistoricalBarDataset) -> tuple[bytes, str]:
+    arrow, parquet = _require_pyarrow()
     table = _parquet_table(dataset)
-    sink = pa.BufferOutputStream()
-    pq.write_table(
+    sink = arrow.BufferOutputStream()
+    parquet.write_table(
         table,
         sink,
         compression="zstd",
@@ -300,8 +316,9 @@ class LocalHistoricalDatasetStore:
             self._verify_component(components, "manifest.json", manifest_blob)
             self._verify_component(components, "bars.parquet", parquet_blob)
 
+            arrow, parquet = _require_pyarrow()
             try:
-                table = pq.read_table(pa.BufferReader(parquet_blob))
+                table = parquet.read_table(arrow.BufferReader(parquet_blob))
             except Exception as exc:
                 raise HistoricalDatasetStoreError("stored Parquet bytes are unreadable") from exc
             expected_schema = content_manifest.get("schema_sha256")
@@ -345,7 +362,7 @@ class LocalHistoricalDatasetStore:
             raise HistoricalDatasetStoreError(f"stored component size mismatch: {name}")
 
     @staticmethod
-    def _rows_from_parquet(table: pa.Table) -> list[dict[str, object]]:
+    def _rows_from_parquet(table: Any) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         for row in table.to_pylist():
             bucket_start = row["bucket_start"]
