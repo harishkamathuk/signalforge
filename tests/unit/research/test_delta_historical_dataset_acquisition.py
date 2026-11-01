@@ -383,6 +383,12 @@ def test_evidence_only_captures_missing_metadata_without_canonical_store(
     assert acquisition.acquire_sf088_evidence_only(evidence_dir=evidence) == report
     assert requests == []
 
+    raw_path = evidence / "evidence-only" / "pass-1" / "chunk-000000.json"
+    raw_path.write_bytes(raw_path.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="raw chunk digest mismatch"):
+        acquisition.acquire_sf088_evidence_only(evidence_dir=evidence)
+    assert requests == []
+
     with pytest.raises(ValueError, match="created_at/updated_at"):
         acquisition.acquire_sf088_pass(
             output_dir=tmp_path / "strict",
@@ -410,3 +416,25 @@ def test_evidence_only_detects_raw_tampering_without_network(tmp_path, monkeypat
             chunk_plan=plan,
             evidence_only=True,
         )
+
+
+def test_evidence_only_source_url_requires_exact_qualified_provider() -> None:
+    """Reject host substitutions and request-bound changes before acceptance."""
+    valid = (
+        "https://api.india.delta.exchange/v2/history/candles"
+        "?resolution=1m&symbol=BTCUSD&start=100&end=160"
+    )
+    options = {"resolution": "1m", "symbol": "BTCUSD", "start": 100, "end": 160}
+    acquisition._verify_evidence_source_url(
+        valid, path="/v2/history/candles", params=options
+    )
+    for altered in (
+        valid.replace("api.india.delta.exchange", "api.delta.exchange"),
+        valid.replace("start=100", "start=101"),
+        valid.replace("symbol=BTCUSD", "symbol=ETHUSD"),
+        valid.replace("https://", "http://"),
+    ):
+        with pytest.raises(ValueError, match="source|parameters"):
+            acquisition._verify_evidence_source_url(
+                altered, path="/v2/history/candles", params=options
+            )
