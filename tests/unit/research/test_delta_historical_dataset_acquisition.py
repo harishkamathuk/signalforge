@@ -124,6 +124,15 @@ def test_two_pass_coherence_detects_any_chunk_semantic_revision() -> None:
             DeltaAcquisitionPass("pass-2", _product(), (revised,)),
         )
 
+    changed_applicability = _product(
+        updated_at=datetime(2025, 1, 1, tzinfo=UTC)
+    )
+    with pytest.raises(ValueError, match="metadata applicability changed"):
+        assert_two_pass_coherence(
+            first,
+            DeltaAcquisitionPass("pass-2", changed_applicability, (first_chunk,)),
+        )
+
 
 def test_acquisition_pass_is_resumable_without_reacquiring_existing_chunks(
     tmp_path, monkeypatch
