@@ -17,6 +17,7 @@ from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.execution import PaperExecutionPort
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.position_manager import PositionManager, PositionOpenRejection
 from signalforge.runtime.strategy import PositionEconomics
 from signalforge.runtime.strategy_evaluator import StrategyEvaluationContext, StrategyEvaluator
@@ -288,7 +289,10 @@ def test_non_positive_risk_rejection_is_preserved_at_composed_execution_boundary
         run=_run(),
     )
     execution = PaperExecutionPort().execute(trigger, quantity=QUANTITY)
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(
         execution.fill,
         signal,
         PositionEconomics(
