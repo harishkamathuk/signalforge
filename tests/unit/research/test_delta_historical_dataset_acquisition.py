@@ -376,9 +376,10 @@ def test_evidence_only_captures_missing_metadata_without_canonical_store(
     ]
     assert report["canonical_dataset_published"] is False
     assert len(requests) == 6
-    assert (evidence / "evidence-only" / "generation-0001" / "pass-1" / "chunk-000000.json").exists()
+    generation_dir = evidence / "evidence-only" / "generation-0001"
+    assert (generation_dir / "pass-1" / "chunk-000000.json").exists()
     assert not (evidence / "sf088-finalization-report.json").exists()
-    assert not (evidence / "evidence-only" / "generation-0001" / "sf088-finalization-report.json").exists()
+    assert not (generation_dir / "sf088-finalization-report.json").exists()
 
     requests.clear()
     assert acquisition.acquire_sf088_evidence_only(evidence_dir=evidence) == report
