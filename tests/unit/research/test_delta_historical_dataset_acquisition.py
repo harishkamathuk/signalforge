@@ -277,8 +277,9 @@ def test_acquisition_evidence_does_not_change_semantic_dataset_identity() -> Non
     assert altered.manifest != dataset.manifest
 
 
-def test_missing_minute_evidence_is_explicit_and_classified() -> None:
+def test_missing_minute_evidence_is_explicit_and_classified(monkeypatch) -> None:
     start = acquisition.SF088_START
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=3))
     candle = acquisition.DeltaCandle(
         time=int(start.timestamp()),
         open=Decimal("65000.0"),
@@ -289,6 +290,6 @@ def test_missing_minute_evidence_is_explicit_and_classified() -> None:
     )
     evidence = acquisition._missing_minute_evidence((candle,))
 
-    assert len(evidence) == acquisition.SF088_EXPECTED_MINUTES - 1
+    assert len(evidence) == 2
     assert evidence[0]["classification"] == "unresolved_absence"
     assert evidence[0]["interval_start"] == (start + timedelta(minutes=1)).isoformat()
