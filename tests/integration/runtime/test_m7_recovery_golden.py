@@ -45,12 +45,12 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler, RecoveryCandle
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from tests.integration.persistence.test_crash_consistency_between_groups import (
