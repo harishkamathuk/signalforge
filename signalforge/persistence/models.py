@@ -491,6 +491,7 @@ class IndicatorCheckpointRecord(Base):
             "last_interval_end IS NULL) OR (completed_candle_count > 0 AND "
             "last_interval_start IS NOT NULL AND last_interval_end IS NOT NULL AND "
             "last_interval_end > last_interval_start)",
+            name="ck_indicator_interval_presence",
         ),
     )
     run_id: Mapped[str] = mapped_column(
