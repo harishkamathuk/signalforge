@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -61,8 +61,37 @@ def postgres_engine() -> Iterator[Engine]:
     if database_url is None:
         pytest.skip("DATABASE_URL is required for PostgreSQL migration integration tests")
 
+    url = make_url(database_url)
+    # This module intentionally downgrades to base and deletes tables/data.
+    # Never allow it to target a workstation or production database.
+    if (
+        os.environ.get("SIGNALFORGE_DESTRUCTIVE_MIGRATION_TESTS") != "1"
+        or url.database != "signalforge_test"
+        or url.host not in ("localhost", "127.0.0.1")
+    ):
+        pytest.fail(
+            "Destructive migration tests require the explicit test-only opt-in, "
+            "localhost, and the isolated signalforge_test database"
+        )
     engine = sa.create_engine(database_url)
     try:
+        # Database-owned opt-in is set only by the CI provisioning step.
+        # The test runner must never create or repair this marker.
+        with engine.connect() as connection:
+            marker = connection.execute(
+                sa.text(
+                    "SELECT description FROM pg_shdescription "
+                    "WHERE objoid = (SELECT oid FROM pg_database "
+                    "WHERE datname = current_database()) AND classoid = 'pg_database'::regclass"
+                )
+            ).scalar_one_or_none()
+            actual = connection.execute(
+                sa.text("SELECT current_database(), current_user")
+            ).one()
+        if actual[0] != "signalforge_test" or actual[1] != "signalforge":
+            pytest.fail("Destructive tests rejected: unexpected database identity or role")
+        if marker != "signalforge:disposable-migration-tests:v1":
+            pytest.fail("Destructive tests rejected: database is missing disposable marker")
         yield engine
     finally:
         engine.dispose()
@@ -592,5 +621,253 @@ def test_sf089_upgrade_backfills_existing_runs_with_nse_policy(
             "market_session_policy_id": "nse_intraday",
             "market_session_policy_version": "1.0.0",
         }
+    finally:
+        _reset_migrations(config, postgres_engine)
+
+
+def test_sf095_indicator_checkpoint_schema_matches_metadata(postgres_engine: Engine) -> None:
+    """The migrated schema matches the canonical checkpoint width and checks."""
+    from sqlalchemy import String
+
+    inspector = sa.inspect(postgres_engine)
+    columns = {item["name"]: item for item in inspector.get_columns("indicator_checkpoints")}
+    column_type = columns["continuity_state"]["type"]
+    assert isinstance(column_type, String)
+    assert column_type.length == 64
+
+    checks = {
+        item["name"]: item["sqltext"]
+        for item in inspector.get_check_constraints("indicator_checkpoints")
+    }
+    assert "ck_indicator_interval_presence" in checks
+    assert "completed_candle_count" in checks["ck_indicator_interval_presence"]
+    assert "last_interval_start" in checks["ck_indicator_interval_presence"]
+    assert "last_interval_end" in checks["ck_indicator_interval_presence"]
+
+    metadata_checks = {
+        constraint.name
+        for constraint in IndicatorCheckpointRecord.__table__.constraints
+        if isinstance(constraint, sa.CheckConstraint)
+    }
+    assert "ck_indicator_interval_presence" in metadata_checks
+
+
+def test_sf095_existing_rows_survive_width_upgrade(postgres_engine: Engine) -> None:
+    """Migrating from 0009 does not rewrite or discard existing run/trade records."""
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20261101_0009")
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES (:config, :strategy, :version, :hash)"
+                ),
+                {
+                    "config": "sf095-preservation-config",
+                    "strategy": "intraday_momentum_v1",
+                    "version": "1.0.0",
+                    "hash": "f" * 64,
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs "
+                    "(run_id, config_id, engine_calculation_version, "
+                    "market_session_policy_id, market_session_policy_version) "
+                    "VALUES (:run, :config, 'engine-v1', 'nse_intraday', '1.0.0')"
+                ),
+                {"run": "sf095-preservation-run", "config": "sf095-preservation-config"},
+            )
+
+        # A real pre-upgrade checkpoint must survive the width change intact.
+        # Write this row at 0009, where continuity_state is VARCHAR(32).
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO indicator_checkpoints "
+                    "(run_id, instrument_id, calculation_version, continuity_state, "
+                    "completed_candle_count) "
+                    "VALUES ('sf095-preservation-run', 'NSE:SF095', 'engine-v1', "
+                    "'healthy', 0)"
+                )
+            )
+            before_checkpoint = dict(
+                connection.execute(
+                    sa.text(
+                        "SELECT * FROM indicator_checkpoints "
+                        "WHERE run_id = 'sf095-preservation-run'"
+                    )
+                ).mappings().one()
+            )
+
+        # Persist a representative, FK-complete open trade at revision 0009.
+        # Its immutable signal/trigger/intent/fill chain must remain unchanged.
+        with postgres_engine.begin() as connection:
+            tables = Base.metadata.tables
+            stamp = datetime(2026, 10, 1, 4, 0, tzinfo=UTC)
+            finish = stamp + timedelta(minutes=5)
+            common = {
+                "run_id": "sf095-preservation-run",
+                "instrument_id": "NSE:SF095",
+            }
+            connection.execute(
+                sa.insert(tables["signals"]).values(
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    interval_start=stamp,
+                    interval_end=finish,
+                    signal_close=Decimal("100"),
+                    signal_low=Decimal("99"),
+                    created_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["trigger_events"]).values(
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100"),
+                    observed_price=Decimal("100.10"),
+                    observed_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["entry_intents"]).values(
+                    entry_intent_id="sf095-preservation-intent",
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100.10"),
+                    quantity=1,
+                    execution_mode="paper",
+                    created_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["fills"]).values(
+                    fill_id="sf095-preservation-fill",
+                    entry_intent_id="sf095-preservation-intent",
+                    trigger_event_id="sf095-preservation-trigger",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    reference_price=Decimal("100.10"),
+                    fill_price=Decimal("100.10"),
+                    quantity=1,
+                    execution_mode="paper",
+                    filled_at=finish,
+                )
+            )
+            connection.execute(
+                sa.insert(tables["trades"]).values(
+                    trade_id="sf095-preservation-trade",
+                    entry_fill_id="sf095-preservation-fill",
+                    signal_id="sf095-preservation-signal",
+                    **common,
+                    entry_price=Decimal("100.10"),
+                    stop_price=Decimal("99"),
+                    raw_target_price=Decimal("101.75"),
+                    tradable_target_price=Decimal("101.80"),
+                    risk_per_share=Decimal("1.10"),
+                    quantity=1,
+                    opened_at=finish,
+                    state="open",
+                )
+            )
+            before_trade = dict(
+                connection.execute(
+                    sa.text("SELECT * FROM trades WHERE trade_id = 'sf095-preservation-trade'")
+                ).mappings().one()
+            )
+
+        command.upgrade(config, "head")
+        with postgres_engine.connect() as connection:
+            restored_trade = dict(
+                connection.execute(
+                    sa.text("SELECT * FROM trades WHERE trade_id = 'sf095-preservation-trade'")
+                ).mappings().one()
+            )
+            assert restored_trade == before_trade
+            restored_checkpoint = dict(
+                connection.execute(
+                    sa.text(
+                        "SELECT * FROM indicator_checkpoints "
+                        "WHERE run_id = 'sf095-preservation-run'"
+                    )
+                ).mappings().one()
+            )
+            assert restored_checkpoint == before_checkpoint
+            row = connection.execute(
+                sa.text(
+                    "SELECT run_id, market_session_policy_id "
+                    "FROM runs WHERE run_id = 'sf095-preservation-run'"
+                )
+            ).one()
+            assert tuple(row) == ("sf095-preservation-run", "nse_intraday")
+
+        command.check(config)
+    finally:
+        _reset_migrations(config, postgres_engine)
+
+
+def test_sf095_interval_presence_check_rejects_invalid_records(
+    postgres_engine: Engine,
+) -> None:
+    """Exercise the database CHECK rather than simply inspecting its SQL."""
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES ('sf095-check-config', 'intraday_momentum_v1', "
+                    "'1.0.0', :hash)"
+                ),
+                {"hash": "a" * 64},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs "
+                    "(run_id, config_id, engine_calculation_version, "
+                    "market_session_policy_id, market_session_policy_version) "
+                    "VALUES ('sf095-check-run', 'sf095-check-config', "
+                    "'engine-v1', 'nse_intraday', '1.0.0')"
+                )
+            )
+            statement = sa.text(
+                "INSERT INTO indicator_checkpoints "
+                "(run_id, instrument_id, calculation_version, continuity_state, "
+                "completed_candle_count, last_interval_start, last_interval_end) "
+                "VALUES ('sf095-check-run', :instrument, 'engine-v1', "
+                "'healthy', :count, :start, :end)"
+            )
+            start = datetime(2026, 10, 1, 4, 0, tzinfo=UTC)
+            end = start + timedelta(minutes=5)
+            for instrument, count, begin, finish in (
+                ("NSE:VALID0", 0, None, None),
+                ("NSE:VALID1", 1, start, end),
+            ):
+                connection.execute(
+                    statement,
+                    {"instrument": instrument, "count": count,
+                     "start": begin, "end": finish},
+                )
+            for instrument, count, begin, finish in (
+                ("NSE:INVALID0", 0, start, end),
+                ("NSE:INVALID1", 1, None, None),
+                ("NSE:INVALID2", 1, start, start),
+                ("NSE:INVALID3", 1, end, start),
+            ):
+                with pytest.raises(sa.exc.IntegrityError):
+                    with connection.begin_nested():
+                        connection.execute(
+                            statement,
+                            {"instrument": instrument, "count": count,
+                             "start": begin, "end": finish},
+                        )
     finally:
         _reset_migrations(config, postgres_engine)

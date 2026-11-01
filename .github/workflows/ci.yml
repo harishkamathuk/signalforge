@@ -35,6 +35,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://signalforge:signalforge@localhost:5432/signalforge_test
+      SIGNALFORGE_DESTRUCTIVE_MIGRATION_TESTS: "1"
 
     steps:
       - name: Checkout repository
@@ -77,6 +78,60 @@ jobs:
         run: |
           alembic heads
           alembic current
+          alembic check
+
+      - name: Provision disposable migration-test database marker
+        run: |
+          python - <<'PY'
+          import os
+          import sqlalchemy as sa
+          engine = sa.create_engine(os.environ["DATABASE_URL"])
+          with engine.begin() as conn:
+              name, role = conn.execute(sa.text("SELECT current_database(), current_user")).one()
+              assert (name, role) == ("signalforge_test", "signalforge")
+              existing = conn.execute(
+                  sa.text("SELECT description FROM pg_shdescription WHERE objoid = "
+                          "(SELECT oid FROM pg_database WHERE datname = current_database()) "
+                          "AND classoid = 'pg_database'::regclass")
+              ).scalar_one_or_none()
+              assert existing is None, "Test database was not freshly provisioned"
+              conn.execute(
+                  sa.text("COMMENT ON DATABASE signalforge_test IS "
+                          "'signalforge:disposable-migration-tests:v1'")
+              )
+          PY
+
+      - name: Prove migration tests reject unmarked database
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sqlalchemy as sa
+          engine = sa.create_engine(os.environ["DATABASE_URL"])
+          with engine.begin() as conn:
+              conn.execute(sa.text("COMMENT ON DATABASE signalforge_test IS NULL"))
+          result = subprocess.run(
+              ["python", "-m", "pytest", "-q",
+               "tests/integration/persistence/test_migrations.py",
+               "-k", "test_alembic_head_creates_canonical_runtime_schema"],
+              capture_output=True, text=True, check=False,
+              env={**os.environ, "SIGNALFORGE_DESTRUCTIVE_MIGRATION_TESTS": "1"},
+          )
+          assert result.returncode != 0, result.stdout + result.stderr
+          assert "database is missing disposable marker" in result.stdout, (
+              result.stdout + result.stderr
+          )
+          with engine.begin() as conn:
+              revision = conn.execute(
+                  sa.text("SELECT version_num FROM alembic_version")
+              ).scalar_one()
+              assert revision == "20261101_0010", revision
+              conn.execute(
+                  sa.text("COMMENT ON DATABASE signalforge_test IS "
+                          "'signalforge:disposable-migration-tests:v1'")
+              )
+          print("Unmarked database rejected; schema remained at head")
+          PY
 
       - name: Pytest with coverage
         run: pytest --cov=signalforge --cov-report=term-missing
