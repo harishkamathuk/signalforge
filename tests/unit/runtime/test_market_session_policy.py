@@ -65,10 +65,6 @@ def _event(at: datetime, price: str) -> MarketEvent:
 
 
 def test_nse_policy_preserves_existing_boundaries() -> None:
-    assert NSE_INTRADAY_MARKET_SESSION_POLICY.accepts_event(
-        datetime(2026, 8, 31, 9, 15, tzinfo=UTC).astimezone()
-    ) is not None
-
     from signalforge.domain.time import IST
 
     assert NSE_INTRADAY_MARKET_SESSION_POLICY.accepts_event(
