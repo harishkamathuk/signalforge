@@ -174,9 +174,9 @@ class HistoricalDatasetManifest:
     corrupt_rejected_count: int
     corporate_action_policy: CorporateActionPolicy
     limitations: tuple[str, ...] = ()
-    acquisition_evidence: tuple[str, ...] = ()
     grid: HistoricalBarGrid | None = None
     price_basis: HistoricalPriceBasis | None = None
+    acquisition_evidence: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
