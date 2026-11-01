@@ -293,3 +293,51 @@ def test_missing_minute_evidence_is_explicit_and_classified(monkeypatch) -> None
     assert len(evidence) == 2
     assert evidence[0]["classification"] == "unresolved_absence"
     assert evidence[0]["interval_start"] == (start + timedelta(minutes=1)).isoformat()
+
+
+
+def test_offline_verification_is_only_ready_promotion_path(tmp_path, monkeypatch) -> None:
+    from pathlib import Path
+
+    from signalforge.research.historical_bars import load_historical_bar_fixture
+    from signalforge.research.historical_dataset_store import LocalHistoricalDatasetStore
+
+    fixture = (
+        Path(__file__).resolve().parents[3]
+        / "examples/research/historical-bars-one-session.json"
+    )
+    dataset = load_historical_bar_fixture(fixture)
+    store_dir = tmp_path / "store"
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+
+    real_store = LocalHistoricalDatasetStore(store_dir, parquet_min_rows=1)
+    dataset_id = real_store.save(dataset)
+    finalization = {
+        "disposition": acquisition.DeltaResearchDisposition.PENDING_OFFLINE_VERIFICATION.value,
+        "dataset_id": str(dataset_id),
+        "offline_verification_required": True,
+    }
+    (evidence_dir / "sf088-finalization-report.json").write_text(
+        json.dumps(finalization),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        acquisition,
+        "LocalHistoricalDatasetStore",
+        lambda root: LocalHistoricalDatasetStore(root, parquet_min_rows=1),
+    )
+
+    report = acquisition.verify_sf088_offline(
+        evidence_dir=evidence_dir,
+        store_dir=store_dir,
+        dataset_id=dataset_id,
+    )
+
+    assert report["disposition"] == (
+        acquisition.DeltaResearchDisposition.READY.value
+    )
+    assert report["offline_verification_required"] is False
+    assert (evidence_dir / "sf088-offline-verification.json").exists()
+    assert (evidence_dir / "sf088-final-report.json").exists()
