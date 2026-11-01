@@ -14,6 +14,7 @@ from signalforge.research.backtest import (
     BacktestTradeResult,
 )
 from signalforge.research.contracts import ExperimentDefinition
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.replay import ReplaySource
 
 
@@ -43,8 +44,16 @@ class ExperimentResult:
 class ResearchOrchestrator:
     """Run each explicit-universe instrument independently and aggregate evidence."""
 
-    def __init__(self, *, registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY) -> None:
-        self._runner = BacktestRunner(registry=registry)
+    def __init__(
+        self,
+        *,
+        market_session_policy: MarketSessionPolicy,
+        registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY,
+    ) -> None:
+        self._runner = BacktestRunner(
+            registry=registry,
+            market_session_policy=market_session_policy,
+        )
 
     def run(
         self,
