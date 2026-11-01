@@ -14,7 +14,11 @@ from signalforge.domain.ids import (
 from signalforge.domain.instruments import TickSizeRule, TickSizeSchedule
 from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.provenance import (
+    MarketSessionPolicyIdentity,
+    RunIdentity,
+    StrategyIdentity,
+)
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
 from signalforge.research.backtest import BacktestRunner
@@ -29,11 +33,23 @@ INSTRUMENT = InstrumentId("TEST:ASSET")
 
 
 class _SyntheticSessionPolicy:
+    @property
+    def identity(self) -> MarketSessionPolicyIdentity:
+        return MarketSessionPolicyIdentity("synthetic_utc", "1.0.0")
+
     def accepts_event(self, at: datetime) -> bool:
         return at.hour == 3
 
+    def trading_date(self, at: datetime) -> date:
+        return at.astimezone(UTC).date()
+
     def compulsory_exit_at(self, at: datetime) -> datetime:
-        return at.replace(hour=3, minute=2, second=0, microsecond=0)
+        return at.astimezone(UTC).replace(
+            hour=3,
+            minute=2,
+            second=0,
+            microsecond=0,
+        )
 
 
 def _run() -> RunIdentity:
@@ -76,9 +92,11 @@ def test_nse_policy_preserves_existing_boundaries() -> None:
     assert not NSE_INTRADAY_MARKET_SESSION_POLICY.accepts_event(
         datetime(2026, 8, 31, 9, 14, tzinfo=IST)
     )
-    assert NSE_INTRADAY_MARKET_SESSION_POLICY.compulsory_exit_at(
-        datetime(2026, 8, 31, 10, 0, tzinfo=IST)
-    ) == datetime(2026, 8, 31, 15, 15, tzinfo=IST)
+    at = datetime(2026, 8, 31, 10, 0, tzinfo=IST)
+    assert NSE_INTRADAY_MARKET_SESSION_POLICY.trading_date(at) == date(2026, 8, 31)
+    assert NSE_INTRADAY_MARKET_SESSION_POLICY.compulsory_exit_at(at) == datetime(
+        2026, 8, 31, 15, 15, tzinfo=IST
+    )
 
 
 def test_backtest_input_validation_uses_injected_policy_not_nse_constants() -> None:
