@@ -594,3 +594,75 @@ def test_sf089_upgrade_backfills_existing_runs_with_nse_policy(
         }
     finally:
         _reset_migrations(config, postgres_engine)
+
+
+def test_sf095_indicator_checkpoint_schema_matches_metadata(postgres_engine: Engine) -> None:
+    """The migrated schema matches the canonical checkpoint width and checks."""
+    from sqlalchemy import String
+
+    inspector = sa.inspect(postgres_engine)
+    columns = {item["name"]: item for item in inspector.get_columns("indicator_checkpoints")}
+    column_type = columns["continuity_state"]["type"]
+    assert isinstance(column_type, String)
+    assert column_type.length == 64
+
+    checks = {
+        item["name"]: item["sqltext"]
+        for item in inspector.get_check_constraints("indicator_checkpoints")
+    }
+    assert "ck_indicator_interval_presence" in checks
+    assert "completed_candle_count" in checks["ck_indicator_interval_presence"]
+    assert "last_interval_start" in checks["ck_indicator_interval_presence"]
+    assert "last_interval_end" in checks["ck_indicator_interval_presence"]
+
+    metadata_checks = {
+        constraint.name
+        for constraint in IndicatorCheckpointRecord.__table__.constraints
+        if isinstance(constraint, sa.CheckConstraint)
+    }
+    assert "ck_indicator_interval_presence" in metadata_checks
+
+
+def test_sf095_existing_rows_survive_width_upgrade(postgres_engine: Engine) -> None:
+    """Migrating from 0009 does not rewrite or discard existing run/trade records."""
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20261101_0009")
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES (:config, :strategy, :version, :hash)"
+                ),
+                {
+                    "config": "sf095-preservation-config",
+                    "strategy": "intraday_momentum_v1",
+                    "version": "1.0.0",
+                    "hash": "f" * 64,
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs "
+                    "(run_id, config_id, engine_calculation_version, "
+                    "market_session_policy_id, market_session_policy_version) "
+                    "VALUES (:run, :config, 'engine-v1', 'nse_intraday', '1.0.0')"
+                ),
+                {"run": "sf095-preservation-run", "config": "sf095-preservation-config"},
+            )
+
+        command.upgrade(config, "head")
+        with postgres_engine.connect() as connection:
+            row = connection.execute(
+                sa.text(
+                    "SELECT run_id, market_session_policy_id "
+                    "FROM runs WHERE run_id = 'sf095-preservation-run'"
+                )
+            ).one()
+            assert tuple(row) == ("sf095-preservation-run", "nse_intraday")
+
+        command.check(config)
+    finally:
+        _reset_migrations(config, postgres_engine)
