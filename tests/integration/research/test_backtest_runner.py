@@ -20,6 +20,7 @@ from signalforge.research.contracts import (
     InstrumentExecutionDefinition,
     UniverseDefinition,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.replay import (
     InMemoryReplaySource,
     ReplayInput,
@@ -74,6 +75,7 @@ def _experiment(
             events[-1].exchange_timestamp,
         ),
         engine_calculation_version="engine-v1",
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         execution=(
             InstrumentExecutionDefinition(
                 instrument_id=INSTRUMENT,
@@ -96,12 +98,12 @@ def test_v1_golden_backtest_preserves_replay_identity_counts_and_economics() -> 
     events = _events()
     experiment = _experiment(events)
 
-    first = BacktestRunner().run(
+    first = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
         source=_source(events),
     )
-    second = BacktestRunner().run(
+    second = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
         source=_source(events),
@@ -139,12 +141,12 @@ def test_v1_golden_backtest_preserves_replay_identity_counts_and_economics() -> 
 
 def test_research_identity_scopes_execution_variants_without_changing_legacy_run_id() -> None:
     events = _events()
-    coarse = BacktestRunner().run(
+    coarse = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=_experiment(events, tick_size="0.10"),
         instrument_id=INSTRUMENT,
         source=_source(events),
     )
-    fine = BacktestRunner().run(
+    fine = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=_experiment(events, tick_size="0.05"),
         instrument_id=INSTRUMENT,
         source=_source(events),
@@ -172,7 +174,7 @@ def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
         if event.source_event_id == "g-trigger"
     )
     events = all_events[: trigger_index + 1]
-    result = BacktestRunner().run(
+    result = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=_experiment(events),
         instrument_id=INSTRUMENT,
         source=_source(events),
@@ -193,7 +195,7 @@ def test_backtest_surfaces_open_incomplete_trade_explicitly() -> None:
 def test_backtest_accepts_replay_source_protocol_directly() -> None:
     events = _events()
     source = _source(events)
-    result = BacktestRunner().run(
+    result = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=_experiment(events),
         instrument_id=INSTRUMENT,
         source=source,
@@ -222,7 +224,7 @@ def test_historical_backtest_does_not_fabricate_live_feed_state(
         capture_feed_state,
     )
 
-    BacktestRunner().run(
+    BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=_experiment(events),
         instrument_id=INSTRUMENT,
         source=_source(events),
@@ -236,12 +238,12 @@ def test_rsi_reference_strategy_uses_same_backtest_runner_deterministically() ->
     events = _events()
     experiment = _experiment(events, strategy_id="rsi_mean_reversion_v1")
 
-    first = BacktestRunner().run(
+    first = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
         source=_source(events),
     )
-    second = BacktestRunner().run(
+    second = BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
         experiment=experiment,
         instrument_id=INSTRUMENT,
         source=_source(events),
@@ -268,7 +270,7 @@ def test_backtest_rejects_off_session_history_before_business_logic() -> None:
     events = (off_session, *regular)
 
     with pytest.raises(ValueError, match="outside the canonical NSE regular-session"):
-        BacktestRunner().run(
+        BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
             experiment=_experiment(events),
             instrument_id=INSTRUMENT,
             source=_source(events),
@@ -279,7 +281,7 @@ def test_backtest_rejects_market_data_that_contradicts_dataset_source() -> None:
     events = _events()
 
     with pytest.raises(ValueError, match="dataset source_id"):
-        BacktestRunner().run(
+        BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
             experiment=_experiment(events, source_id="not-the-source"),
             instrument_id=INSTRUMENT,
             source=_source(events),
@@ -317,7 +319,7 @@ def test_backtest_rejects_source_identity_event_count_mismatch() -> None:
     )
 
     with pytest.raises(ValueError, match="event_count contradicts"):
-        BacktestRunner().run(
+        BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
             experiment=_experiment(events),
             instrument_id=INSTRUMENT,
             source=source,
@@ -349,7 +351,7 @@ def test_backtest_rejects_event_outside_experiment_range() -> None:
     )
 
     with pytest.raises(ValueError, match="outside experiment dataset range"):
-        BacktestRunner().run(
+        BacktestRunner(market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY).run(
             experiment=experiment,
             instrument_id=INSTRUMENT,
             source=source,
