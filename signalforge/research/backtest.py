@@ -298,6 +298,11 @@ class BacktestRunner:
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
             if not self._market_session_policy.accepts_event(event.exchange_timestamp):
+                if self._market_session_policy is NSE_INTRADAY_MARKET_SESSION_POLICY:
+                    raise ValueError(
+                        "Backtest market event falls outside the canonical NSE "
+                        "regular-session input window"
+                    )
                 raise ValueError(
                     "Backtest market event falls outside the configured market-session "
                     "input window"
