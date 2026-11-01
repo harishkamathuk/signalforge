@@ -75,6 +75,23 @@ def postgres_engine() -> Iterator[Engine]:
         )
     engine = sa.create_engine(database_url)
     try:
+        # Database-owned opt-in is set only by the CI provisioning step.
+        # The test runner must never create or repair this marker.
+        with engine.connect() as connection:
+            marker = connection.execute(
+                sa.text(
+                    "SELECT description FROM pg_shdescription "
+                    "WHERE objoid = (SELECT oid FROM pg_database "
+                    "WHERE datname = current_database()) AND classoid = 'pg_database'::regclass"
+                )
+            ).scalar_one_or_none()
+            actual = connection.execute(
+                sa.text("SELECT current_database(), current_user")
+            ).one()
+        if actual[0] != "signalforge_test" or actual[1] != "signalforge":
+            pytest.fail("Destructive tests rejected: unexpected database identity or role")
+        if marker != "signalforge:disposable-migration-tests:v1":
+            pytest.fail("Destructive tests rejected: database is missing disposable marker")
         yield engine
     finally:
         engine.dispose()
