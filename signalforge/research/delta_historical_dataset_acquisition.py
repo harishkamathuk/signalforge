@@ -604,7 +604,7 @@ def finalize_sf088_dataset(
         total_size = legacy_path.stat().st_size
         representation = "legacy-json"
 
-    report = {
+    report: dict[str, object] = {
         "disposition": disposition.value,
         "dataset_id": str(dataset_id),
         "instrument_id": str(SF088_INSTRUMENT_ID),
