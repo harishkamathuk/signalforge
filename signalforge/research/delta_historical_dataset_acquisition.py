@@ -472,6 +472,10 @@ def acquire_sf088_pass(
                     "end": chunk.provider_end,
                 },
             )
+        # Preserve first-seen raw evidence even if semantic/structural parsing
+        # fails. An incomplete raw/meta pair then fails closed on restart.
+        if evidence_only:
+            _write_once(raw_path, response.content)
         candles = parse_delta_candles_response(response)
         summary = summarize_delta_candles(candles, tick_size=product.tick_size)
         if not summary.exact_minute_aligned:
@@ -499,7 +503,8 @@ def acquire_sf088_pass(
             request_url=response.request_url,
             acquired_at=response.acquired_at,
         )
-        _write_once(raw_path, response.content)
+        if not evidence_only:
+            _write_once(raw_path, response.content)
         _write_json_once(meta_path, _chunk_meta_payload(captured))
         captured_chunks.append(captured)
 
