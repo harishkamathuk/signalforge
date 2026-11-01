@@ -353,7 +353,14 @@ def test_evidence_only_captures_missing_metadata_without_canonical_store(
             }
         raw = json.dumps(body, separators=(",", ":")).encode()
         return DeltaRawCapture(
-            request_url=f"https://api.india.delta.exchange{path}",
+            request_url=(
+                f"https://api.india.delta.exchange{path}"
+                + (
+                    f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+                    if params is not None
+                    else ""
+                )
+            ),
             acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
             content_sha256=hashlib.sha256(raw).hexdigest(),
             content=raw,
