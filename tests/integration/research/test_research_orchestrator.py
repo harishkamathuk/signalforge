@@ -240,11 +240,24 @@ def test_complete_research_path_uses_alternate_market_session_policy() -> None:
         execution=(_execution(A),),
     )
 
+    nse_experiment = ExperimentDefinition.create(
+        strategy_selection=StrategySelection("intraday_momentum_v1", "1.0.0", {}),
+        universe=UniverseDefinition((A,)),
+        dataset=DatasetDefinition(
+            (DatasetSourceDefinition(A, source_a.identity.source_id),),
+            events[0].exchange_timestamp,
+            events[-1].exchange_timestamp,
+        ),
+        engine_calculation_version="engine-v1",
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+        execution=(_execution(A),),
+    )
     result = ResearchOrchestrator(market_session_policy=policy).run(
         experiment=experiment,
         sources={A: source_a},
     )
 
+    assert experiment.experiment_id != nse_experiment.experiment_id
     assert result.experiment_id == experiment.experiment_id
     assert experiment.market_session_policy == policy.identity
     assert result.instrument_results[0].run.market_session_policy == policy.identity
