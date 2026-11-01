@@ -26,6 +26,7 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresStrategyDecisionRepository,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
@@ -289,6 +290,7 @@ def test_live_runtime_persistence_failure_rolls_back_and_becomes_terminal(
             tick_schedule=schedule,
             quantity=Quantity(10),
             strategy=strategy,
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         ),
         strategy=strategy,
         session_factory=lambda: Session(postgres_engine),
