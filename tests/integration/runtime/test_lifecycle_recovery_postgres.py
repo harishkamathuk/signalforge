@@ -47,11 +47,11 @@ from signalforge.persistence.repositories import (
     PostgresSignalRepository,
     PostgresStateTransitionRepository,
 )
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
