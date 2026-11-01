@@ -376,14 +376,15 @@ def test_evidence_only_captures_missing_metadata_without_canonical_store(
     ]
     assert report["canonical_dataset_published"] is False
     assert len(requests) == 6
-    assert (evidence / "evidence-only" / "pass-1" / "chunk-000000.json").exists()
+    assert (evidence / "evidence-only" / "generation-0001" / "pass-1" / "chunk-000000.json").exists()
     assert not (evidence / "sf088-finalization-report.json").exists()
+    assert not (evidence / "evidence-only" / "generation-0001" / "sf088-finalization-report.json").exists()
 
     requests.clear()
     assert acquisition.acquire_sf088_evidence_only(evidence_dir=evidence) == report
     assert requests == []
 
-    raw_path = evidence / "evidence-only" / "pass-1" / "chunk-000000.json"
+    raw_path = evidence / "evidence-only" / "generation-0001" / "pass-1" / "chunk-000000.json"
     raw_path.write_bytes(raw_path.read_bytes() + b" ")
     with pytest.raises(ValueError, match="raw chunk digest mismatch"):
         acquisition.acquire_sf088_evidence_only(evidence_dir=evidence)
@@ -497,3 +498,102 @@ def test_evidence_only_retains_malformed_source_bytes_without_qualification(
             chunk_plan=plan,
             evidence_only=True,
         )
+
+
+def test_evidence_only_distinct_generations_and_offline_guard(
+    tmp_path, monkeypatch
+) -> None:
+    """Separate immutable generations and reject missing timestamps without network."""
+    start = acquisition.SF088_START
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=start + timedelta(minutes=1), chunk_minutes=1
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=1))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 1)
+
+    def source(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            body = {"success": True, "result": [{
+                "time": int(params["start"]),
+                "open": "65000", "high": "65000",
+                "low": "65000", "close": "65000", "volume": "1",
+            }]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(body).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", source)
+    root = tmp_path / "evidence"
+    first = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=root, generation="first"
+    )
+    second = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=root, generation="second"
+    )
+    assert first["generation_namespace"] == "first"
+    assert second["generation_namespace"] == "second"
+    assert (root / "evidence-only" / "first" / "pass-1" / "product.json").exists()
+    assert (root / "evidence-only" / "second" / "pass-1" / "product.json").exists()
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("offline handoff must never access provider")
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", no_network)
+    with pytest.raises(ValueError, match="created_at/updated_at"):
+        acquisition.qualify_sf088_evidence_offline(
+            evidence_dir=root, store_dir=tmp_path / "store", generation="first"
+        )
+    assert not (tmp_path / "store").exists()
+
+
+def test_evidence_only_rejects_provider_digest_mismatch(tmp_path, monkeypatch) -> None:
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+
+    def mismatched(path, *, params=None, **kwargs):
+        del kwargs, params
+        return DeltaRawCapture(
+            request_url="https://api.india.delta.exchange" + path,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256="0" * 64,
+            content=b'{"success":true,"result":{}}',
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", mismatched)
+    with pytest.raises(ValueError, match="digest contradicts raw bytes"):
+        acquisition.acquire_sf088_pass(
+            output_dir=tmp_path, pass_name="pass-1",
+            chunk_plan=plan, evidence_only=True
+        )
+    assert not (tmp_path / "pass-1" / "product.json").exists()
+
+
+def test_evidence_only_generation_name_rejects_traversal(tmp_path) -> None:
+    for name in ("", "../escape", "foo/bar", ".", ".."):
+        with pytest.raises(ValueError, match="generation"):
+            acquisition._evidence_generation_directory(tmp_path, name)
