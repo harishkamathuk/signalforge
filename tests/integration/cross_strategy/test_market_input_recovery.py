@@ -19,6 +19,7 @@ from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST
 from signalforge.persistence.repositories import PostgresRunProvenanceRepository
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_rsi_mean_reversion_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
@@ -168,6 +169,7 @@ def test_reference_strategy_uses_same_forming_candle_recovery_path(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
