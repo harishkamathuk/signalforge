@@ -350,6 +350,8 @@ def _run_identity(
         strategy.identity.strategy_version,
         identity.config_hash,
         config.engine_calculation_version,
+        NSE_INTRADAY_MARKET_SESSION_POLICY.identity.policy_id,
+        NSE_INTRADAY_MARKET_SESSION_POLICY.identity.policy_version,
     )
     return RunIdentity(
         run_id=run_id,
@@ -357,6 +359,7 @@ def _run_identity(
         config_id=identity.config_id,
         config_hash=identity.config_hash,
         engine_calculation_version=config.engine_calculation_version,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY.identity,
     )
 
 
