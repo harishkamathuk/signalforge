@@ -70,6 +70,7 @@ from signalforge.runtime.live_runtime import (
     LiveRuntimeError,
     LiveRuntimeReconciliationRequired,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.prepared_indicators import (
     PreparationOutcome,
     PreparedStateError,
@@ -715,6 +716,7 @@ class LivePaperRunner:
             tick_schedule=prepared.reference.tick_size_schedule,
             quantity=Quantity(prepared.config.quantity),
             strategy=prepared.strategy,
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
             session_factory=lambda: Session(prepared.engine),
             decision_projector=_decision_projector(prepared.strategy),
             evaluation_context_factory=facts,
