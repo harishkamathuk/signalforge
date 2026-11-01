@@ -598,3 +598,74 @@ def test_evidence_only_generation_name_rejects_traversal(tmp_path) -> None:
     for name in ("", "../escape", "foo/bar", ".", ".."):
         with pytest.raises(ValueError, match="generation"):
             acquisition._evidence_generation_directory(tmp_path, name)
+
+
+def test_evidence_only_offline_handoff_uses_captured_bytes_without_network(
+    tmp_path, monkeypatch
+) -> None:
+    """A historically applicable snapshot can qualify retained evidence offline."""
+    start = acquisition.SF088_START
+    end = start + timedelta(minutes=5)
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=end, chunk_minutes=5
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", end)
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 5)
+
+    def source(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            payload = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                    "created_at": "2023-12-18T13:10:39Z",
+                    "updated_at": "2024-11-15T02:47:50Z",
+                    "underlying_asset": {"symbol": "BTC"},
+                    "quoting_asset": {"symbol": "USD"},
+                    "settling_asset": {"symbol": "USD"},
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            epoch = int(params["start"])
+            payload = {"success": True, "result": [
+                {
+                    "time": epoch + minute * 60,
+                    "open": "65000.0", "high": "65000.5",
+                    "low": "64999.5", "close": "65000.0", "volume": "2",
+                } for minute in range(5)
+            ]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", source)
+    evidence = tmp_path / "evidence"
+    acquisition.acquire_sf088_evidence_only(evidence_dir=evidence, generation="qualified")
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("offline handoff attempted provider access")
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", blocked)
+    report = acquisition.qualify_sf088_evidence_offline(
+        evidence_dir=evidence,
+        store_dir=tmp_path / "store",
+        generation="qualified",
+    )
+    assert report["canonical_rows"] == 5
+    assert report["same_process_round_trip_pass"] is True
+    assert report["offline_verification_required"] is True
