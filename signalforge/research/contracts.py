@@ -15,7 +15,11 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.ids import DatasetId, ExperimentId, InstrumentId, UniverseId
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.money import Quantity
-from signalforge.domain.provenance import MarketSessionPolicyIdentity, StrategyIdentity
+from signalforge.domain.provenance import (
+    LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY,
+    MarketSessionPolicyIdentity,
+    StrategyIdentity,
+)
 from signalforge.domain.time import to_utc
 from signalforge.runtime.market_session import MarketSessionPolicy
 
@@ -193,21 +197,21 @@ class ExperimentDefinition:
             )
 
         config_identity = strategy.config_identity
-        digest = config_hash(
-            {
-                "strategy_id": strategy.identity.strategy_id,
-                "strategy_version": strategy.identity.strategy_version,
-                "config_hash": config_identity.config_hash,
-                "universe_id": str(universe.universe_id),
-                "dataset_id": str(dataset.dataset_id),
-                "engine_calculation_version": engine_calculation_version,
-                "market_session_policy": {
-                    "policy_id": market_session_policy.identity.policy_id,
-                    "policy_version": market_session_policy.identity.policy_version,
-                },
-                "execution": [item.semantic_mapping() for item in ordered_execution],
+        identity_material: dict[str, object] = {
+            "strategy_id": strategy.identity.strategy_id,
+            "strategy_version": strategy.identity.strategy_version,
+            "config_hash": config_identity.config_hash,
+            "universe_id": str(universe.universe_id),
+            "dataset_id": str(dataset.dataset_id),
+            "engine_calculation_version": engine_calculation_version,
+            "execution": [item.semantic_mapping() for item in ordered_execution],
+        }
+        if market_session_policy.identity != LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY:
+            identity_material["market_session_policy"] = {
+                "policy_id": market_session_policy.identity.policy_id,
+                "policy_version": market_session_policy.identity.policy_version,
             }
-        )
+        digest = config_hash(identity_material)
         return cls(
             experiment_id=ExperimentId(digest),
             strategy_selection=strategy_selection,
