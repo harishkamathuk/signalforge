@@ -619,6 +619,19 @@ def parse_historical_bar_fixture_json(
     payload = json.loads(content)
     if not isinstance(payload, dict):
         raise ValueError("Historical fixture root must be an object")
+    return parse_historical_bar_storage_payload(
+        payload,
+        canonical_storage=canonical_storage,
+    )
+
+
+def parse_historical_bar_storage_payload(
+    payload: Mapping[str, object],
+    *,
+    canonical_storage: bool = False,
+) -> HistoricalBarDataset:
+    """Parse an already-materialized canonical historical storage payload."""
+
     manifest_raw = _mapping(payload.get("manifest"), "manifest")
     bars_raw = payload.get("bars")
     if not isinstance(bars_raw, list):
