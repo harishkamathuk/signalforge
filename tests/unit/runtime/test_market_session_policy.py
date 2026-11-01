@@ -175,3 +175,68 @@ def test_position_manager_uses_injected_compulsory_exit_boundary() -> None:
 
     assert exit_fact is not None
     assert exit_fact.reason is ExitReason.FORCED_SESSION_EXIT
+
+
+
+def test_position_manager_uses_policy_trading_date_for_tick_rule() -> None:
+    policy = _SyntheticSessionPolicy()
+    at = datetime(2026, 8, 31, 23, 30, tzinfo=UTC)
+    run = RunIdentity(
+        run_id=RunId("run-sf089-date"),
+        strategy=StrategyIdentity("test_strategy", "1.0.0"),
+        config_id=ConfigId("config-sf089-date"),
+        config_hash="hash-sf089-date",
+        engine_calculation_version="engine-v1",
+        market_session_policy=policy.identity,
+    )
+    signal = Signal.create(
+        instrument_id=INSTRUMENT,
+        interval=CandleInterval(
+            start=at - timedelta(minutes=1),
+            end=at,
+        ),
+        signal_close=Price(Decimal("100")),
+        signal_low=Price(Decimal("99")),
+        run=run,
+        created_at=at,
+    )
+    fill = Fill.create(
+        entry_intent_id=EntryIntentId("intent-sf089-date"),
+        trigger_event_id=TriggerEventId("trigger-sf089-date"),
+        signal_id=signal.signal_id,
+        instrument_id=INSTRUMENT,
+        reference_price=Price(Decimal("100")),
+        fill_price=Price(Decimal("100")),
+        quantity=Quantity(1),
+        execution_mode=ExecutionMode.PAPER,
+        filled_at=at,
+        run=run,
+    )
+    schedule = TickSizeSchedule(
+        instrument_id=INSTRUMENT,
+        rules=(
+            TickSizeRule(
+                Price(Decimal("0.01")),
+                date(2026, 8, 31),
+                date(2026, 8, 31),
+            ),
+            TickSizeRule(
+                Price(Decimal("0.05")),
+                date(2026, 9, 1),
+            ),
+        ),
+    )
+    result = PositionManager(
+        tick_schedule=schedule,
+        market_session_policy=policy,
+    ).open_from_fill(
+        fill,
+        signal,
+        PositionEconomics(
+            stop_price=Price(Decimal("99")),
+            raw_target_price=Price(Decimal("110.011")),
+        ),
+    )
+
+    assert result.trade is not None
+    assert result.trade.tradable_target_price == Price(Decimal("110.02"))
