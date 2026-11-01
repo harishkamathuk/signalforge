@@ -12,6 +12,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEven
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.time import IST, CandleInterval
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
@@ -225,6 +226,7 @@ def test_reference_shared_session_safety_preempts_strategy_policy() -> None:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     end = datetime(2026, 8, 31, 15, 10, tzinfo=IST)
     candle = CompletedCandle(
