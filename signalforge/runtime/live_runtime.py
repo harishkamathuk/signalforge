@@ -126,7 +126,6 @@ class LiveRuntime:
         indicator_engine: IndicatorEngine,
         lifecycle: LifecycleCoordinator,
         strategy: Strategy,
-        market_session_policy: MarketSessionPolicy,
         session_factory: SessionFactory,
         decision_projector: DecisionProjector,
         evaluation_context_factory: EvaluationContextFactory,
