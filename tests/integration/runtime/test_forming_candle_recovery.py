@@ -200,6 +200,7 @@ def _runtime(
         candle_engine=candle_engine,
         indicator_engine=indicator_engine,
         lifecycle=lifecycle,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -260,6 +261,7 @@ def _recover_runtime(
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
         checkpoint=market_checkpoint,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -287,6 +289,7 @@ def test_trigger_open_and_exit_survive_restart_without_duplicate_market_effects(
         runtime=runtime,
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     inputs = tuple(source)
 
@@ -425,6 +428,7 @@ def test_boundary_signal_creation_then_next_input_opens_through_successive_commi
         runtime=_runtime(source=source, run=run, strategy=strategy),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     first = durable.process_input(inputs[0])
@@ -528,6 +532,7 @@ def test_mid_candle_restart_converges_to_exact_completed_candle_and_indicator_st
         runtime=_runtime(source=source, run=run, strategy=strategy),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     inputs = tuple(source)
     for item in inputs[:3]:
@@ -588,6 +593,7 @@ def test_persistence_failure_terminalizes_mutated_runtime_and_rolls_back_checkpo
         runtime=_runtime(source=source, run=run, strategy=strategy),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     inputs = tuple(source)
     with pytest.raises(RuntimeError, match="injected"):
@@ -653,6 +659,7 @@ def _recover_without_market_checkpoint(
         runtime=runtime,
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -694,6 +701,7 @@ def test_trigger_open_input_commit_rolls_back_as_one_unit_and_retries(
         ),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     first_input = tuple(source)[0]
 
@@ -794,6 +802,7 @@ def test_exit_input_commit_rolls_back_as_one_unit_and_retries(
         ),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     inputs = tuple(source)
     opened = durable.process_input(inputs[0])
@@ -876,6 +885,7 @@ def test_boundary_input_commit_rolls_back_indicator_decision_and_checkpoint(
         runtime=_runtime(source=source, run=run, strategy=strategy),
         session_factory=lambda: Session(postgres_engine),
         decision_projector=project_v1_decision,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     for item in inputs[:3]:
         durable.process_input(item)
