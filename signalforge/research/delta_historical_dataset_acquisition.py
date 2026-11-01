@@ -54,6 +54,7 @@ class DeltaResearchDisposition(StrEnum):
     """SF-088 dataset-readiness outcomes."""
 
     READY = "READY_FOR_BTC_STRATEGY_RESEARCH"
+    PENDING_OFFLINE_VERIFICATION = "PENDING_OFFLINE_VERIFICATION"
     PARTIAL = "PARTIAL"
     BLOCKED = "BLOCKED"
 
@@ -494,6 +495,37 @@ def _load_pass_candles(
     return tuple(candles)
 
 
+def _missing_minute_evidence(
+    candles: tuple[DeltaCandle, ...],
+) -> list[dict[str, str]]:
+    observed = {item.time for item in candles}
+    evidence: list[dict[str, str]] = []
+    cursor = SF088_START
+    while cursor < SF088_END:
+        epoch = int(cursor.timestamp())
+        if epoch not in observed:
+            evidence.append(
+                {
+                    "interval_start": cursor.isoformat(),
+                    "classification": "unresolved_absence",
+                }
+            )
+        cursor += timedelta(minutes=1)
+    return evidence
+
+
+def _storage_content_manifest_sha256(
+    *,
+    store_dir: Path,
+    dataset_id: DatasetId,
+) -> str:
+    directory = store_dir / str(dataset_id)
+    path = directory / "content-manifest.json"
+    if not path.is_file():
+        raise ValueError("SF-088 requires the Parquet content manifest for offline evidence")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _acquisition_run_manifest(
     *,
     first: DeltaAcquisitionPass,
@@ -557,6 +589,20 @@ def finalize_sf088_dataset(
         _write_json_once(manifest_path, run_manifest)
 
     candles = _load_pass_candles(output_dir=evidence_dir, acquisition_pass=first)
+    missing_evidence = _missing_minute_evidence(candles)
+    missing_evidence_payload: dict[str, object] = {
+        "classification_contract": "sf088-missing-minute-v1",
+        "missing_intervals": missing_evidence,
+    }
+    missing_evidence_sha256 = _sha256_json(missing_evidence_payload)
+    missing_evidence_path = evidence_dir / "missing-minute-evidence.json"
+    if missing_evidence_path.exists():
+        existing = json.loads(missing_evidence_path.read_text(encoding="utf-8"))
+        if existing != missing_evidence_payload:
+            raise ValueError("existing SF-088 missing-minute evidence differs")
+    else:
+        _write_json_once(missing_evidence_path, missing_evidence_payload)
+
     dataset = canonicalize_delta_one_minute(
         candles=candles,
         product=first.product,
@@ -573,9 +619,11 @@ def finalize_sf088_dataset(
         manifest=replace(
             dataset.manifest,
             limitations=dataset.manifest.limitations
+            + (f"source_metadata_schedule_sha256={metadata_schedule_sha256}",),
+            acquisition_evidence=dataset.manifest.acquisition_evidence
             + (
-                f"source_metadata_schedule_sha256={metadata_schedule_sha256}",
                 f"source_acquisition_run_manifest_sha256={run_manifest_sha256}",
+                f"source_missing_minute_evidence_sha256={missing_evidence_sha256}",
             ),
         ),
     )
@@ -583,7 +631,7 @@ def finalize_sf088_dataset(
     duplicate_count = dataset.manifest.duplicate_observation_count
     missing_count = dataset.manifest.missing_interval_count
     disposition = (
-        DeltaResearchDisposition.READY
+        DeltaResearchDisposition.PENDING_OFFLINE_VERIFICATION
         if duplicate_count == 0 and missing_count == 0
         else DeltaResearchDisposition.PARTIAL
     )
@@ -622,14 +670,17 @@ def finalize_sf088_dataset(
         "duplicate_observations": duplicate_count,
         "metadata_schedule_sha256": metadata_schedule_sha256,
         "acquisition_run_manifest_sha256": run_manifest_sha256,
+        "missing_minute_evidence_sha256": missing_evidence_sha256,
+        "missing_minute_evidence_count": len(missing_evidence),
         "storage_representation": representation,
         "manifest_size_bytes": manifest_size,
         "parquet_size_bytes": parquet_size,
         "total_stored_size_bytes": total_size,
         "derived_five_minute_candles": len(derived),
-        "offline_reload_pass": True,
+        "same_process_round_trip_pass": True,
+        "offline_verification_required": True,
     }
-    report_path = evidence_dir / "sf088-final-report.json"
+    report_path = evidence_dir / "sf088-finalization-report.json"
     if report_path.exists():
         existing = json.loads(report_path.read_text(encoding="utf-8"))
         if existing != report:
@@ -641,20 +692,74 @@ def finalize_sf088_dataset(
 
 def verify_sf088_offline(
     *,
+    evidence_dir: Path,
     store_dir: Path,
     dataset_id: DatasetId,
 ) -> dict[str, object]:
-    """Load and verify a frozen dataset without any provider access."""
+    """Verify frozen local content and emit the only evidence that can promote READY."""
+
+    finalization_path = evidence_dir / "sf088-finalization-report.json"
+    if not finalization_path.is_file():
+        raise ValueError("SF-088 finalization report is required before offline verification")
+    finalization = json.loads(finalization_path.read_text(encoding="utf-8"))
+    if not isinstance(finalization, dict):
+        raise ValueError("SF-088 finalization report must be an object")
+    if finalization.get("dataset_id") != str(dataset_id):
+        raise ValueError("SF-088 offline dataset ID contradicts finalization evidence")
 
     dataset = LocalHistoricalDatasetStore(store_dir).load(dataset_id)
     derived = aggregate_one_minute_to_five_minute(dataset)
-    return {
+    content_manifest_sha256 = _storage_content_manifest_sha256(
+        store_dir=store_dir,
+        dataset_id=dataset_id,
+    )
+    verification: dict[str, object] = {
+        "verification_contract": "sf088-offline-verification-v1",
         "dataset_id": str(dataset.dataset_id),
+        "storage_content_manifest_sha256": content_manifest_sha256,
         "canonical_rows": dataset.manifest.canonical_row_count,
         "missing_minutes": dataset.manifest.missing_interval_count,
         "derived_five_minute_candles": len(derived),
         "offline_reload_pass": True,
+        "provider_access_performed": False,
     }
+    verification_path = evidence_dir / "sf088-offline-verification.json"
+    if verification_path.exists():
+        existing = json.loads(verification_path.read_text(encoding="utf-8"))
+        if existing != verification:
+            raise ValueError("existing SF-088 offline verification evidence differs")
+    else:
+        _write_json_once(verification_path, verification)
+
+    preliminary = str(finalization.get("disposition"))
+    if (
+        preliminary == DeltaResearchDisposition.PENDING_OFFLINE_VERIFICATION.value
+        and dataset.manifest.missing_interval_count == 0
+        and dataset.manifest.duplicate_observation_count == 0
+    ):
+        disposition = DeltaResearchDisposition.READY
+    elif preliminary == DeltaResearchDisposition.PARTIAL.value:
+        disposition = DeltaResearchDisposition.PARTIAL
+    else:
+        raise ValueError("SF-088 finalization disposition cannot be promoted offline")
+
+    final_report: dict[str, object] = dict(finalization)
+    final_report.update(
+        {
+            "disposition": disposition.value,
+            "offline_verification_required": False,
+            "offline_verification_sha256": _sha256_json(verification),
+            "storage_content_manifest_sha256": content_manifest_sha256,
+        }
+    )
+    final_report_path = evidence_dir / "sf088-final-report.json"
+    if final_report_path.exists():
+        existing = json.loads(final_report_path.read_text(encoding="utf-8"))
+        if existing != final_report:
+            raise ValueError("existing SF-088 final report differs")
+    else:
+        _write_json_once(final_report_path, final_report)
+    return final_report
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -669,6 +774,7 @@ def _parser() -> argparse.ArgumentParser:
     acquire.add_argument("--store-dir", type=Path, required=True)
 
     verify = subparsers.add_parser("verify-offline")
+    verify.add_argument("--evidence-dir", type=Path, required=True)
     verify.add_argument("--store-dir", type=Path, required=True)
     verify.add_argument("--dataset-id", required=True)
     return parser
@@ -680,6 +786,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "verify-offline":
         report = verify_sf088_offline(
+            evidence_dir=args.evidence_dir,
             store_dir=args.store_dir,
             dataset_id=DatasetId(args.dataset_id),
         )
