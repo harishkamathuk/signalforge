@@ -235,6 +235,7 @@ def test_failed_new_live_activation_rolls_back_run_provenance(
                 continuity=IndicatorContinuity.HEALTHY,
                 feed_state=MarketDataFeedState.HEALTHY,
             ),
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         )
 
     with Session(postgres_engine) as session:
