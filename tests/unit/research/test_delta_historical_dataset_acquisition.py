@@ -669,3 +669,75 @@ def test_evidence_only_offline_handoff_uses_captured_bytes_without_network(
     assert report["canonical_rows"] == 5
     assert report["same_process_round_trip_pass"] is True
     assert report["offline_verification_required"] is True
+
+
+def test_evidence_only_changed_product_keeps_conflicting_generation(
+    tmp_path, monkeypatch
+) -> None:
+    """Provider revisions preserve both passes; a fresh generation can proceed."""
+    start = acquisition.SF088_START
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=start + timedelta(minutes=1), chunk_minutes=1
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=1))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 1)
+    state = {"product_calls": 0, "changing": True}
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            state["product_calls"] += 1
+            changing = state["changing"] and state["product_calls"] % 2 == 0
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.002" if changing else "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            body = {"success": True, "result": [{
+                "time": int(params["start"]),
+                "open": "65000", "high": "65000",
+                "low": "65000", "close": "65000", "volume": "1",
+            }]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(body).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    evidence = tmp_path / "evidence"
+    with pytest.raises(ValueError, match="product semantics changed"):
+        acquisition.acquire_sf088_evidence_only(
+            evidence_dir=evidence, generation="conflicting"
+        )
+    old_first = (
+        evidence / "evidence-only" / "conflicting" / "pass-1" / "product.json"
+    )
+    old_second = (
+        evidence / "evidence-only" / "conflicting" / "pass-2" / "product.json"
+    )
+    original_bytes = (old_first.read_bytes(), old_second.read_bytes())
+    with pytest.raises(ValueError, match="product semantics changed"):
+        acquisition.acquire_sf088_evidence_only(
+            evidence_dir=evidence, generation="conflicting"
+        )
+    state["changing"] = False
+    report = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=evidence, generation="replacement"
+    )
+    assert report["disposition"] == "UNQUALIFIED_SOURCE_EVIDENCE"
+    assert (old_first.read_bytes(), old_second.read_bytes()) == original_bytes
