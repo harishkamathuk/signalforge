@@ -497,7 +497,19 @@ def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
         for field in ("created_at", "updated_at")
         if getattr(first.product, field) is None
     ]
+    generation_identity = _sha256_json(
+        {
+            "version": SF088_ACQUISITION_VERSION,
+            "source_origin": first.product.api_origin,
+            "product_semantic_sha256": first.product.semantic_sha256,
+            "frozen_start": SF088_START.isoformat(),
+            "frozen_end": SF088_END.isoformat(),
+            "chunk_identities": [chunk.identity for chunk in plan],
+        }
+    )
     report: dict[str, object] = {
+        "acquisition_generation_identity": generation_identity,
+        "chunk_identities": [chunk.identity for chunk in plan],
         "mode": "EVIDENCE_ONLY",
         "disposition": "UNQUALIFIED_SOURCE_EVIDENCE",
         "historical_metadata_applicability": "UNRESOLVED",
