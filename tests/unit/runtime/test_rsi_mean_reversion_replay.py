@@ -79,6 +79,7 @@ def _runtime(events: tuple[MarketEvent, ...]) -> ReplayRuntime:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_facts,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
