@@ -586,7 +586,7 @@ def test_evidence_only_rejects_provider_digest_mismatch(tmp_path, monkeypatch) -
         )
 
     monkeypatch.setattr(acquisition, "acquire_delta_response", mismatched)
-    with pytest.raises(ValueError, match="digest contradicts raw bytes"):
+    with pytest.raises(ValueError, match="digest does not match content"):
         acquisition.acquire_sf088_pass(
             output_dir=tmp_path, pass_name="pass-1",
             chunk_plan=plan, evidence_only=True
