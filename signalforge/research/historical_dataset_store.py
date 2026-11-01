@@ -402,10 +402,10 @@ class LocalHistoricalDatasetStore:
         self.root.mkdir(parents=True, exist_ok=True)
         try:
             _write_exclusive(path, blob)
-            _write_exclusive(
-                digest_path,
-                (hashlib.sha256(blob).hexdigest() + "\n").encode("ascii"),
-            )
+            with digest_path.open("x", encoding="ascii") as handle:
+                handle.write(hashlib.sha256(blob).hexdigest() + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
             _fsync_directory(self.root)
         except FileExistsError as exc:
             raise HistoricalDatasetStoreError("concurrent/conflicting dataset write") from exc
