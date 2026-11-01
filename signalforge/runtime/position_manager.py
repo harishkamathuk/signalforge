@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 
 from signalforge.domain.execution import ExecutionMode, Fill
@@ -16,8 +15,8 @@ from signalforge.domain.money import Price, ceil_to_tick
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST
-from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.domain.trades import Trade, TradeState
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.strategy import PositionEconomics
 
 
