@@ -40,6 +40,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
@@ -236,6 +237,7 @@ def _recover_runtime(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
@@ -272,6 +274,7 @@ def test_trigger_open_and_exit_survive_restart_without_duplicate_market_effects(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     _persist_armed(postgres_engine, run, initial_lifecycle)
     runtime = _runtime(
@@ -631,6 +634,7 @@ def _recover_without_market_checkpoint(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
@@ -666,6 +670,7 @@ def test_trigger_open_input_commit_rolls_back_as_one_unit_and_retries(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     _persist_armed(postgres_engine, run, lifecycle)
 
@@ -777,6 +782,7 @@ def test_exit_input_commit_rolls_back_as_one_unit_and_retries(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     _persist_armed(postgres_engine, run, lifecycle)
     durable = RestartSafeReplayRuntime(
