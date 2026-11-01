@@ -14,7 +14,6 @@ from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, ceil_to_tick
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.strategy import PositionEconomics
@@ -96,7 +95,7 @@ class PositionManager:
 
         if economics.raw_target_price is None:
             raise ValueError("Positive-risk Fill requires raw target economics")
-        trading_date = fill.filled_at.astimezone(IST).date()
+        trading_date = self.market_session_policy.trading_date(fill.filled_at)
         tick_size = self.tick_schedule.tick_size_on(trading_date)
         tradable_target_price = ceil_to_tick(economics.raw_target_price, tick_size)
         trade = Trade.open_from_fill(
