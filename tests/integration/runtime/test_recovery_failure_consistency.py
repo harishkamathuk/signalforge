@@ -21,7 +21,6 @@ from signalforge.persistence.repositories import (
     PostgresIndicatorCheckpointRepository,
     PostgresRunProvenanceRepository,
 )
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.indicator_recovery import (
     IndicatorRecoveryError,
     IndicatorRecoveryReconciler,
@@ -37,6 +36,7 @@ from signalforge.runtime.lifecycle_recovery import (
     LifecycleRecoveryError,
     LifecycleRecoveryHydrator,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from tests.integration.persistence.test_recovery_postgres import (
