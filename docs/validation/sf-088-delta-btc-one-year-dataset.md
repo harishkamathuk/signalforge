@@ -120,14 +120,22 @@ environment:
 
 ```bash
 python -m signalforge.research.delta_historical_dataset_acquisition verify-offline \
+  --evidence-dir .signalforge-data/sf088/evidence \
   --store-dir .signalforge-data/sf088/store \
   --dataset-id <dataset-id>
 ```
 
-The command loads only local persisted content and reports canonical row count, missing-minute count,
-derived five-minute count and dataset identity.
+The command loads only local persisted content, verifies the frozen Parquet content-manifest identity,
+writes immutable offline-verification evidence, and is the **only** path that can promote a complete
+dataset from `PENDING_OFFLINE_VERIFICATION` to `READY_FOR_BTC_STRATEGY_RESEARCH`.
+
+The acquisition/finalization command itself performs a same-process storage round-trip, but that is
+recorded only as `same_process_round_trip_pass`; it does not satisfy the offline-verification gate.
 
 ## Final disposition
+
+A complete acquisition initially ends in `PENDING_OFFLINE_VERIFICATION`. Only the separate
+network-disabled verification command may promote it to `READY_FOR_BTC_STRATEGY_RESEARCH`.
 
 `READY_FOR_BTC_STRATEGY_RESEARCH` requires:
 
@@ -136,6 +144,8 @@ derived five-minute count and dataset identity.
 - no unresolved duplicate/conflicting observations;
 - no unexplained rejected/corrupt observations;
 - no unresolved missing-minute coverage gaps;
+- explicit missing-minute evidence retained with each absent minute classified (initially
+  `unresolved_absence` unless authoritative/direct evidence supports a stronger classification);
 - successful canonicalization;
 - successful Parquet save/load;
 - successful offline verification;
