@@ -410,6 +410,8 @@ def acquire_sf088_pass(
         )
     else:
         capture = acquire_delta_response(f"/v2/products/{SF088_SYMBOL}")
+        if hashlib.sha256(capture.content).hexdigest() != capture.content_sha256:
+            raise ValueError("SF-088 product response digest contradicts raw bytes")
         if evidence_only:
             _verify_evidence_source_url(
                 capture.request_url,
@@ -461,6 +463,8 @@ def acquire_sf088_pass(
                 "end": chunk.provider_end,
             },
         )
+        if hashlib.sha256(response.content).hexdigest() != response.content_sha256:
+            raise ValueError("SF-088 candle response digest contradicts raw bytes")
         if evidence_only:
             _verify_evidence_source_url(
                 response.request_url,
@@ -515,7 +519,19 @@ def acquire_sf088_pass(
     )
 
 
-def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
+def _evidence_generation_directory(evidence_dir: Path, generation: str) -> Path:
+    """Require a simple explicit immutable generation namespace."""
+    if not generation or len(generation) > 80 or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        for char in generation
+    ) or generation in {".", ".."}:
+        raise ValueError("SF-088 generation must be a simple non-empty identifier")
+    return evidence_dir / "evidence-only" / generation
+
+
+def acquire_sf088_evidence_only(
+    *, evidence_dir: Path, generation: str = "generation-0001"
+) -> dict[str, object]:
     """Capture immutable source evidence without historical metadata qualification.
 
     The explicit evidence-only subdirectory prevents strict canonical acquisition from
@@ -525,7 +541,7 @@ def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
     if sum(chunk.expected_minutes for chunk in plan) != SF088_EXPECTED_MINUTES:
         raise ValueError("SF-088 evidence-only chunk plan does not cover frozen horizon")
 
-    protected_dir = evidence_dir / "evidence-only"
+    protected_dir = _evidence_generation_directory(evidence_dir, generation)
     first = acquire_sf088_pass(
         output_dir=protected_dir,
         pass_name="pass-1",
@@ -578,6 +594,7 @@ def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
         "acquisition_generation_identity": generation_identity,
         "chunk_identities": [chunk.identity for chunk in plan],
         "mode": "EVIDENCE_ONLY",
+        "generation_namespace": generation,
         "disposition": "UNQUALIFIED_SOURCE_EVIDENCE",
         "historical_metadata_applicability": "UNRESOLVED",
         "missing_product_metadata_fields": missing_fields,
@@ -605,6 +622,100 @@ def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
     else:
         _write_json_once(report_path, report)
     return report
+
+
+def _load_complete_evidence_pass_offline(
+    *, generation_dir: Path, pass_name: str, plan: tuple[DeltaResearchChunk, ...]
+) -> DeltaAcquisitionPass:
+    """Read only existing complete raw captures; never fall back to the provider."""
+    pass_dir = generation_dir / pass_name
+    product_path = pass_dir / "product.json"
+    meta_path = pass_dir / "product.meta.json"
+    if not product_path.is_file() or not meta_path.is_file():
+        raise ValueError("SF-088 offline handoff requires complete product evidence")
+    raw = product_path.read_bytes()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if not isinstance(meta, dict) or hashlib.sha256(raw).hexdigest() != meta.get(
+        "raw_sha256"
+    ):
+        raise ValueError("SF-088 offline product evidence digest mismatch")
+    _verify_evidence_source_url(
+        str(meta.get("request_url")), path=f"/v2/products/{SF088_SYMBOL}"
+    )
+    capture = DeltaRawCapture(
+        request_url=str(meta["request_url"]),
+        acquired_at=datetime.fromisoformat(str(meta["acquired_at"])),
+        content_sha256=str(meta["raw_sha256"]),
+        content=raw,
+    )
+    product = parse_delta_product_response(capture, expected_symbol=SF088_SYMBOL)
+    validate_product_applicability(product)
+    captured = []
+    for chunk in plan:
+        raw_path, chunk_meta_path = _chunk_paths(pass_dir, chunk)
+        if not raw_path.is_file() or not chunk_meta_path.is_file():
+            raise ValueError("SF-088 offline handoff requires every chunk already captured")
+        captured.append(
+            _load_existing_chunk(
+                raw_path=raw_path,
+                meta_path=chunk_meta_path,
+                chunk=chunk,
+                product=product,
+                evidence_only=True,
+            )
+        )
+    return DeltaAcquisitionPass(pass_name, product, tuple(captured))
+
+
+def qualify_sf088_evidence_offline(
+    *, evidence_dir: Path, store_dir: Path, generation: str
+) -> dict[str, object]:
+    """Qualify a complete evidence generation without any provider request.
+
+    The currently accepted single-snapshot historical applicability rule must
+    pass. Future effective-dated metadata support requires its own reviewed
+    qualification contract; no substitute timestamps are inferred here.
+    """
+    generation_dir = _evidence_generation_directory(evidence_dir, generation)
+    report_path = generation_dir / "evidence-only-report.json"
+    if not report_path.is_file():
+        raise ValueError("SF-088 offline handoff requires complete evidence-only report")
+    evidence_report = json.loads(report_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(evidence_report, dict)
+        or evidence_report.get("mode") != "EVIDENCE_ONLY"
+        or evidence_report.get("generation_namespace") != generation
+    ):
+        raise ValueError("SF-088 evidence report identity mismatch")
+    digest = evidence_report.get("report_sha256")
+    unsigned = {key: value for key, value in evidence_report.items() if key != "report_sha256"}
+    if digest != _sha256_json(unsigned):
+        raise ValueError("SF-088 evidence-only report digest mismatch")
+    plan = build_sf088_chunk_plan()
+    if sum(chunk.expected_minutes for chunk in plan) != SF088_EXPECTED_MINUTES:
+        raise ValueError("SF-088 offline handoff plan is not frozen horizon")
+    first = _load_complete_evidence_pass_offline(
+        generation_dir=generation_dir, pass_name="pass-1", plan=plan
+    )
+    second = _load_complete_evidence_pass_offline(
+        generation_dir=generation_dir, pass_name="pass-2", plan=plan
+    )
+    assert_two_pass_coherence(first, second)
+    if (
+        evidence_report.get("first_pass_raw_sha256")
+        != [item.raw_sha256 for item in first.chunks]
+        or evidence_report.get("second_pass_raw_sha256")
+        != [item.raw_sha256 for item in second.chunks]
+    ):
+        raise ValueError("SF-088 offline handoff differs from frozen raw evidence")
+    # Existing finalization and Parquet storage semantics remain authoritative.
+    # Qualified output is nested under this generation, never mixed with other runs.
+    return finalize_sf088_dataset(
+        evidence_dir=generation_dir,
+        store_dir=store_dir,
+        first=first,
+        second=second,
+    )
 
 
 def assert_two_pass_coherence(
@@ -934,6 +1045,12 @@ def _parser() -> argparse.ArgumentParser:
 
     evidence = subparsers.add_parser("evidence-only")
     evidence.add_argument("--evidence-dir", type=Path, required=True)
+    evidence.add_argument("--generation", required=True)
+
+    handoff = subparsers.add_parser("qualify-evidence-offline")
+    handoff.add_argument("--evidence-dir", type=Path, required=True)
+    handoff.add_argument("--store-dir", type=Path, required=True)
+    handoff.add_argument("--generation", required=True)
 
     acquire = subparsers.add_parser("acquire")
     acquire.add_argument("--evidence-dir", type=Path, required=True)
@@ -959,8 +1076,19 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 0
 
+    if args.command == "qualify-evidence-offline":
+        report = qualify_sf088_evidence_offline(
+            evidence_dir=args.evidence_dir,
+            store_dir=args.store_dir,
+            generation=args.generation,
+        )
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return 0
+
     if args.command == "evidence-only":
-        report = acquire_sf088_evidence_only(evidence_dir=args.evidence_dir)
+        report = acquire_sf088_evidence_only(
+            evidence_dir=args.evidence_dir, generation=args.generation
+        )
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 0
 
