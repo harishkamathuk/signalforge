@@ -399,6 +399,7 @@ def test_new_recovery_completes_before_feed_start(
         session_factory=lambda: cast(Session, FakeSession()),
         decision_projector=project_v1_decision,
         evaluation_context_factory=context,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     assert order == ["recover", "persist_run", "start"]
@@ -450,6 +451,7 @@ def test_new_runtime_consumes_prepared_state_and_records_provenance(
         decision_projector=project_v1_decision,
         evaluation_context_factory=context,
         initial_prepared_checkpoint=checkpoint,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     assert value.indicator_engine.state == checkpoint.state
@@ -489,6 +491,7 @@ def test_resumable_runtime_rejects_prepared_state_without_feed_start(
             decision_projector=project_v1_decision,
             evaluation_context_factory=context,
             initial_prepared_checkpoint=checkpoint,
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         )
 
     assert not feed.started
@@ -523,6 +526,7 @@ def test_resumable_recovery_is_inspected_before_feed_start_and_is_not_continuous
         session_factory=lambda: cast(Session, FakeSession()),
         decision_projector=project_v1_decision,
         evaluation_context_factory=context,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     assert order == ["recover"]
@@ -553,6 +557,7 @@ def test_contradictory_recovery_prevents_live_subscription(
             session_factory=lambda: cast(Session, FakeSession()),
             decision_projector=project_v1_decision,
             evaluation_context_factory=context,
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         )
 
     assert not feed.started
