@@ -299,7 +299,10 @@ class LocalHistoricalDatasetStore:
             self._verify_component(components, "manifest.json", manifest_blob)
             self._verify_component(components, "bars.parquet", parquet_blob)
 
-            table = pq.read_table(pa.BufferReader(parquet_blob))
+            try:
+                table = pq.read_table(pa.BufferReader(parquet_blob))
+            except Exception as exc:
+                raise HistoricalDatasetStoreError("stored Parquet bytes are unreadable") from exc
             expected_schema = content_manifest.get("schema_sha256")
             if not isinstance(expected_schema, str) or (
                 _schema_fingerprint(table.schema) != expected_schema
@@ -325,7 +328,7 @@ class LocalHistoricalDatasetStore:
             return dataset
         except HistoricalDatasetStoreError:
             raise
-        except (OSError, ValueError, TypeError, ArithmeticError, pa.ArrowException) as exc:
+        except (OSError, ValueError, TypeError, ArithmeticError) as exc:
             raise HistoricalDatasetStoreError(
                 f"frozen dataset unavailable or invalid: {dataset_id}"
             ) from exc
