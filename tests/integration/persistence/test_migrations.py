@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -61,6 +61,18 @@ def postgres_engine() -> Iterator[Engine]:
     if database_url is None:
         pytest.skip("DATABASE_URL is required for PostgreSQL migration integration tests")
 
+    url = make_url(database_url)
+    # This module intentionally downgrades to base and deletes tables/data.
+    # Never allow it to target a workstation or production database.
+    if (
+        os.environ.get("SIGNALFORGE_DESTRUCTIVE_MIGRATION_TESTS") != "1"
+        or url.database != "signalforge_test"
+        or url.host not in ("localhost", "127.0.0.1")
+    ):
+        pytest.fail(
+            "Destructive migration tests require the explicit test-only opt-in, "
+            "localhost, and the isolated signalforge_test database"
+        )
     engine = sa.create_engine(database_url)
     try:
         yield engine
