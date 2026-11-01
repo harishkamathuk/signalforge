@@ -45,6 +45,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler, RecoveryCandle
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
@@ -244,6 +245,7 @@ def _recover_coordinator(postgres_engine: Engine, value):
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     hydrated = LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
@@ -286,6 +288,7 @@ def _uninterrupted_open(value) -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=_strategy(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     armed = coordinator.process_evaluation(_signal_candle(value), value.evaluation)
     assert armed.state is LifecycleState.ARMED
@@ -465,6 +468,7 @@ def test_armed_restart_expires_and_terminal_history_does_not_rearm(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=_strategy(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     assert (
         reference.process_evaluation(_signal_candle(value), value.evaluation).state
