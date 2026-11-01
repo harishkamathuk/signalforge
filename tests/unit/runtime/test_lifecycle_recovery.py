@@ -20,7 +20,6 @@ from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import Trade
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.indicator_recovery import (
     IndicatorRecoveryReconciler,
     IndicatorRecoveryResult,
@@ -31,6 +30,7 @@ from signalforge.runtime.lifecycle_recovery import (
     LifecycleRecoveryError,
     LifecycleRecoveryHydrator,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveredLifecycle
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
 from signalforge.runtime.strategy import Strategy
