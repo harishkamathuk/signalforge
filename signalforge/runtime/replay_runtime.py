@@ -15,6 +15,7 @@ from signalforge.domain.provenance import RunIdentity
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleSnapshot
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.replay import ReplayInput, ReplaySource
 from signalforge.runtime.strategy import (
     CompletedCandleStrategyContext,
@@ -48,6 +49,7 @@ class ReplayRuntime:
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
         strategy: Strategy,
+        market_session_policy: MarketSessionPolicy,
         evaluation_context_factory: EvaluationContextFactory,
         candle_engine: CandleEngine | None = None,
         indicator_engine: IndicatorEngine | None = None,
@@ -88,6 +90,7 @@ class ReplayRuntime:
             tick_schedule=tick_schedule,
             quantity=quantity,
             strategy=strategy,
+            market_session_policy=market_session_policy,
         )
         if self.lifecycle.run != run or self.lifecycle.strategy.identity != strategy.identity:
             raise ValueError("Recovered lifecycle contradicts replay runtime")
