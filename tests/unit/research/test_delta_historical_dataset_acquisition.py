@@ -212,3 +212,83 @@ def test_acquisition_pass_is_resumable_without_reacquiring_existing_chunks(
     )
     assert resumed.semantic_sha256 == first.semantic_sha256
     assert calls == []
+
+
+
+def test_acquisition_evidence_does_not_change_semantic_dataset_identity() -> None:
+    from dataclasses import replace
+
+    from signalforge.domain.ids import InstrumentId
+    from signalforge.research.delta_historical_qualification import (
+        DeltaTimestampContract,
+        DeltaTimestampLabel,
+        canonicalize_delta_one_minute,
+        parse_delta_candles_response,
+    )
+
+    start = acquisition.SF088_START
+    payload = {
+        "success": True,
+        "result": [
+            {
+                "time": int(start.timestamp()),
+                "open": "65000.0",
+                "high": "65000.5",
+                "low": "64999.5",
+                "close": "65000.0",
+                "volume": "10",
+            }
+        ],
+    }
+    content = json.dumps(payload, separators=(",", ":")).encode()
+    capture = DeltaRawCapture(
+        request_url="https://example.test/candles",
+        acquired_at=datetime(2026, 10, 31, tzinfo=UTC),
+        content_sha256=hashlib.sha256(content).hexdigest(),
+        content=content,
+    )
+    candles = parse_delta_candles_response(capture)
+    contract = DeltaTimestampContract(
+        timestamp_unit="seconds",
+        timestamp_label=DeltaTimestampLabel.CANDLE_OPEN,
+        start_inclusive=True,
+        end_inclusive=True,
+    )
+    dataset = canonicalize_delta_one_minute(
+        candles=candles,
+        product=_product(),
+        instrument_id=InstrumentId("DELTA:BTCUSD"),
+        requested_start=start,
+        requested_end=start + timedelta(minutes=1),
+        acquired_at=datetime(2026, 10, 31, tzinfo=UTC),
+        timestamp_contract=contract,
+        acquisition_version="sf088-test",
+        canonicalisation_version="delta-traded-v1",
+    )
+    altered = replace(
+        dataset,
+        manifest=replace(
+            dataset.manifest,
+            acquisition_evidence=("source_acquisition_run_manifest_sha256=" + "b" * 64,),
+        ),
+    )
+
+    assert altered.dataset_id == dataset.dataset_id
+    assert altered.manifest != dataset.manifest
+
+
+def test_missing_minute_evidence_is_explicit_and_classified() -> None:
+    start = acquisition.SF088_START
+    candle = acquisition.DeltaCandle(
+        time=int(start.timestamp()),
+        open=Decimal("65000.0"),
+        high=Decimal("65000.5"),
+        low=Decimal("64999.5"),
+        close=Decimal("65000.0"),
+        volume=Decimal("10"),
+    )
+    evidence = acquisition._missing_minute_evidence((candle,))
+
+    assert len(evidence) == acquisition.SF088_EXPECTED_MINUTES - 1
+    assert evidence[0]["classification"] == "unresolved_absence"
+    assert evidence[0]["interval_start"] == (start + timedelta(minutes=1)).isoformat()
