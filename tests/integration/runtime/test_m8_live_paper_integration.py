@@ -47,6 +47,7 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.live_runtime import (
@@ -293,6 +294,7 @@ def _bootstrap_runtime(
         decision_projector=project_v1_decision,
         evaluation_context_factory=facts,
         initial_prepared_checkpoint=checkpoint,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     facts.runtime = runtime
     return runtime, facts, run
