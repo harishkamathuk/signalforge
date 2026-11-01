@@ -665,8 +665,38 @@ def test_sf095_existing_rows_survive_width_upgrade(postgres_engine: Engine) -> N
                 {"run": "sf095-preservation-run", "config": "sf095-preservation-config"},
             )
 
+        # A real pre-upgrade checkpoint must survive the width change intact.
+        # Write this row at 0009, where continuity_state is VARCHAR(32).
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO indicator_checkpoints "
+                    "(run_id, instrument_id, calculation_version, continuity_state, "
+                    "completed_candle_count) "
+                    "VALUES ('sf095-preservation-run', 'NSE:SF095', 'engine-v1', "
+                    "'healthy', 0)"
+                )
+            )
+            before_checkpoint = dict(
+                connection.execute(
+                    sa.text(
+                        "SELECT * FROM indicator_checkpoints "
+                        "WHERE run_id = 'sf095-preservation-run'"
+                    )
+                ).mappings().one()
+            )
+
         command.upgrade(config, "head")
         with postgres_engine.connect() as connection:
+            restored_checkpoint = dict(
+                connection.execute(
+                    sa.text(
+                        "SELECT * FROM indicator_checkpoints "
+                        "WHERE run_id = 'sf095-preservation-run'"
+                    )
+                ).mappings().one()
+            )
+            assert restored_checkpoint == before_checkpoint
             row = connection.execute(
                 sa.text(
                     "SELECT run_id, market_session_policy_id "
@@ -676,5 +706,66 @@ def test_sf095_existing_rows_survive_width_upgrade(postgres_engine: Engine) -> N
             assert tuple(row) == ("sf095-preservation-run", "nse_intraday")
 
         command.check(config)
+    finally:
+        _reset_migrations(config, postgres_engine)
+
+
+def test_sf095_interval_presence_check_rejects_invalid_records(
+    postgres_engine: Engine,
+) -> None:
+    """Exercise the database CHECK rather than simply inspecting its SQL."""
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES ('sf095-check-config', 'intraday_momentum_v1', "
+                    "'1.0.0', :hash)"
+                ),
+                {"hash": "a" * 64},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs "
+                    "(run_id, config_id, engine_calculation_version, "
+                    "market_session_policy_id, market_session_policy_version) "
+                    "VALUES ('sf095-check-run', 'sf095-check-config', "
+                    "'engine-v1', 'nse_intraday', '1.0.0')"
+                )
+            )
+            statement = sa.text(
+                "INSERT INTO indicator_checkpoints "
+                "(run_id, instrument_id, calculation_version, continuity_state, "
+                "completed_candle_count, last_interval_start, last_interval_end) "
+                "VALUES ('sf095-check-run', :instrument, 'engine-v1', "
+                "'healthy', :count, :start, :end)"
+            )
+            start = datetime(2026, 10, 1, 4, 0, tzinfo=UTC)
+            end = start + timedelta(minutes=5)
+            for instrument, count, begin, finish in (
+                ("NSE:VALID0", 0, None, None),
+                ("NSE:VALID1", 1, start, end),
+            ):
+                connection.execute(
+                    statement,
+                    {"instrument": instrument, "count": count,
+                     "start": begin, "end": finish},
+                )
+            for instrument, count, begin, finish in (
+                ("NSE:INVALID0", 0, start, end),
+                ("NSE:INVALID1", 1, None, None),
+                ("NSE:INVALID2", 1, start, start),
+                ("NSE:INVALID3", 1, end, start),
+            ):
+                with connection.begin_nested():
+                    with pytest.raises(sa.exc.IntegrityError):
+                        connection.execute(
+                            statement,
+                            {"instrument": instrument, "count": count,
+                             "start": begin, "end": finish},
+                        )
     finally:
         _reset_migrations(config, postgres_engine)
