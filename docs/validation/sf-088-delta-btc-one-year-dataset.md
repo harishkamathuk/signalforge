@@ -52,6 +52,40 @@ it is never silently overwritten.
 Deleting raw/reference evidence later weakens source-level reproducibility and should be recorded
 as a limitation if it occurs.
 
+## Evidence-only mode when historical metadata cannot be established
+
+The public Delta India BTCUSD product response may omit `created_at` and
+`updated_at`. This means the strict historical metadata applicability
+guard cannot certify that today's tick size and contract value applied to
+the frozen one-year interval.
+
+The explicitly separate mode below collects **unqualified source evidence**.
+It does not relax `validate_product_applicability()`, publish a canonical
+dataset, save Parquet bars, or authorize strategy analysis.
+
+```bash
+python -m signalforge.research.delta_historical_dataset_acquisition evidence-only \\
+  --evidence-dir .signalforge-data/sf088/evidence
+```
+
+Use a protected local directory with `umask 077`. Evidence is written to
+`<evidence-dir>/evidence-only/pass-1` and `pass-2`. The command runs the
+frozen 263-chunk plan in each pass, records raw and structural candle-content
+hashes, compares the passes and produces
+`<evidence-dir>/evidence-only/evidence-only-report.json`.
+Missing product timestamps are reported as
+`historical_metadata_applicability=UNRESOLVED`. Retain the first-seen raw
+responses locally, outside Git. Resume reuses already-captured and
+hash-verified chunks, and conflicting evidence must not be overwritten.
+A mismatch between the full passes stops the command with its raw evidence
+retained for investigation.
+
+**Do not** pass evidence-only output to the strict canonical qualification
+command until an authoritative historical specification or effective-dated
+schedule establishes metadata applicability. The strict `acquire` command
+continues to reject missing timestamps, and `verify-offline` cannot promote
+evidence-only output without a qualifying canonical dataset.
+
 ## Two-pass acquisition
 
 Run:
