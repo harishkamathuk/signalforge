@@ -310,7 +310,13 @@ def test_evidence_only_captures_missing_metadata_without_canonical_store(
     start = acquisition.SF088_START
     monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=2))
     monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 2)
-    monkeypatch.setattr(acquisition, "SF088_CHUNK_MINUTES", 1)
+    original_plan = acquisition.build_sf088_chunk_plan
+    tiny_plan = original_plan(
+        start=start,
+        end=start + timedelta(minutes=2),
+        chunk_minutes=1,
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: tiny_plan)
 
     requests: list[str] = []
 
