@@ -139,7 +139,10 @@ def _parquet_table(dataset: HistoricalBarDataset) -> Any:
     decimal_type = _decimal_type(opens + highs + lows + closes)
 
     arrays = [
-        arrow.array([bar.interval.start for bar in dataset.bars], type=arrow.timestamp("us", tz="UTC")),
+        arrow.array(
+            [bar.interval.start for bar in dataset.bars],
+            type=arrow.timestamp("us", tz="UTC"),
+        ),
         arrow.array(opens, type=decimal_type),
         arrow.array(highs, type=decimal_type),
         arrow.array(lows, type=decimal_type),
