@@ -78,7 +78,10 @@ Missing product timestamps are reported as
 responses locally, outside Git. Resume reuses already-captured and
 hash-verified chunks, and conflicting evidence must not be overwritten.
 A mismatch between the full passes stops the command with its raw evidence
-retained for investigation.
+retained for investigation. If a structurally malformed provider response is
+received, the first-seen raw bytes remain on disk but the missing metadata
+sidecar deliberately blocks automatic resume; inspect and quarantine that
+incomplete capture rather than deleting or overwriting it.
 
 **Do not** pass evidence-only output to the strict canonical qualification
 command until an authoritative historical specification or effective-dated
