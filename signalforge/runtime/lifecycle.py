@@ -66,6 +66,10 @@ class LifecycleCoordinator:
         strategy: Strategy,
         market_session_policy: MarketSessionPolicy,
     ) -> None:
+        if run.market_session_policy != market_session_policy.identity:
+            raise ValueError(
+                "Run market-session policy contradicts lifecycle configuration"
+            )
         self.run = run
         self.quantity = quantity
         self.strategy = strategy
