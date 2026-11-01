@@ -438,3 +438,62 @@ def test_evidence_only_source_url_requires_exact_qualified_provider() -> None:
             acquisition._verify_evidence_source_url(
                 altered, path="/v2/history/candles", params=options
             )
+
+
+def test_evidence_only_retains_malformed_source_bytes_without_qualification(
+    tmp_path, monkeypatch
+) -> None:
+    """Malformed source rows remain inspectable, never promoted or overwritten."""
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+    product = {
+        "success": True,
+        "result": {
+            "id": 27,
+            "symbol": "BTCUSD",
+            "contract_type": "perpetual_futures",
+            "contract_value": "0.001",
+            "contract_unit_currency": "BTC",
+            "tick_size": "0.5",
+        },
+    }
+    malformed = b'{"success":true,"result":"not a candle list"}'
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        raw = json.dumps(product).encode() if params is None else malformed
+        url = "https://api.india.delta.exchange" + path
+        if params is not None:
+            url += (
+                f"?resolution=1m&symbol=BTCUSD"
+                f"&start={params['start']}&end={params['end']}"
+            )
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    output = tmp_path / "evidence"
+    with pytest.raises(ValueError, match="result must be an array"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
+    raw_path = output / "pass-1" / "chunk-000000.json"
+    assert raw_path.read_bytes() == malformed
+    assert not (output / "pass-1" / "chunk-000000.meta.json").exists()
+    with pytest.raises(ValueError, match="incomplete existing SF-088 chunk evidence"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
