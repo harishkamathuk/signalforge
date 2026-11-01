@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -243,6 +244,7 @@ def _write_once(path: Path, content: bytes) -> None:
     with path.open("xb") as handle:
         handle.write(content)
         handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _write_json_once(path: Path, payload: object) -> None:
@@ -449,6 +451,10 @@ def assert_two_pass_coherence(
 
     if first.product.semantic_sha256 != second.product.semantic_sha256:
         raise ValueError("Delta product semantic identity changed between SF-088 passes")
+    first_schedule = validate_product_applicability(first.product)
+    second_schedule = validate_product_applicability(second.product)
+    if first_schedule != second_schedule:
+        raise ValueError("Delta product metadata applicability changed between SF-088 passes")
     if len(first.chunks) != len(second.chunks):
         raise ValueError("SF-088 acquisition passes have different chunk counts")
     for left, right in zip(first.chunks, second.chunks, strict=True):
