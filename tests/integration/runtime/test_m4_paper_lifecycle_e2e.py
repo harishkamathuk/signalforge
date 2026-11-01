@@ -111,6 +111,7 @@ def _coordinator() -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=QUANTITY,
         strategy=IntradayMomentumV1Strategy(StrategyV1EvaluationConfig()),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
