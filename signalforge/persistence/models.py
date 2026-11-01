@@ -65,6 +65,8 @@ class RunRecord(Base):
         ForeignKey("strategy_configs.config_id", ondelete="RESTRICT"), nullable=False
     )
     engine_calculation_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    market_session_policy_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    market_session_policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class StrategyEvaluationRecord(Base):
