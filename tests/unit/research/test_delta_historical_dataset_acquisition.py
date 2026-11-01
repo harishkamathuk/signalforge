@@ -301,3 +301,443 @@ def test_offline_verification_is_only_ready_promotion_path(tmp_path, monkeypatch
     assert report["offline_verification_required"] is False
     assert (evidence_dir / "sf088-offline-verification.json").exists()
     assert (evidence_dir / "sf088-final-report.json").exists()
+
+
+def test_evidence_only_captures_missing_metadata_without_canonical_store(
+    tmp_path, monkeypatch
+) -> None:
+    """Historical metadata absence must not block protected raw capture."""
+    start = acquisition.SF088_START
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=2))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 2)
+    original_plan = acquisition.build_sf088_chunk_plan
+    tiny_plan = original_plan(
+        start=start,
+        end=start + timedelta(minutes=2),
+        chunk_minutes=1,
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: tiny_plan)
+
+    requests: list[str] = []
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        requests.append(path)
+        if path.endswith("/BTCUSD"):
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27,
+                    "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                    "underlying_asset": {"symbol": "BTC"},
+                    "quoting_asset": {"symbol": "USD"},
+                    "settling_asset": {"symbol": "USD"},
+                },
+            }
+        else:
+            assert params is not None
+            body = {
+                "success": True,
+                "result": [{
+                    "time": int(params["start"]),
+                    "open": "65000.1",
+                    "high": "65000.1",
+                    "low": "65000.1",
+                    "close": "65000.1",
+                    "volume": "1",
+                }],
+            }
+        raw = json.dumps(body, separators=(",", ":")).encode()
+        return DeltaRawCapture(
+            request_url=(
+                f"https://api.india.delta.exchange{path}"
+                + (
+                    f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+                    if params is not None
+                    else ""
+                )
+            ),
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    evidence = tmp_path / "evidence"
+    report = acquisition.acquire_sf088_evidence_only(evidence_dir=evidence)
+    assert report["disposition"] == "UNQUALIFIED_SOURCE_EVIDENCE"
+    assert report["historical_metadata_applicability"] == "UNRESOLVED"
+    assert report["missing_product_metadata_fields"] == [
+        "created_at", "updated_at"
+    ]
+    assert report["canonical_dataset_published"] is False
+    assert len(requests) == 6
+    generation_dir = evidence / "evidence-only" / "generation-0001"
+    assert (generation_dir / "pass-1" / "chunk-000000.json").exists()
+    assert not (evidence / "sf088-finalization-report.json").exists()
+    assert not (generation_dir / "sf088-finalization-report.json").exists()
+
+    requests.clear()
+    assert acquisition.acquire_sf088_evidence_only(evidence_dir=evidence) == report
+    assert requests == []
+
+    raw_path = evidence / "evidence-only" / "generation-0001" / "pass-1" / "chunk-000000.json"
+    raw_path.write_bytes(raw_path.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="raw chunk digest mismatch"):
+        acquisition.acquire_sf088_evidence_only(evidence_dir=evidence)
+    assert requests == []
+
+    with pytest.raises(ValueError, match="created_at/updated_at"):
+        acquisition.acquire_sf088_pass(
+            output_dir=tmp_path / "strict",
+            pass_name="pass-1",
+            chunk_plan=acquisition.build_sf088_chunk_plan(),
+        )
+
+
+def test_evidence_only_detects_raw_tampering_without_network(tmp_path, monkeypatch) -> None:
+    """A raw/meta pair mismatch must fail closed before attempting acquisition."""
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+    # A partially written product pair is never repaired or overwritten.
+    output = tmp_path / "evidence"
+    path = output / "pass-1"
+    path.mkdir(parents=True)
+    (path / "product.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete existing SF-088 product evidence"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
+
+
+def test_evidence_only_source_url_requires_exact_qualified_provider() -> None:
+    """Reject host substitutions and request-bound changes before acceptance."""
+    valid = (
+        "https://api.india.delta.exchange/v2/history/candles"
+        "?resolution=1m&symbol=BTCUSD&start=100&end=160"
+    )
+    options = {"resolution": "1m", "symbol": "BTCUSD", "start": 100, "end": 160}
+    acquisition._verify_evidence_source_url(
+        valid, path="/v2/history/candles", params=options
+    )
+    for altered in (
+        valid.replace("api.india.delta.exchange", "api.delta.exchange"),
+        valid.replace("start=100", "start=101"),
+        valid.replace("symbol=BTCUSD", "symbol=ETHUSD"),
+        valid.replace("https://", "http://"),
+    ):
+        with pytest.raises(ValueError, match="source|parameters"):
+            acquisition._verify_evidence_source_url(
+                altered, path="/v2/history/candles", params=options
+            )
+
+
+def test_evidence_only_retains_malformed_source_bytes_without_qualification(
+    tmp_path, monkeypatch
+) -> None:
+    """Malformed source rows remain inspectable, never promoted or overwritten."""
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+    product = {
+        "success": True,
+        "result": {
+            "id": 27,
+            "symbol": "BTCUSD",
+            "contract_type": "perpetual_futures",
+            "contract_value": "0.001",
+            "contract_unit_currency": "BTC",
+            "tick_size": "0.5",
+        },
+    }
+    malformed = b'{"success":true,"result":"not a candle list"}'
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        raw = json.dumps(product).encode() if params is None else malformed
+        url = "https://api.india.delta.exchange" + path
+        if params is not None:
+            url += (
+                f"?resolution=1m&symbol=BTCUSD"
+                f"&start={params['start']}&end={params['end']}"
+            )
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    output = tmp_path / "evidence"
+    with pytest.raises(ValueError, match="result must be an array"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
+    raw_path = output / "pass-1" / "chunk-000000.json"
+    assert raw_path.read_bytes() == malformed
+    assert not (output / "pass-1" / "chunk-000000.meta.json").exists()
+    with pytest.raises(ValueError, match="incomplete existing SF-088 chunk evidence"):
+        acquisition.acquire_sf088_pass(
+            output_dir=output,
+            pass_name="pass-1",
+            chunk_plan=plan,
+            evidence_only=True,
+        )
+
+
+def test_evidence_only_distinct_generations_and_offline_guard(
+    tmp_path, monkeypatch
+) -> None:
+    """Separate immutable generations and reject missing timestamps without network."""
+    start = acquisition.SF088_START
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=start + timedelta(minutes=1), chunk_minutes=1
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=1))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 1)
+
+    def source(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            body = {"success": True, "result": [{
+                "time": int(params["start"]),
+                "open": "65000", "high": "65000",
+                "low": "65000", "close": "65000", "volume": "1",
+            }]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(body).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", source)
+    root = tmp_path / "evidence"
+    first = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=root, generation="first"
+    )
+    second = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=root, generation="second"
+    )
+    assert first["generation_namespace"] == "first"
+    assert second["generation_namespace"] == "second"
+    assert (root / "evidence-only" / "first" / "pass-1" / "product.json").exists()
+    assert (root / "evidence-only" / "second" / "pass-1" / "product.json").exists()
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("offline handoff must never access provider")
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", no_network)
+    with pytest.raises(ValueError, match="created_at/updated_at"):
+        acquisition.qualify_sf088_evidence_offline(
+            evidence_dir=root, store_dir=tmp_path / "store", generation="first"
+        )
+    assert not (tmp_path / "store").exists()
+
+
+def test_evidence_only_rejects_provider_digest_mismatch(tmp_path, monkeypatch) -> None:
+    plan = acquisition.build_sf088_chunk_plan(
+        start=acquisition.SF088_START,
+        end=acquisition.SF088_START + timedelta(minutes=1),
+        chunk_minutes=1,
+    )
+
+    def mismatched(path, *, params=None, **kwargs):
+        del kwargs, params
+        return DeltaRawCapture(
+            request_url="https://api.india.delta.exchange" + path,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256="0" * 64,
+            content=b'{"success":true,"result":{}}',
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", mismatched)
+    with pytest.raises(ValueError, match="digest does not match content"):
+        acquisition.acquire_sf088_pass(
+            output_dir=tmp_path, pass_name="pass-1",
+            chunk_plan=plan, evidence_only=True
+        )
+    assert not (tmp_path / "pass-1" / "product.json").exists()
+
+
+def test_evidence_only_generation_name_rejects_traversal(tmp_path) -> None:
+    for name in ("", "../escape", "foo/bar", ".", ".."):
+        with pytest.raises(ValueError, match="generation"):
+            acquisition._evidence_generation_directory(tmp_path, name)
+
+
+def test_evidence_only_offline_handoff_uses_captured_bytes_without_network(
+    tmp_path, monkeypatch
+) -> None:
+    """A historically applicable snapshot can qualify retained evidence offline."""
+    start = acquisition.SF088_START
+    end = start + timedelta(minutes=5)
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=end, chunk_minutes=5
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", end)
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 5)
+
+    def source(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            payload = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                    "created_at": "2023-12-18T13:10:39Z",
+                    "updated_at": "2024-11-15T02:47:50Z",
+                    "underlying_asset": {"symbol": "BTC"},
+                    "quoting_asset": {"symbol": "USD"},
+                    "settling_asset": {"symbol": "USD"},
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            epoch = int(params["start"])
+            payload = {"success": True, "result": [
+                {
+                    "time": epoch + minute * 60,
+                    "open": "65000.0", "high": "65000.5",
+                    "low": "64999.5", "close": "65000.0", "volume": "2",
+                } for minute in range(5)
+            ]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", source)
+    evidence = tmp_path / "evidence"
+    acquisition.acquire_sf088_evidence_only(evidence_dir=evidence, generation="qualified")
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("offline handoff attempted provider access")
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", blocked)
+    report = acquisition.qualify_sf088_evidence_offline(
+        evidence_dir=evidence,
+        store_dir=tmp_path / "store",
+        generation="qualified",
+    )
+    assert report["canonical_rows"] == 5
+    assert report["same_process_round_trip_pass"] is True
+    assert report["offline_verification_required"] is True
+
+
+def test_evidence_only_changed_product_keeps_conflicting_generation(
+    tmp_path, monkeypatch
+) -> None:
+    """Provider revisions preserve both passes; a fresh generation can proceed."""
+    start = acquisition.SF088_START
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=start + timedelta(minutes=1), chunk_minutes=1
+    )
+    monkeypatch.setattr(acquisition, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(acquisition, "SF088_END", start + timedelta(minutes=1))
+    monkeypatch.setattr(acquisition, "SF088_EXPECTED_MINUTES", 1)
+    state = {"product_calls": 0, "changing": True}
+
+    def fake_request(path, *, params=None, **kwargs):
+        del kwargs
+        if params is None:
+            state["product_calls"] += 1
+            changing = state["changing"] and state["product_calls"] % 2 == 0
+            body = {
+                "success": True,
+                "result": {
+                    "id": 27, "symbol": "BTCUSD",
+                    "contract_type": "perpetual_futures",
+                    "contract_value": "0.002" if changing else "0.001",
+                    "contract_unit_currency": "BTC",
+                    "tick_size": "0.5",
+                },
+            }
+            url = "https://api.india.delta.exchange/v2/products/BTCUSD"
+        else:
+            body = {"success": True, "result": [{
+                "time": int(params["start"]),
+                "open": "65000", "high": "65000",
+                "low": "65000", "close": "65000", "volume": "1",
+            }]}
+            url = (
+                "https://api.india.delta.exchange/v2/history/candles"
+                f"?resolution=1m&symbol=BTCUSD&start={params['start']}&end={params['end']}"
+            )
+        raw = json.dumps(body).encode()
+        return DeltaRawCapture(
+            request_url=url,
+            acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+            content_sha256=hashlib.sha256(raw).hexdigest(),
+            content=raw,
+        )
+
+    monkeypatch.setattr(acquisition, "acquire_delta_response", fake_request)
+    evidence = tmp_path / "evidence"
+    with pytest.raises(ValueError, match="product semantics changed"):
+        acquisition.acquire_sf088_evidence_only(
+            evidence_dir=evidence, generation="conflicting"
+        )
+    old_first = (
+        evidence / "evidence-only" / "conflicting" / "pass-1" / "product.json"
+    )
+    old_second = (
+        evidence / "evidence-only" / "conflicting" / "pass-2" / "product.json"
+    )
+    original_bytes = (old_first.read_bytes(), old_second.read_bytes())
+    with pytest.raises(ValueError, match="product semantics changed"):
+        acquisition.acquire_sf088_evidence_only(
+            evidence_dir=evidence, generation="conflicting"
+        )
+    state["changing"] = False
+    report = acquisition.acquire_sf088_evidence_only(
+        evidence_dir=evidence, generation="replacement"
+    )
+    assert report["disposition"] == "UNQUALIFIED_SOURCE_EVIDENCE"
+    assert (old_first.read_bytes(), old_second.read_bytes()) == original_bytes

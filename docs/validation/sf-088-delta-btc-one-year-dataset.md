@@ -52,6 +52,66 @@ it is never silently overwritten.
 Deleting raw/reference evidence later weakens source-level reproducibility and should be recorded
 as a limitation if it occurs.
 
+## Evidence-only mode when historical metadata cannot be established
+
+The public Delta India BTCUSD product response may omit `created_at` and
+`updated_at`. This means the strict historical metadata applicability
+guard cannot certify that today's tick size and contract value applied to
+the frozen one-year interval.
+
+The explicitly separate mode below collects **unqualified source evidence**.
+It does not relax `validate_product_applicability()`, publish a canonical
+dataset, save Parquet bars, or authorize strategy analysis.
+
+```bash
+python -m signalforge.research.delta_historical_dataset_acquisition evidence-only \\
+  --evidence-dir .signalforge-data/sf088/evidence \
+  --generation generation-0001
+```
+
+Use a protected local directory with `umask 077`. Evidence is written to
+`<evidence-dir>/evidence-only/<generation>/pass-1` and `pass-2`. The command runs the
+frozen 263-chunk plan in each pass, records raw and structural candle-content
+hashes, compares the passes and produces
+`<evidence-dir>/evidence-only/<generation>/evidence-only-report.json`.
+Missing product timestamps are reported as
+`historical_metadata_applicability=UNRESOLVED`. Retain the first-seen raw
+responses locally, outside Git. Resume reuses already-captured and
+hash-verified chunks, and conflicting evidence must not be overwritten.
+A mismatch between the full passes stops the command with its raw evidence
+retained for investigation. If a structurally malformed provider response is
+received, the first-seen raw bytes remain on disk but the missing metadata
+sidecar deliberately blocks automatic resume; inspect and quarantine that
+incomplete capture rather than deleting or overwriting it.
+
+**Do not** pass evidence-only output to the strict canonical qualification
+command until an authoritative historical specification or effective-dated
+schedule establishes metadata applicability. The strict `acquire` command
+continues to reject missing timestamps, and `verify-offline` cannot promote
+evidence-only output without a qualifying canonical dataset.
+
+### Immutable generations and offline handoff
+
+Use an explicit generation name, such as `generation-0001`. If a provider
+revision, malformed response, or interruption leaves incompatible or incomplete
+evidence, preserve that entire generation and record its hashes. Start a new
+generation under a different name rather than rewriting the original.
+
+After historical product metadata applicability has been independently established,
+the existing strict qualification can consume completed evidence offline:
+
+```bash
+python -m signalforge.research.delta_historical_dataset_acquisition qualify-evidence-offline \\
+  --evidence-dir .signalforge-data/sf088/evidence \\
+  --generation generation-0001 \\
+  --store-dir .signalforge-data/sf088/store
+```
+
+This checks pre-existing captures and never downloads missing chunks. It still
+requires the existing `validate_product_applicability()` guard to pass.
+With missing Delta product timestamps, qualification remains blocked.
+A future effective-dated schedule requires separate reviewed support.
+
 ## Two-pass acquisition
 
 Run:
