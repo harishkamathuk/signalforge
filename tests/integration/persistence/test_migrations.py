@@ -102,6 +102,10 @@ def test_alembic_head_creates_canonical_runtime_schema(postgres_engine: Engine) 
     created_at_type = signal_columns["created_at"]["type"]
     assert isinstance(created_at_type, sa.DateTime)
     assert created_at_type.timezone is True
+    run_columns = {column["name"]: column for column in inspector.get_columns("runs")}
+    assert run_columns["market_session_policy_id"]["nullable"] is False
+    assert run_columns["market_session_policy_version"]["nullable"] is False
+
     outcome_columns = {
         column["name"]: column for column in inspector.get_columns("position_open_outcomes")
     }
@@ -535,5 +539,58 @@ def test_sf066_generic_v1_decision_downgrades_losslessly(postgres_engine: Engine
             "setup_passed": True,
         }
         command.upgrade(config, "head")
+    finally:
+        _reset_migrations(config, postgres_engine)
+
+
+
+def test_sf089_upgrade_backfills_existing_runs_with_nse_policy(
+    postgres_engine: Engine,
+) -> None:
+    config = Config("alembic.ini")
+    _reset_migrations(config, postgres_engine)
+    command.downgrade(config, "20261006_0008")
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO strategy_configs "
+                    "(config_id, strategy_id, strategy_version, config_hash) "
+                    "VALUES (:config_id, :strategy_id, :strategy_version, :config_hash)"
+                ),
+                {
+                    "config_id": "e" * 64,
+                    "strategy_id": "intraday_momentum_v1",
+                    "strategy_version": "1.0.0",
+                    "config_hash": "e" * 64,
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO runs (run_id, config_id, engine_calculation_version) "
+                    "VALUES (:run_id, :config_id, :version)"
+                ),
+                {
+                    "run_id": "sf089-pre-policy-run",
+                    "config_id": "e" * 64,
+                    "version": "engine-v1",
+                },
+            )
+
+        command.upgrade(config, "head")
+
+        with postgres_engine.connect() as connection:
+            row = connection.execute(
+                sa.text(
+                    "SELECT market_session_policy_id, market_session_policy_version "
+                    "FROM runs WHERE run_id = :run_id"
+                ),
+                {"run_id": "sf089-pre-policy-run"},
+            ).mappings().one()
+
+        assert dict(row) == {
+            "market_session_policy_id": "nse_intraday",
+            "market_session_policy_version": "1.0.0",
+        }
     finally:
         _reset_migrations(config, postgres_engine)
