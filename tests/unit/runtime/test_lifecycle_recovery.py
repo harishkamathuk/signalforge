@@ -20,6 +20,7 @@ from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import Trade
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.indicator_recovery import (
     IndicatorRecoveryReconciler,
     IndicatorRecoveryResult,
@@ -105,6 +106,7 @@ def _coordinator(strategy: Strategy, run: RunIdentity) -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
