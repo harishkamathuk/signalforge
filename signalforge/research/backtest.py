@@ -30,10 +30,7 @@ from signalforge.domain.time import to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
 from signalforge.runtime.indicators import IndicatorContinuity
-from signalforge.runtime.market_session import (
-    NSE_INTRADAY_MARKET_SESSION_POLICY,
-    MarketSessionPolicy,
-)
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.position_manager import PositionOpenRejection
 from signalforge.runtime.replay import ReplayInput, ReplaySource, ReplaySourceIdentity
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
@@ -183,8 +180,8 @@ class BacktestRunner:
     def __init__(
         self,
         *,
+        market_session_policy: MarketSessionPolicy,
         registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY,
-        market_session_policy: MarketSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
     ) -> None:
         self._registry = registry
         self._market_session_policy = market_session_policy
@@ -219,6 +216,11 @@ class BacktestRunner:
         ):
             raise ValueError("Resolved strategy contradicts experiment provenance")
 
+        if experiment.market_session_policy != self._market_session_policy.identity:
+            raise ValueError(
+                "Backtest market-session policy contradicts experiment provenance"
+            )
+
         if source.identity.instrument_id != instrument_id:
             raise ValueError("Replay source instrument does not match backtest instrument")
         if source.identity.source_id != source_definition.source_id:
@@ -229,6 +231,8 @@ class BacktestRunner:
             strategy.config_identity.config_hash,
             source.identity.source_id,
             experiment.engine_calculation_version,
+            self._market_session_policy.identity.policy_id,
+            self._market_session_policy.identity.policy_version,
         )
         backtest_run_id = deterministic_id(
             BacktestRunId,
@@ -242,6 +246,7 @@ class BacktestRunner:
             config_id=strategy.config_identity.config_id,
             config_hash=strategy.config_identity.config_hash,
             engine_calculation_version=experiment.engine_calculation_version,
+            market_session_policy=self._market_session_policy.identity,
         )
 
         completed_count = 0
@@ -298,11 +303,6 @@ class BacktestRunner:
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
             if not self._market_session_policy.accepts_event(event.exchange_timestamp):
-                if self._market_session_policy is NSE_INTRADAY_MARKET_SESSION_POLICY:
-                    raise ValueError(
-                        "Backtest market event falls outside the canonical NSE "
-                        "regular-session input window"
-                    )
                 raise ValueError(
                     "Backtest market event falls outside the configured market-session "
                     "input window"
