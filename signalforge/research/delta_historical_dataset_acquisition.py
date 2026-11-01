@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from signalforge.domain.ids import DatasetId, InstrumentId
 from signalforge.research.delta_historical_qualification import (
@@ -257,6 +258,33 @@ def _write_json_once(path: Path, payload: object) -> None:
     )
 
 
+def _verify_evidence_source_url(
+    request_url: str,
+    *,
+    path: str,
+    params: dict[str, str | int] | None = None,
+) -> None:
+    """Require exact canonical Delta India source and frozen request parameters."""
+    parsed = urlsplit(request_url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.india.delta.exchange"
+        or parsed.path != path
+        or parsed.fragment
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("SF-088 evidence source is not canonical Delta India")
+    actual_params = parse_qs(parsed.query, keep_blank_values=True)
+    expected_params = (
+        {key: [str(value)] for key, value in params.items()}
+        if params is not None
+        else {}
+    )
+    if actual_params != expected_params:
+        raise ValueError("SF-088 evidence request parameters contradict frozen plan")
+
+
 def _chunk_paths(pass_dir: Path, chunk: DeltaResearchChunk) -> tuple[Path, Path]:
     stem = f"chunk-{chunk.index:06d}"
     return pass_dir / f"{stem}.json", pass_dir / f"{stem}.meta.json"
@@ -303,6 +331,17 @@ def _load_existing_chunk(
         content_sha256=raw_sha256,
         content=raw,
     )
+    if evidence_only:
+        _verify_evidence_source_url(
+            capture.request_url,
+            path="/v2/history/candles",
+            params={
+                "resolution": "1m",
+                "symbol": SF088_SYMBOL,
+                "start": chunk.provider_start,
+                "end": chunk.provider_end,
+            },
+        )
     candles = parse_delta_candles_response(capture)
     semantic_sha256 = _candle_semantic_sha256(candles)
     if meta.get("semantic_sha256") != semantic_sha256:
@@ -371,6 +410,11 @@ def acquire_sf088_pass(
         )
     else:
         capture = acquire_delta_response(f"/v2/products/{SF088_SYMBOL}")
+        if evidence_only:
+            _verify_evidence_source_url(
+                capture.request_url,
+                path=f"/v2/products/{SF088_SYMBOL}",
+            )
         _write_once(product_path, capture.content)
         _write_json_once(
             product_meta_path,
@@ -382,6 +426,11 @@ def acquire_sf088_pass(
             },
         )
 
+    if evidence_only:
+        _verify_evidence_source_url(
+            capture.request_url,
+            path=f"/v2/products/{SF088_SYMBOL}",
+        )
     product = parse_delta_product_response(capture, expected_symbol=SF088_SYMBOL)
     if not evidence_only:
         validate_product_applicability(product)
@@ -412,6 +461,17 @@ def acquire_sf088_pass(
                 "end": chunk.provider_end,
             },
         )
+        if evidence_only:
+            _verify_evidence_source_url(
+                response.request_url,
+                path="/v2/history/candles",
+                params={
+                    "resolution": "1m",
+                    "symbol": SF088_SYMBOL,
+                    "start": chunk.provider_start,
+                    "end": chunk.provider_end,
+                },
+            )
         candles = parse_delta_candles_response(response)
         summary = summarize_delta_candles(candles, tick_size=product.tick_size)
         if not summary.exact_minute_aligned:
@@ -504,6 +564,9 @@ def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
             "frozen_start": SF088_START.isoformat(),
             "frozen_end": SF088_END.isoformat(),
             "chunk_identities": [chunk.identity for chunk in plan],
+            "source_candle_semantics": [
+                chunk.semantic_sha256 for chunk in first.chunks
+            ],
         }
     )
     report: dict[str, object] = {
