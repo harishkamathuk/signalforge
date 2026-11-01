@@ -40,13 +40,13 @@ from signalforge.persistence.repositories import (
     PostgresTradeRepository,
     PostgresTriggerEventRepository,
 )
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_runtime import ReplayRuntime
