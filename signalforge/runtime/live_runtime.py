@@ -47,8 +47,8 @@ from signalforge.runtime.lifecycle import (
     LifecycleSnapshot,
     LifecycleState,
 )
-from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.strategy import (
     CompletedCandleStrategyContext,
