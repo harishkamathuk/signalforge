@@ -288,6 +288,8 @@ def _load_existing_chunk(
     meta_path: Path,
     chunk: DeltaResearchChunk,
     product: DeltaProductSnapshot,
+    *,
+    evidence_only: bool = False,
 ) -> DeltaCapturedChunk:
     raw = raw_path.read_bytes()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -307,7 +309,9 @@ def _load_existing_chunk(
     if meta.get("semantic_sha256") != semantic_sha256:
         raise ValueError("existing SF-088 chunk semantic digest mismatch")
     summary = summarize_delta_candles(candles, tick_size=product.tick_size)
-    if not summary.integral_volume or not summary.tick_aligned_prices:
+    if not evidence_only and (
+        not summary.integral_volume or not summary.tick_aligned_prices
+    ):
         raise ValueError("existing SF-088 chunk violates qualified price/volume semantics")
     unique_times = {item.time for item in candles}
     expected_times = {
@@ -339,6 +343,7 @@ def acquire_sf088_pass(
     output_dir: Path,
     pass_name: str,
     chunk_plan: tuple[DeltaResearchChunk, ...],
+    evidence_only: bool = False,
 ) -> DeltaAcquisitionPass:
     """Acquire or resume one write-once full pass of the SF-088 chunk plan."""
 
@@ -379,7 +384,8 @@ def acquire_sf088_pass(
         )
 
     product = parse_delta_product_response(capture, expected_symbol=SF088_SYMBOL)
-    validate_product_applicability(product)
+    if not evidence_only:
+        validate_product_applicability(product)
 
     captured_chunks: list[DeltaCapturedChunk] = []
     for chunk in chunk_plan:
@@ -393,6 +399,7 @@ def acquire_sf088_pass(
                     meta_path=meta_path,
                     chunk=chunk,
                     product=product,
+                    evidence_only=evidence_only,
                 )
             )
             continue
@@ -410,9 +417,9 @@ def acquire_sf088_pass(
         summary = summarize_delta_candles(candles, tick_size=product.tick_size)
         if not summary.exact_minute_aligned:
             raise ValueError(f"Delta chunk has non-minute timestamp: {chunk.identity}")
-        if not summary.integral_volume:
+        if not evidence_only and not summary.integral_volume:
             raise ValueError(f"Delta chunk has fractional contract volume: {chunk.identity}")
-        if not summary.tick_aligned_prices:
+        if not evidence_only and not summary.tick_aligned_prices:
             raise ValueError(f"Delta chunk has off-tick price: {chunk.identity}")
 
         unique_times = {item.time for item in candles}
@@ -442,6 +449,83 @@ def acquire_sf088_pass(
         product=product,
         chunks=tuple(captured_chunks),
     )
+
+
+def acquire_sf088_evidence_only(*, evidence_dir: Path) -> dict[str, object]:
+    """Capture immutable source evidence without historical metadata qualification.
+
+    The explicit evidence-only subdirectory prevents strict canonical acquisition from
+    mistaking these captures for historically qualified input. No dataset store is used.
+    """
+    plan = build_sf088_chunk_plan()
+    if sum(chunk.expected_minutes for chunk in plan) != SF088_EXPECTED_MINUTES:
+        raise ValueError("SF-088 evidence-only chunk plan does not cover frozen horizon")
+
+    protected_dir = evidence_dir / "evidence-only"
+    first = acquire_sf088_pass(
+        output_dir=protected_dir,
+        pass_name="pass-1",
+        chunk_plan=plan,
+        evidence_only=True,
+    )
+    second = acquire_sf088_pass(
+        output_dir=protected_dir,
+        pass_name="pass-2",
+        chunk_plan=plan,
+        evidence_only=True,
+    )
+    # Structural/semantic response coherence is observable without historical
+    # product-rule applicability; do not reuse strict canonical qualification.
+    if first.product.semantic_sha256 != second.product.semantic_sha256:
+        raise ValueError("Delta product semantics changed between evidence-only passes")
+    if len(first.chunks) != len(plan) or len(second.chunks) != len(plan):
+        raise ValueError("SF-088 evidence-only pass does not cover the complete chunk plan")
+    changes = [
+        left.chunk.identity
+        for left, right in zip(first.chunks, second.chunks, strict=True)
+        if left.chunk.identity != right.chunk.identity
+        or left.semantic_sha256 != right.semantic_sha256
+    ]
+    if changes:
+        raise ValueError(
+            "Delta evidence-only historical semantic revisions; retain both passes: "
+            + ", ".join(changes[:5])
+        )
+
+    missing_fields = [
+        field
+        for field in ("created_at", "updated_at")
+        if getattr(first.product, field) is None
+    ]
+    report: dict[str, object] = {
+        "mode": "EVIDENCE_ONLY",
+        "disposition": "UNQUALIFIED_SOURCE_EVIDENCE",
+        "historical_metadata_applicability": "UNRESOLVED",
+        "missing_product_metadata_fields": missing_fields,
+        "source_api_origin": first.product.api_origin,
+        "source_product_id": first.product.product_id,
+        "source_symbol": first.product.symbol,
+        "source_product_semantic_sha256": first.product.semantic_sha256,
+        "frozen_start": SF088_START.isoformat(),
+        "frozen_end": SF088_END.isoformat(),
+        "expected_minutes": SF088_EXPECTED_MINUTES,
+        "chunk_count_per_pass": len(plan),
+        "first_pass_raw_sha256": [chunk.raw_sha256 for chunk in first.chunks],
+        "second_pass_raw_sha256": [chunk.raw_sha256 for chunk in second.chunks],
+        "first_pass_semantic_sha256": [chunk.semantic_sha256 for chunk in first.chunks],
+        "second_pass_semantic_sha256": [chunk.semantic_sha256 for chunk in second.chunks],
+        "acquisition_version": SF088_ACQUISITION_VERSION,
+        "canonical_dataset_published": False,
+        "strategy_research_eligible": False,
+    }
+    report["report_sha256"] = _sha256_json(report)
+    report_path = protected_dir / "evidence-only-report.json"
+    if report_path.exists():
+        if json.loads(report_path.read_text(encoding="utf-8")) != report:
+            raise ValueError("existing SF-088 evidence-only report differs")
+    else:
+        _write_json_once(report_path, report)
+    return report
 
 
 def assert_two_pass_coherence(
@@ -769,6 +853,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    evidence = subparsers.add_parser("evidence-only")
+    evidence.add_argument("--evidence-dir", type=Path, required=True)
+
     acquire = subparsers.add_parser("acquire")
     acquire.add_argument("--evidence-dir", type=Path, required=True)
     acquire.add_argument("--store-dir", type=Path, required=True)
@@ -790,6 +877,11 @@ def main(argv: list[str] | None = None) -> int:
             store_dir=args.store_dir,
             dataset_id=DatasetId(args.dataset_id),
         )
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return 0
+
+    if args.command == "evidence-only":
+        report = acquire_sf088_evidence_only(evidence_dir=args.evidence_dir)
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 0
 
