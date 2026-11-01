@@ -52,8 +52,10 @@ def _manifest_payload(dataset: HistoricalBarDataset) -> dict[str, object]:
     manifest = {
         field.name: _serialize(getattr(dataset.manifest, field.name))
         for field in fields(dataset.manifest)
-        if field.name not in {"grid", "price_basis"}
+        if field.name not in {"grid", "price_basis", "acquisition_evidence"}
     }
+    if dataset.manifest.acquisition_evidence:
+        manifest["acquisition_evidence"] = list(dataset.manifest.acquisition_evidence)
     if dataset.manifest.grid is not None:
         manifest["grid"] = dataset.manifest.grid.semantic_mapping()
     if dataset.manifest.price_basis is not None:
