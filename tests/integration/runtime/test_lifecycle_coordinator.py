@@ -13,6 +13,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle, MarketEven
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.time import IST, CandleInterval
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
@@ -108,6 +109,7 @@ def _coordinator() -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=IntradayMomentumV1Strategy(StrategyV1EvaluationConfig()),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -243,6 +245,7 @@ def test_strategy_receives_read_only_armed_setup_view() -> None:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     candle = _candle()
     coordinator.process_evaluation(candle, _evaluation(candle))
@@ -293,6 +296,7 @@ def test_shared_session_safety_blocks_strategy_trigger_after_1515() -> None:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     candle = _candle()
     coordinator.process_evaluation(candle, _evaluation(candle))
@@ -325,6 +329,7 @@ def test_non_positive_risk_rejects_before_post_fill_target_economics() -> None:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     candle = _candle()
     coordinator.process_evaluation(candle, _evaluation(candle))
@@ -345,6 +350,7 @@ def test_shared_session_safety_expires_previous_day_setup_before_next_day_event(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     candle = _candle()
     coordinator.process_evaluation(candle, _evaluation(candle))
