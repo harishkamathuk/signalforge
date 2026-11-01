@@ -15,8 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from signalforge.domain.ids import DatasetId
 from signalforge.research.historical_bars import (
@@ -101,6 +101,8 @@ def _decimal_type(values: list[Decimal]) -> pa.DataType:
         if not value.is_finite():
             raise HistoricalDatasetStoreError("Parquet price must be finite")
         exponent = value.as_tuple().exponent
+        if not isinstance(exponent, int):
+            raise HistoricalDatasetStoreError("Parquet price exponent must be integral")
         scale = max(0, -exponent)
         integer_digits = max(1, value.adjusted() + 1) if value != 0 else 1
         max_scale = max(max_scale, scale)
