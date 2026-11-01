@@ -26,7 +26,6 @@ from signalforge.persistence.repositories import (
     PostgresRunProvenanceRepository,
     PostgresStrategyDecisionRepository,
 )
-from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.candles import CandleEngine
 from signalforge.runtime.decision_audit import project_v1_decision
 from signalforge.runtime.eligibility import MarketDataFeedState
@@ -37,6 +36,7 @@ from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeError,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
