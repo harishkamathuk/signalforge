@@ -327,7 +327,9 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        forced_exit_at = self.position_manager.forced_exit_at(arming.armed_setup.armed_at)
+        forced_exit_at = self.market_session_policy.compulsory_exit_at(
+            arming.armed_setup.armed_at
+        )
         if at >= forced_exit_at:
             policy = ArmedEventDecision(
                 ArmedEventAction.EXPIRE,
