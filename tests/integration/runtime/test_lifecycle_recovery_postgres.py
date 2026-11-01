@@ -51,6 +51,7 @@ from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 
@@ -296,6 +297,7 @@ def test_postgres_open_restart_hydrates_read_only_and_continues_from_frozen_econ
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     hydrated = LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,

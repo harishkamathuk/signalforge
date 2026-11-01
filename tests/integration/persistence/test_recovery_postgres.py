@@ -17,6 +17,7 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import PositionState
+from signalforge.domain.provenance import MarketSessionPolicyIdentity
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import TradeState
 from signalforge.persistence.coordinator import PersistenceCoordinator
@@ -669,4 +670,33 @@ def test_recovery_postgres_restores_rsi_only_checkpoint_and_validates_requiremen
                     RsiRequirement(14),
                     EmaRequirement(9),
                 ),
+            )
+
+
+
+def test_recovery_rejects_market_session_policy_provenance_mismatch(
+    postgres_engine: Engine,
+) -> None:
+    value = facts(f"sf089-recovery-policy-{uuid4().hex[:8]}")
+    with Session(postgres_engine) as session:
+        PostgresRunProvenanceRepository(session).add(value.run)
+        session.commit()
+
+    requested = replace(
+        value.run,
+        market_session_policy=MarketSessionPolicyIdentity(
+            "synthetic_market",
+            "1.0.0",
+        ),
+    )
+    with Session(postgres_engine) as session:
+        with pytest.raises(
+            ContradictoryFactError,
+            match="persisted run provenance differs from requested runtime",
+        ):
+            RecoveryBootstrap().inspect(
+                session=session,
+                requested_run=requested,
+                instrument_id=value.signal.instrument_id,
+                indicator_requirements=V1_INDICATOR_REQUIREMENTS,
             )

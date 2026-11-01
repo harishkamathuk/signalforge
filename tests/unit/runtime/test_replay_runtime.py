@@ -16,6 +16,7 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.replay import InMemoryReplaySource, ReplayInput
 from signalforge.runtime.replay_runtime import ReplayRuntime
 from signalforge.runtime.strategy import CompletedCandleStrategyContext, StrategyRuntimeFacts
@@ -72,6 +73,7 @@ def _runtime(events: tuple[MarketEvent, ...]) -> ReplayRuntime:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_context_factory,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -121,6 +123,7 @@ def test_evaluation_context_is_requested_only_for_completed_candles() -> None:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=context_factory,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     runtime.run_all()
@@ -140,6 +143,7 @@ def test_rejects_tick_schedule_for_different_instrument() -> None:
             quantity=Quantity(10),
             strategy=strategy,
             evaluation_context_factory=_context_factory,
+            market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         )
 
 
@@ -163,6 +167,7 @@ def test_process_input_is_serial_and_does_not_consume_future_source_items() -> N
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_context_factory,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     iterator = iter(source)
     first: ReplayInput = next(iterator)
@@ -216,6 +221,7 @@ def test_runtime_accepts_strategy_without_v1_decomposition() -> None:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_context_factory,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     steps = runtime.run_all()
@@ -260,6 +266,7 @@ def test_runtime_rejects_actionable_unqualified_strategy_decision() -> None:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_context_factory,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     with pytest.raises(ValueError, match="Actionable strategy decision must be qualified"):

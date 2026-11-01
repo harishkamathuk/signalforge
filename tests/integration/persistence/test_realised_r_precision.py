@@ -68,6 +68,8 @@ def test_high_precision_realised_r_round_trips_exactly(postgres_engine: Engine) 
                 "run_id": "precision-run",
                 "config_id": "precision-config",
                 "engine_calculation_version": "engine-v1",
+                "market_session_policy_id": "nse_intraday",
+                "market_session_policy_version": "1.0.0",
             },
         )
         connection.execute(

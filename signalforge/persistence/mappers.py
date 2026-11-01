@@ -38,7 +38,11 @@ from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.prepared_indicators import PreparedIndicatorCheckpoint
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.provenance import (
+    MarketSessionPolicyIdentity,
+    RunIdentity,
+    StrategyIdentity,
+)
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval
 from signalforge.domain.trades import Trade, TradeState
@@ -197,6 +201,8 @@ def run_record_from_domain(run: RunIdentity) -> RunRecord:
         run_id=str(run.run_id),
         config_id=str(run.config_id),
         engine_calculation_version=run.engine_calculation_version,
+        market_session_policy_id=run.market_session_policy.policy_id,
+        market_session_policy_version=run.market_session_policy.policy_version,
     )
 
 
@@ -212,6 +218,10 @@ def run_identity_from_records(
         config_id=ConfigId(config.config_id),
         config_hash=config.config_hash,
         engine_calculation_version=run.engine_calculation_version,
+        market_session_policy=MarketSessionPolicyIdentity(
+            run.market_session_policy_id,
+            run.market_session_policy_version,
+        ),
     )
 
 

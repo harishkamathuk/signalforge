@@ -8,6 +8,7 @@ from signalforge.domain.money import Price, Quantity
 from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.position_manager import PositionManager, PositionOpenRejection
 from signalforge.runtime.strategy import PositionEconomics
 
@@ -77,7 +78,10 @@ def _economics(
 def test_actual_fill_drives_risk_and_opens_one_to_one_position() -> None:
     signal = _signal(low="99.00")
     fill = _fill(signal, price="101.10", quantity=7)
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(
         fill,
         signal,
         _economics(stop="100.00"),
@@ -101,7 +105,10 @@ def test_actual_fill_drives_risk_and_opens_one_to_one_position() -> None:
 def test_position_manager_uses_supplied_stop_not_signal_low() -> None:
     signal = _signal(low="99.00")
     fill = _fill(signal, price="101.10")
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(
         fill,
         signal,
         _economics(stop="100.25", raw_target="104.00"),
@@ -121,7 +128,10 @@ def test_non_positive_risk_is_explicitly_rejected_without_open_lifecycle() -> No
         stop_price=Price(Decimal("101.00")),
         raw_target_price=None,
     )
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(fill, signal, economics)
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(fill, signal, economics)
 
     assert result.opened is False
     assert result.trade is None
@@ -133,7 +143,10 @@ def test_duplicate_fill_processing_is_idempotent_for_same_economics() -> None:
     signal = _signal()
     fill = _fill(signal)
     economics = _economics()
-    manager = PositionManager(tick_schedule=_schedule())
+    manager = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    )
 
     first = manager.open_from_fill(fill, signal, economics)
     second = manager.open_from_fill(fill, signal, economics)
@@ -146,7 +159,10 @@ def test_duplicate_fill_processing_is_idempotent_for_same_economics() -> None:
 def test_reference_trigger_price_does_not_drive_trade_economics() -> None:
     signal = _signal(low="99.00")
     fill = _fill(signal, price="101.40")
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(
         fill,
         signal,
         _economics(stop="100.00", raw_target="103.500"),
@@ -164,7 +180,10 @@ def test_fill_and_signal_identity_mismatch_fails_fast() -> None:
     fill = _fill(signal)
     other_signal = _signal(end_minute=5)
 
-    manager = PositionManager(tick_schedule=_schedule())
+    manager = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    )
     try:
         manager.open_from_fill(fill, other_signal, _economics())
     except ValueError as exc:
@@ -177,7 +196,10 @@ def test_fill_and_signal_identity_mismatch_fails_fast() -> None:
 def test_position_manager_normalizes_strategy_raw_target_using_fill_date_tick_rule() -> None:
     signal = _signal(low="99.00")
     fill = _fill(signal, price="101.10")
-    result = PositionManager(tick_schedule=_schedule()).open_from_fill(
+    result = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).open_from_fill(
         fill,
         signal,
         _economics(stop="100.00", raw_target="102.751"),

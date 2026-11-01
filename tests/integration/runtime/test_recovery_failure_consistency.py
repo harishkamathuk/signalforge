@@ -36,6 +36,7 @@ from signalforge.runtime.lifecycle_recovery import (
     LifecycleRecoveryError,
     LifecycleRecoveryHydrator,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from tests.integration.persistence.test_recovery_postgres import (
@@ -180,6 +181,7 @@ def test_failed_lifecycle_hydration_is_non_durable_and_fresh_retry_starts_from_s
         tick_schedule=schedule,
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     with pytest.raises(LifecycleRecoveryError, match="configured strategy identity"):

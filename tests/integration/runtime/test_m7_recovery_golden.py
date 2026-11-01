@@ -50,6 +50,7 @@ from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler, 
 from signalforge.runtime.indicators import V1_INDICATOR_REQUIREMENTS, IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
 from tests.integration.persistence.test_crash_consistency_between_groups import (
@@ -244,6 +245,7 @@ def _recover_coordinator(postgres_engine: Engine, value):
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     hydrated = LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,
@@ -286,6 +288,7 @@ def _uninterrupted_open(value) -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=_strategy(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     armed = coordinator.process_evaluation(_signal_candle(value), value.evaluation)
     assert armed.state is LifecycleState.ARMED
@@ -465,6 +468,7 @@ def test_armed_restart_expires_and_terminal_history_does_not_rearm(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=_strategy(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     assert (
         reference.process_evaluation(_signal_candle(value), value.evaluation).state

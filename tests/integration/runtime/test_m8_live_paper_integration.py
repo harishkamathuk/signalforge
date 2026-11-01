@@ -54,6 +54,7 @@ from signalforge.runtime.live_runtime import (
     LiveRuntimeContinuity,
     LiveRuntimeReconciliationRequired,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.prepared_indicators import build_prepared_checkpoint
 from signalforge.runtime.strategy import StrategyRuntimeFacts
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
@@ -293,6 +294,7 @@ def _bootstrap_runtime(
         decision_projector=project_v1_decision,
         evaluation_context_factory=facts,
         initial_prepared_checkpoint=checkpoint,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     facts.runtime = runtime
     return runtime, facts, run

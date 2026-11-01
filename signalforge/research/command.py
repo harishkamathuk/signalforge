@@ -36,6 +36,7 @@ from signalforge.research.orchestration import (
     ExperimentResult,
     ResearchOrchestrator,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.replay import InMemoryReplaySource, ReplaySource
 
 
@@ -139,9 +140,13 @@ def research_run_command(
         dataset=dataset,
         engine_calculation_version=config.engine_calculation_version,
         execution=execution,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         registry=registry,
     )
-    result = ResearchOrchestrator(registry=registry).run(
+    result = ResearchOrchestrator(
+        registry=registry,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    ).run(
         experiment=experiment,
         sources=sources,
     )
@@ -219,6 +224,10 @@ def _serialize_result(
             "strategy_version": experiment.strategy_identity.strategy_version,
             "config_hash": experiment.config_identity.config_hash,
             "engine_calculation_version": experiment.engine_calculation_version,
+            "market_session_policy_id": experiment.market_session_policy.policy_id,
+            "market_session_policy_version": (
+                experiment.market_session_policy.policy_version
+            ),
             "start_at": experiment.dataset.start_at.isoformat(),
             "end_at": experiment.dataset.end_at.isoformat(),
         },

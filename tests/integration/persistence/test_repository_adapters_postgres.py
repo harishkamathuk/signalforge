@@ -25,7 +25,11 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, Quantity
 from signalforge.domain.position_outcomes import PositionOpenOutcome, PositionOpenOutcomeType
 from signalforge.domain.positions import Position, PositionState
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
+from signalforge.domain.provenance import (
+    MarketSessionPolicyIdentity,
+    RunIdentity,
+    StrategyIdentity,
+)
 from signalforge.domain.signals import Signal
 from signalforge.domain.strategy import (
     DecisionReason,
@@ -1930,3 +1934,22 @@ def test_sf065_reference_strategy_provenance_and_rsi_checkpoint_round_trip(
     assert restored.adx_state is None
     assert restored.macd_state is None
     assert restored.rsi_state is not None
+
+
+
+def test_run_provenance_rejects_market_session_policy_identity_reuse(
+    session: Session,
+) -> None:
+    value = facts("sf089-policy")
+    repository = PostgresRunProvenanceRepository(session)
+    assert repository.add(value.run) == value.run
+
+    contradictory = replace(
+        value.run,
+        market_session_policy=MarketSessionPolicyIdentity(
+            "synthetic_market",
+            "1.0.0",
+        ),
+    )
+    with pytest.raises(ContradictoryFactError, match="stored run contradicts"):
+        repository.add(contradictory)

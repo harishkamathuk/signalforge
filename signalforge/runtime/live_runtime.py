@@ -48,6 +48,7 @@ from signalforge.runtime.lifecycle import (
     LifecycleState,
 )
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.recovery import RecoveryBootstrap, RecoveryDisposition
 from signalforge.runtime.strategy import (
     CompletedCandleStrategyContext,
@@ -179,6 +180,7 @@ class LiveRuntime:
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
         strategy: Strategy,
+        market_session_policy: MarketSessionPolicy,
         session_factory: SessionFactory,
         decision_projector: DecisionProjector,
         evaluation_context_factory: EvaluationContextFactory,
@@ -238,6 +240,7 @@ class LiveRuntime:
             tick_schedule=tick_schedule,
             quantity=quantity,
             strategy=strategy,
+            market_session_policy=market_session_policy,
         )
         LifecycleRecoveryHydrator().hydrate(
             indicator_result=indicator_result,

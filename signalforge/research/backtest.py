@@ -25,15 +25,16 @@ from signalforge.domain.ids import (
     deterministic_id,
 )
 from signalforge.domain.money import Price, Quantity
-from signalforge.domain.provenance import RunIdentity, StrategyIdentity
-from signalforge.domain.session import (
-    NSE_REGULAR_SESSION_BOUNDARY,
-    NSE_REGULAR_SESSION_OPEN,
+from signalforge.domain.provenance import (
+    LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY,
+    RunIdentity,
+    StrategyIdentity,
 )
-from signalforge.domain.time import to_ist, to_utc
+from signalforge.domain.time import to_utc
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.research.contracts import ExperimentDefinition
 from signalforge.runtime.indicators import IndicatorContinuity
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.position_manager import PositionOpenRejection
 from signalforge.runtime.replay import ReplayInput, ReplaySource, ReplaySourceIdentity
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
@@ -180,8 +181,14 @@ class BacktestRunResult:
 class BacktestRunner:
     """Run one experiment instrument through the existing deterministic replay engine."""
 
-    def __init__(self, *, registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY) -> None:
+    def __init__(
+        self,
+        *,
+        market_session_policy: MarketSessionPolicy,
+        registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY,
+    ) -> None:
         self._registry = registry
+        self._market_session_policy = market_session_policy
 
     def run(
         self,
@@ -213,17 +220,32 @@ class BacktestRunner:
         ):
             raise ValueError("Resolved strategy contradicts experiment provenance")
 
+        if experiment.market_session_policy != self._market_session_policy.identity:
+            raise ValueError(
+                "Backtest market-session policy contradicts experiment provenance"
+            )
+
         if source.identity.instrument_id != instrument_id:
             raise ValueError("Replay source instrument does not match backtest instrument")
         if source.identity.source_id != source_definition.source_id:
             raise ValueError("Replay source identity contradicts experiment dataset source_id")
 
-        run_id = deterministic_id(
-            RunId,
+        run_id_parts = [
             strategy.config_identity.config_hash,
             source.identity.source_id,
             experiment.engine_calculation_version,
-        )
+        ]
+        if (
+            self._market_session_policy.identity
+            != LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY
+        ):
+            run_id_parts.extend(
+                (
+                    self._market_session_policy.identity.policy_id,
+                    self._market_session_policy.identity.policy_version,
+                )
+            )
+        run_id = deterministic_id(RunId, *run_id_parts)
         backtest_run_id = deterministic_id(
             BacktestRunId,
             str(experiment.experiment_id),
@@ -236,6 +258,7 @@ class BacktestRunner:
             config_id=strategy.config_identity.config_id,
             config_hash=strategy.config_identity.config_hash,
             engine_calculation_version=experiment.engine_calculation_version,
+            market_session_policy=self._market_session_policy.identity,
         )
 
         completed_count = 0
@@ -255,6 +278,7 @@ class BacktestRunner:
             tick_schedule=execution.tick_schedule,
             quantity=execution.quantity,
             strategy=strategy,
+            market_session_policy=self._market_session_policy,
             evaluation_context_factory=context_factory,
         )
         clock = ReplaySessionClock(runtime=runtime)
@@ -274,8 +298,8 @@ class BacktestRunner:
             backtest_run_id=backtest_run_id,
         )
 
-    @staticmethod
     def _validated_inputs(
+        self,
         *,
         experiment: ExperimentDefinition,
         instrument_id: InstrumentId,
@@ -290,10 +314,9 @@ class BacktestRunner:
             event_at = to_utc(event.exchange_timestamp)
             if event_at < start_at or event_at > end_at:
                 raise ValueError("Backtest market event falls outside experiment dataset range")
-            event_time_ist = to_ist(event.exchange_timestamp).time().replace(tzinfo=None)
-            if not (NSE_REGULAR_SESSION_OPEN <= event_time_ist <= NSE_REGULAR_SESSION_BOUNDARY):
+            if not self._market_session_policy.accepts_event(event.exchange_timestamp):
                 raise ValueError(
-                    "Backtest market event falls outside the canonical NSE regular-session "
+                    "Backtest market event falls outside the configured market-session "
                     "input window"
                 )
             yield replay_input

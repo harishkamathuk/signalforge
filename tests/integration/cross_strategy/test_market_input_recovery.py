@@ -25,6 +25,7 @@ from signalforge.runtime.indicator_recovery import IndicatorRecoveryReconciler
 from signalforge.runtime.indicators import IndicatorEngine
 from signalforge.runtime.lifecycle import LifecycleCoordinator
 from signalforge.runtime.lifecycle_recovery import LifecycleRecoveryHydrator
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveryBootstrap
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_runtime import ReplayRuntime
@@ -119,6 +120,7 @@ def _runtime(
         candle_engine=candle_engine,
         indicator_engine=indicator_engine,
         lifecycle=lifecycle,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -168,6 +170,7 @@ def test_reference_strategy_uses_same_forming_candle_recovery_path(
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     LifecycleRecoveryHydrator().hydrate(
         indicator_result=indicator_result,

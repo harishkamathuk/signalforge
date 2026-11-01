@@ -39,6 +39,7 @@ from signalforge.runtime.decision_audit import project_rsi_mean_reversion_decisi
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_runtime import ReplayRuntime
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
@@ -131,6 +132,7 @@ def test_reference_full_lifecycle_persists_through_shared_repositories(
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_facts,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
     with Session(postgres_engine) as session:

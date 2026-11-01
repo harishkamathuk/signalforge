@@ -19,6 +19,7 @@ from signalforge.domain.signals import Signal
 from signalforge.domain.time import require_aware
 from signalforge.domain.trades import Trade, TradeState
 from signalforge.runtime.execution import PaperExecutionPort, PaperExecutionResult
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.position_manager import PositionManager, PositionOpenResult
 from signalforge.runtime.signal_lifecycle import SignalArmingResult, SignalLifecycleManager
 from signalforge.runtime.strategy import (
@@ -63,13 +64,22 @@ class LifecycleCoordinator:
         tick_schedule: TickSizeSchedule,
         quantity: Quantity,
         strategy: Strategy,
+        market_session_policy: MarketSessionPolicy,
     ) -> None:
+        if run.market_session_policy != market_session_policy.identity:
+            raise ValueError(
+                "Run market-session policy contradicts lifecycle configuration"
+            )
         self.run = run
         self.quantity = quantity
         self.strategy = strategy
+        self.market_session_policy = market_session_policy
         self.signal_lifecycle = SignalLifecycleManager(run=run, tick_schedule=tick_schedule)
         self.execution_port = PaperExecutionPort()
-        self.position_manager = PositionManager(tick_schedule=tick_schedule)
+        self.position_manager = PositionManager(
+            tick_schedule=tick_schedule,
+            market_session_policy=market_session_policy,
+        )
         self._arming: SignalArmingResult | None = None
         self._execution: PaperExecutionResult | None = None
         self._open_result: PositionOpenResult | None = None
@@ -192,7 +202,9 @@ class LifecycleCoordinator:
         before = self.signal_lifecycle.active
         open_position = self.state is LifecycleState.OPEN
         if decision.actionable and not open_position:
-            compulsory_exit_at = self.position_manager.forced_exit_at(candle.interval.end)
+            compulsory_exit_at = self.market_session_policy.compulsory_exit_at(
+                candle.interval.end
+            )
             if candle.interval.end >= compulsory_exit_at:
                 raise ValueError(
                     "Actionable strategy decision cannot arm at or after compulsory session exit"
@@ -236,7 +248,9 @@ class LifecycleCoordinator:
             return self.snapshot()
 
         prior_state = arming.armed_setup.state
-        forced_exit_at = self.position_manager.forced_exit_at(arming.armed_setup.armed_at)
+        forced_exit_at = self.market_session_policy.compulsory_exit_at(
+            arming.armed_setup.armed_at
+        )
         if event.exchange_timestamp >= forced_exit_at:
             policy = ArmedEventDecision(
                 ArmedEventAction.EXPIRE,
@@ -317,7 +331,9 @@ class LifecycleCoordinator:
         if arming is None or arming.armed_setup.state is not ArmedSetupState.ARMED:
             return self.snapshot()
         prior_state = arming.armed_setup.state
-        forced_exit_at = self.position_manager.forced_exit_at(arming.armed_setup.armed_at)
+        forced_exit_at = self.market_session_policy.compulsory_exit_at(
+            arming.armed_setup.armed_at
+        )
         if at >= forced_exit_at:
             policy = ArmedEventDecision(
                 ArmedEventAction.EXPIRE,

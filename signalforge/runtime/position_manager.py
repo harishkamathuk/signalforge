@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time
 from enum import StrEnum
 
 from signalforge.domain.execution import ExecutionMode, Fill
@@ -15,11 +14,9 @@ from signalforge.domain.market import MarketEvent
 from signalforge.domain.money import Price, ceil_to_tick
 from signalforge.domain.positions import Position, PositionState
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST
 from signalforge.domain.trades import Trade, TradeState
+from signalforge.runtime.market_session import MarketSessionPolicy
 from signalforge.runtime.strategy import PositionEconomics
-
-_FORCED_EXIT_TIME = time(15, 15)
 
 
 class PositionOpenRejection(StrEnum):
@@ -56,8 +53,14 @@ class PositionOpenResult:
 class PositionManager:
     """Own deterministic OPEN and CLOSED Trade/Position transitions."""
 
-    def __init__(self, *, tick_schedule: TickSizeSchedule) -> None:
+    def __init__(
+        self,
+        *,
+        tick_schedule: TickSizeSchedule,
+        market_session_policy: MarketSessionPolicy,
+    ) -> None:
         self.tick_schedule = tick_schedule
+        self.market_session_policy = market_session_policy
         self._results: dict[FillId, PositionOpenResult] = {}
         self._signals: dict[FillId, str] = {}
         self._economics: dict[FillId, PositionEconomics] = {}
@@ -92,7 +95,7 @@ class PositionManager:
 
         if economics.raw_target_price is None:
             raise ValueError("Positive-risk Fill requires raw target economics")
-        trading_date = fill.filled_at.astimezone(IST).date()
+        trading_date = self.market_session_policy.trading_date(fill.filled_at)
         tick_size = self.tick_schedule.tick_size_on(trading_date)
         tradable_target_price = ceil_to_tick(economics.raw_target_price, tick_size)
         trade = Trade.open_from_fill(
@@ -156,7 +159,7 @@ class PositionManager:
         trade: Trade,
         event: MarketEvent,
     ) -> tuple[ExitReason, Price] | None:
-        forced_at = self.forced_exit_at(event.exchange_timestamp)
+        forced_at = self.market_session_policy.compulsory_exit_at(event.exchange_timestamp)
         if event.exchange_timestamp >= forced_at:
             return ExitReason.FORCED_SESSION_EXIT, event.price
         if event.price.value <= trade.stop_price.value:
@@ -164,11 +167,6 @@ class PositionManager:
         if event.price.value >= trade.tradable_target_price.value:
             return ExitReason.TARGET, trade.tradable_target_price
         return None
-
-    @staticmethod
-    def forced_exit_at(at: datetime) -> datetime:
-        local = at.astimezone(IST)
-        return datetime.combine(local.date(), _FORCED_EXIT_TIME, tzinfo=IST)
 
     def _validate_contract(self, fill: Fill, signal: Signal) -> None:
         if fill.signal_id != signal.signal_id:

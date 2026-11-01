@@ -15,6 +15,7 @@ from signalforge.domain.time import IST, CandleInterval
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.lifecycle import LifecycleCoordinator, LifecycleState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.position_manager import PositionOpenRejection
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_runtime import ReplayRuntime
@@ -78,6 +79,7 @@ def _runtime(events: tuple[MarketEvent, ...]) -> ReplayRuntime:
         quantity=Quantity(10),
         strategy=strategy,
         evaluation_context_factory=_facts,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 
@@ -225,6 +227,7 @@ def test_reference_shared_session_safety_preempts_strategy_policy() -> None:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
     end = datetime(2026, 8, 31, 15, 10, tzinfo=IST)
     candle = CompletedCandle(

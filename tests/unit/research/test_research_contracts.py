@@ -21,6 +21,7 @@ from signalforge.research.contracts import (
     InstrumentExecutionDefinition,
     UniverseDefinition,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 
 A = InstrumentId("NSE:AAA")
 B = InstrumentId("NSE:BBB")
@@ -90,6 +91,7 @@ def _experiment(
         universe=universe or _universe(A, B),
         dataset=dataset or _dataset(),
         engine_calculation_version=calculation_version,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         execution=execution or (_execution(A), _execution(B)),
     )
 

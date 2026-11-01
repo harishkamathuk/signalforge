@@ -30,6 +30,7 @@ from signalforge.runtime.lifecycle_recovery import (
     LifecycleRecoveryError,
     LifecycleRecoveryHydrator,
 )
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.recovery import RecoveredLifecycle
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
 from signalforge.runtime.strategy import Strategy
@@ -105,6 +106,7 @@ def _coordinator(strategy: Strategy, run: RunIdentity) -> LifecycleCoordinator:
         tick_schedule=_schedule(),
         quantity=Quantity(10),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
     )
 
 

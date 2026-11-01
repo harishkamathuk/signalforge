@@ -12,6 +12,7 @@ from signalforge.domain.provenance import RunIdentity, StrategyIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import IST, CandleInterval
 from signalforge.domain.trades import Trade, TradeState
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.position_manager import PositionManager
 from signalforge.runtime.strategy import PositionEconomics
 
@@ -57,7 +58,10 @@ def _open_position() -> tuple[PositionManager, Trade, Position]:
         filled_at=datetime(2026, 8, 31, 10, 1, tzinfo=IST),
         run=_run(),
     )
-    manager = PositionManager(tick_schedule=_schedule())
+    manager = PositionManager(
+        tick_schedule=_schedule(),
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
+    )
     opened = manager.open_from_fill(
         fill,
         signal,

@@ -27,6 +27,7 @@ from signalforge.live_paper import live_paper_command, prepare_session_command
 from signalforge.research.command import research_run_command
 from signalforge.runtime.eligibility import MarketDataFeedState
 from signalforge.runtime.indicators import IndicatorContinuity
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.replay import InMemoryReplaySource
 from signalforge.runtime.replay_clock import ReplayClockStep, ReplaySessionClock
 from signalforge.runtime.replay_runtime import ReplayRuntime
@@ -135,6 +136,7 @@ def _build_runtime(
         config_id=config_identity.config_id,
         config_hash=config_identity.config_hash,
         engine_calculation_version=config.engine_calculation_version,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY.identity,
     )
     tick_schedule = TickSizeSchedule(
         instrument_id=instrument_id,
@@ -164,6 +166,7 @@ def _build_runtime(
         tick_schedule=tick_schedule,
         quantity=Quantity(config.quantity),
         strategy=strategy,
+        market_session_policy=NSE_INTRADAY_MARKET_SESSION_POLICY,
         evaluation_context_factory=context_factory,
     )
     return runtime, ReplaySessionClock(runtime=runtime)

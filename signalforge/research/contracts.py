@@ -15,8 +15,13 @@ from signalforge.config.strategy_registry import (
 from signalforge.domain.ids import DatasetId, ExperimentId, InstrumentId, UniverseId
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.money import Quantity
-from signalforge.domain.provenance import StrategyIdentity
-from signalforge.domain.time import to_ist, to_utc
+from signalforge.domain.provenance import (
+    LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY,
+    MarketSessionPolicyIdentity,
+    StrategyIdentity,
+)
+from signalforge.domain.time import to_utc
+from signalforge.runtime.market_session import MarketSessionPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +151,7 @@ class ExperimentDefinition:
     universe: UniverseDefinition
     dataset: DatasetDefinition
     engine_calculation_version: str
+    market_session_policy: MarketSessionPolicyIdentity
     execution: tuple[InstrumentExecutionDefinition, ...]
 
     @classmethod
@@ -157,6 +163,7 @@ class ExperimentDefinition:
         dataset: DatasetDefinition,
         engine_calculation_version: str,
         execution: tuple[InstrumentExecutionDefinition, ...],
+        market_session_policy: MarketSessionPolicy,
         registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY,
     ) -> Self:
         """Validate the complete experiment and derive its deterministic identity."""
@@ -180,8 +187,8 @@ class ExperimentDefinition:
         if execution_set != universe_set:
             raise ValueError("Research execution instruments must exactly match universe")
 
-        start_date = to_ist(dataset.start_at).date()
-        end_date = to_ist(dataset.end_at).date()
+        start_date = market_session_policy.trading_date(dataset.start_at)
+        end_date = market_session_policy.trading_date(dataset.end_at)
         for item in ordered_execution:
             _require_tick_schedule_coverage(
                 item.tick_schedule,
@@ -190,17 +197,21 @@ class ExperimentDefinition:
             )
 
         config_identity = strategy.config_identity
-        digest = config_hash(
-            {
-                "strategy_id": strategy.identity.strategy_id,
-                "strategy_version": strategy.identity.strategy_version,
-                "config_hash": config_identity.config_hash,
-                "universe_id": str(universe.universe_id),
-                "dataset_id": str(dataset.dataset_id),
-                "engine_calculation_version": engine_calculation_version,
-                "execution": [item.semantic_mapping() for item in ordered_execution],
+        identity_material: dict[str, object] = {
+            "strategy_id": strategy.identity.strategy_id,
+            "strategy_version": strategy.identity.strategy_version,
+            "config_hash": config_identity.config_hash,
+            "universe_id": str(universe.universe_id),
+            "dataset_id": str(dataset.dataset_id),
+            "engine_calculation_version": engine_calculation_version,
+            "execution": [item.semantic_mapping() for item in ordered_execution],
+        }
+        if market_session_policy.identity != LEGACY_NSE_MARKET_SESSION_POLICY_IDENTITY:
+            identity_material["market_session_policy"] = {
+                "policy_id": market_session_policy.identity.policy_id,
+                "policy_version": market_session_policy.identity.policy_version,
             }
-        )
+        digest = config_hash(identity_material)
         return cls(
             experiment_id=ExperimentId(digest),
             strategy_selection=strategy_selection,
@@ -209,6 +220,7 @@ class ExperimentDefinition:
             universe=universe,
             dataset=dataset,
             engine_calculation_version=engine_calculation_version,
+            market_session_policy=market_session_policy.identity,
             execution=ordered_execution,
         )
 
