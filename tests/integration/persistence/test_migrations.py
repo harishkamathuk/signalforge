@@ -760,8 +760,8 @@ def test_sf095_interval_presence_check_rejects_invalid_records(
                 ("NSE:INVALID2", 1, start, start),
                 ("NSE:INVALID3", 1, end, start),
             ):
-                with connection.begin_nested():
-                    with pytest.raises(sa.exc.IntegrityError):
+                with pytest.raises(sa.exc.IntegrityError):
+                    with connection.begin_nested():
                         connection.execute(
                             statement,
                             {"instrument": instrument, "count": count,
