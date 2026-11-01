@@ -48,6 +48,8 @@ def _product_capture() -> DeltaRawCapture:
                 "contract_value": "0.001",
                 "contract_unit_currency": "BTC",
                 "tick_size": "0.5",
+                "created_at": "2023-12-18T13:10:39Z",
+                "updated_at": "2024-11-15T02:47:50Z",
                 "underlying_asset": {"symbol": "BTC"},
                 "quoting_asset": {"symbol": "USD"},
                 "settling_asset": {"symbol": "USD"},
@@ -84,6 +86,8 @@ def test_product_snapshot_is_exact_provider_native_identity() -> None:
     assert product.underlying_asset_symbol == "BTC"
     assert product.quoting_asset_symbol == "USD"
     assert product.settling_asset_symbol == "USD"
+    assert product.created_at == datetime(2023, 12, 18, 13, 10, 39, tzinfo=UTC)
+    assert product.updated_at == datetime(2024, 11, 15, 2, 47, 50, tzinfo=UTC)
     assert product.raw_sha256 == capture.content_sha256
     assert len(product.semantic_sha256) == 64
 
