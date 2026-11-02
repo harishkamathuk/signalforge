@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from signalforge.research.delta_historical_dataset_acquisition import (
-    SF088_END, SF088_EXPECTED_MINUTES, SF088_START, SF088_SYMBOL,
+    SF088_END, SF088_EXPECTED_MINUTES, SF088_START, SF088_SYMBOL, SF088_ACQUISITION_VERSION,
     _candle_semantic_sha256, _sha256_json, _verify_evidence_source_url,
     build_sf088_chunk_plan,
 )
@@ -39,6 +39,8 @@ def audit_generation(generation_dir: Path) -> dict:
     if report.get("report_sha256") != expected_hash:
         raise ValueError("evidence report digest mismatch")
     plan = build_sf088_chunk_plan()
+    if report.get("source_product_id") != 27 or report.get("source_symbol") != SF088_SYMBOL or report.get("acquisition_version") != SF088_ACQUISITION_VERSION:
+        raise ValueError("evidence source/product/acquisition identity mismatch")
     if (
         report.get("mode") != "EVIDENCE_ONLY"
         or report.get("generation_namespace") != root.name
@@ -64,7 +66,17 @@ def audit_generation(generation_dir: Path) -> dict:
             raise ValueError(f"pass {number}: missing or unexpected evidence files")
         product_capture, product_meta = _load_capture(folder / "product.json", folder / "product.meta.json")
         _verify_evidence_source_url(product_capture.request_url, path=f"/v2/products/{SF088_SYMBOL}")
+        if product_meta.get("acquisition_version") != SF088_ACQUISITION_VERSION:
+            raise ValueError("product acquisition version mismatch")
         product = parse_delta_product_response(product_capture, expected_symbol=SF088_SYMBOL)
+        if product.product_id != report["source_product_id"] or product.semantic_sha256 != report["source_product_semantic_sha256"]:
+            raise ValueError("product semantics contradict acquisition report")
+        if product.api_origin != report["source_api_origin"]:
+            raise ValueError("product origin mismatch")
+        if number == 1:
+            first_product_semantic = product.semantic_sha256
+        elif product.semantic_sha256 != first_product_semantic:
+            raise ValueError("product semantics changed across passes")
         issues: Counter[str] = Counter()
         examples = []
         semantic = []
@@ -75,6 +87,12 @@ def audit_generation(generation_dir: Path) -> dict:
                 folder / f"chunk-{chunk.index:06d}.json",
                 folder / f"chunk-{chunk.index:06d}.meta.json",
             )
+            if (meta.get("acquisition_version") != SF088_ACQUISITION_VERSION
+                or meta.get("canonical_start") != chunk.start.isoformat()
+                or meta.get("canonical_end") != chunk.end.isoformat()
+                or meta.get("provider_start") != chunk.provider_start
+                or meta.get("provider_end") != chunk.provider_end):
+                raise ValueError(f"pass {number} chunk {chunk.index}: sidecar contract mismatch")
             if meta.get("chunk_identity") != chunk.identity:
                 raise ValueError(f"pass {number} chunk {chunk.index}: identity mismatch")
             _verify_evidence_source_url(
@@ -88,6 +106,12 @@ def audit_generation(generation_dir: Path) -> dict:
             digest = _candle_semantic_sha256(candles)
             if digest != meta["semantic_sha256"] or digest != report[f"{prefix}_pass_semantic_sha256"][chunk.index]:
                 raise ValueError(f"pass {number} chunk {chunk.index}: semantic digest mismatch")
+            expected_times = {int(chunk.start.timestamp()) + 60 * i for i in range(chunk.expected_minutes)}
+            observed_times = [c.time for c in candles]
+            if (meta.get("row_count") != len(candles)
+                or meta.get("missing_count") != len(expected_times - set(observed_times))
+                or meta.get("duplicate_count") != len(observed_times) - len(set(observed_times))):
+                raise ValueError(f"pass {number} chunk {chunk.index}: sidecar quality counts mismatch")
             semantic.append(digest)
             rows += len(candles)
             for candle in candles:
@@ -109,7 +133,8 @@ def audit_generation(generation_dir: Path) -> dict:
                     value = getattr(candle, field)
                     if value % product.tick_size != 0:
                         issues["off_current_snapshot_tick_price_fields"] += 1
-                        examples.append({
+                        if len(examples) < 100:
+                            examples.append({
                             "utc": datetime.fromtimestamp(t, UTC).isoformat(),
                             "chunk": chunk.index, "field": field, "value": str(value),
                             "current_snapshot_tick_size": str(product.tick_size),
@@ -125,6 +150,7 @@ def audit_generation(generation_dir: Path) -> dict:
             "missing_minute_count": len(missing),
             "issues": dict(issues),
             "anomaly_examples": examples,
+            "anomaly_examples_truncated": issues["off_current_snapshot_tick_price_fields"] > len(examples),
             "product_snapshot": {
                 "id": product.product_id, "symbol": product.symbol,
                 "tick_size": str(product.tick_size),
@@ -164,6 +190,17 @@ def audit_generation(generation_dir: Path) -> dict:
         "qualifies_historical_product_applicability": False,
         "canonical_dataset_published": False,
     }
+    hard_issue_keys = {
+        "non_minute_aligned", "outside_frozen_window", "outside_chunk_window",
+        "duplicate_minute", "fractional_contract_volume",
+        "cross_pass_timestamp_coverage_differs",
+    }
+    hard_fail = (
+        any(results[f"pass_{n}"]["issues"].get(k, 0) for n in (1, 2) for k in hard_issue_keys)
+        or any(results[f"pass_{n}"]["missing_minute_count"] for n in (1, 2))
+        or not result["two_pass_semantic_match_independently_recomputed"]
+    )
+    result["audit_status"] = "FAIL" if hard_fail else "PASS_WITH_UNQUALIFIED_METADATA"
     result["audit_sha256"] = _sha256_json(result)
     return result
 
@@ -175,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.generation_dir.resolve(strict=True)
     output = args.output.resolve()
+    if not any(part in {".signalforge-data", "signalforge-data"} for part in output.parts):
+        parser.error("output must reside in a dedicated local signalforge-data directory")
     if root == output or root in output.parents or output in root.parents:
         parser.error("output must be outside the immutable evidence generation")
     if output.exists():
@@ -185,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(report, handle, indent=2, sort_keys=True)
         handle.write("\n")
     print(json.dumps({
+        "audit_status": report["audit_status"],
         "output": str(output), "audit_sha256": report["audit_sha256"],
         "unique_minutes": report["observed_unique_minutes_pass_1"],
         "missing_minutes": report["missing_minutes_pass_1"],
@@ -192,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         "pass_2_issues": report["passes"]["pass_2"]["issues"],
         "two_pass_semantic_match": report["two_pass_semantic_match_independently_recomputed"],
     }, sort_keys=True))
-    return 0
+    return 0 if report["audit_status"] != "FAIL" else 1
 
 
 if __name__ == "__main__":
