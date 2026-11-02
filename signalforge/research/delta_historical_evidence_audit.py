@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 from signalforge.research.delta_historical_dataset_acquisition import (
     SF088_ACQUISITION_VERSION,
@@ -26,7 +27,7 @@ from signalforge.research.delta_historical_qualification import (
 )
 
 
-def _load_capture(raw_path: Path, meta_path: Path) -> tuple[DeltaRawCapture, dict]:
+def _load_capture(raw_path: Path, meta_path: Path) -> tuple[DeltaRawCapture, dict[str, Any]]:
     raw = raw_path.read_bytes()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if sha256(raw).hexdigest() != meta["raw_sha256"]:
@@ -39,7 +40,7 @@ def _load_capture(raw_path: Path, meta_path: Path) -> tuple[DeltaRawCapture, dic
     ), meta
 
 
-def audit_generation(generation_dir: Path) -> dict:
+def audit_generation(generation_dir: Path) -> dict[str, Any]:
     """Check immutable evidence against its declared report and frozen UTC grid."""
     root = generation_dir.resolve(strict=True)
     report = json.loads((root / "evidence-only-report.json").read_text(encoding="utf-8"))
@@ -66,7 +67,7 @@ def audit_generation(generation_dir: Path) -> dict:
     start = int(SF088_START.timestamp())
     end = int(SF088_END.timestamp())
     coverage = bytearray(SF088_EXPECTED_MINUTES)
-    results = {}
+    results: dict[str, dict[str, Any]] = {}
     semantic_by_pass = []
     for number, prefix in ((1, "first"), (2, "second")):
         folder = root / f"pass-{number}"
@@ -100,7 +101,7 @@ def audit_generation(generation_dir: Path) -> dict:
         elif product.semantic_sha256 != first_product_semantic:
             raise ValueError("product semantics changed across passes")
         issues: Counter[str] = Counter()
-        examples = []
+        examples: list[dict[str, object]] = []
         semantic = []
         pass_coverage = bytearray(SF088_EXPECTED_MINUTES)
         rows = 0
@@ -192,20 +193,20 @@ def audit_generation(generation_dir: Path) -> dict:
             },
         }
         semantic_by_pass.append(semantic)
-    missing_ranges = []
+    missing_ranges: list[tuple[int, int]] = []
     first = previous = None
     for index, flag in enumerate(coverage):
         if flag:
-            if first is not None:
+            if first is not None and previous is not None:
                 missing_ranges.append((first, previous + 1))
                 first = previous = None
         elif first is None:
             first = previous = index
         else:
             previous = index
-    if first is not None:
+    if first is not None and previous is not None:
         missing_ranges.append((first, previous + 1))
-    result = {
+    result: dict[str, Any] = {
         "audit_contract": "sf088-offline-evidence-audit-v2",
         "source_generation": root.name,
         "frozen_start": SF088_START.isoformat(), "frozen_end": SF088_END.isoformat(),
