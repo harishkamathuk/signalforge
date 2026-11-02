@@ -39,7 +39,11 @@ def audit_generation(generation_dir: Path) -> dict:
     if report.get("report_sha256") != expected_hash:
         raise ValueError("evidence report digest mismatch")
     plan = build_sf088_chunk_plan()
-    if report.get("source_product_id") != 27 or report.get("source_symbol") != SF088_SYMBOL or report.get("acquisition_version") != SF088_ACQUISITION_VERSION:
+    if (
+        report.get("source_product_id") != 27
+        or report.get("source_symbol") != SF088_SYMBOL
+        or report.get("acquisition_version") != SF088_ACQUISITION_VERSION
+    ):
         raise ValueError("evidence source/product/acquisition identity mismatch")
     if (
         report.get("mode") != "EVIDENCE_ONLY"
@@ -60,16 +64,26 @@ def audit_generation(generation_dir: Path) -> dict:
         folder = root / f"pass-{number}"
         expected_raw = {f"chunk-{c.index:06d}.json" for c in plan}
         expected_meta = {f"chunk-{c.index:06d}.meta.json" for c in plan}
-        actual_raw = {p.name for p in folder.glob("chunk-*.json") if not p.name.endswith(".meta.json")}
+        actual_raw = {
+            p.name for p in folder.glob("chunk-*.json")
+            if not p.name.endswith(".meta.json")
+        }
         actual_meta = {p.name for p in folder.glob("chunk-*.meta.json")}
         if actual_raw != expected_raw or actual_meta != expected_meta:
             raise ValueError(f"pass {number}: missing or unexpected evidence files")
-        product_capture, product_meta = _load_capture(folder / "product.json", folder / "product.meta.json")
-        _verify_evidence_source_url(product_capture.request_url, path=f"/v2/products/{SF088_SYMBOL}")
+        product_capture, product_meta = _load_capture(
+            folder / "product.json", folder / "product.meta.json"
+        )
+        _verify_evidence_source_url(
+            product_capture.request_url, path=f"/v2/products/{SF088_SYMBOL}"
+        )
         if product_meta.get("acquisition_version") != SF088_ACQUISITION_VERSION:
             raise ValueError("product acquisition version mismatch")
         product = parse_delta_product_response(product_capture, expected_symbol=SF088_SYMBOL)
-        if product.product_id != report["source_product_id"] or product.semantic_sha256 != report["source_product_semantic_sha256"]:
+        if (
+            product.product_id != report["source_product_id"]
+            or product.semantic_sha256 != report["source_product_semantic_sha256"]
+        ):
             raise ValueError("product semantics contradict acquisition report")
         if product.api_origin != report["source_api_origin"]:
             raise ValueError("product origin mismatch")
@@ -104,14 +118,22 @@ def audit_generation(generation_dir: Path) -> dict:
                 raise ValueError(f"pass {number} chunk {chunk.index}: report raw hash mismatch")
             candles = parse_delta_candles_response(capture)
             digest = _candle_semantic_sha256(candles)
-            if digest != meta["semantic_sha256"] or digest != report[f"{prefix}_pass_semantic_sha256"][chunk.index]:
+            if (
+                digest != meta["semantic_sha256"]
+                or digest != report[f"{prefix}_pass_semantic_sha256"][chunk.index]
+            ):
                 raise ValueError(f"pass {number} chunk {chunk.index}: semantic digest mismatch")
-            expected_times = {int(chunk.start.timestamp()) + 60 * i for i in range(chunk.expected_minutes)}
+            expected_times = {
+                int(chunk.start.timestamp()) + 60 * i
+                for i in range(chunk.expected_minutes)
+            }
             observed_times = [c.time for c in candles]
             if (meta.get("row_count") != len(candles)
                 or meta.get("missing_count") != len(expected_times - set(observed_times))
                 or meta.get("duplicate_count") != len(observed_times) - len(set(observed_times))):
-                raise ValueError(f"pass {number} chunk {chunk.index}: sidecar quality counts mismatch")
+                raise ValueError(
+                    f"pass {number} chunk {chunk.index}: sidecar quality counts mismatch"
+                )
             semantic.append(digest)
             rows += len(candles)
             for candle in candles:
@@ -150,7 +172,9 @@ def audit_generation(generation_dir: Path) -> dict:
             "missing_minute_count": len(missing),
             "issues": dict(issues),
             "anomaly_examples": examples,
-            "anomaly_examples_truncated": issues["off_current_snapshot_tick_price_fields"] > len(examples),
+            "anomaly_examples_truncated": (
+                issues["off_current_snapshot_tick_price_fields"] > len(examples)
+            ),
             "product_snapshot": {
                 "id": product.product_id, "symbol": product.symbol,
                 "tick_size": str(product.tick_size),
@@ -185,7 +209,9 @@ def audit_generation(generation_dir: Path) -> dict:
             "end_exclusive": datetime.fromtimestamp(start + b * 60, UTC).isoformat(),
             "minutes": b - a,
         } for a, b in missing_ranges],
-        "two_pass_semantic_match_independently_recomputed": semantic_by_pass[0] == semantic_by_pass[1],
+        "two_pass_semantic_match_independently_recomputed": (
+            semantic_by_pass[0] == semantic_by_pass[1]
+        ),
         "passes": results,
         "qualifies_historical_product_applicability": False,
         "canonical_dataset_published": False,
@@ -206,7 +232,9 @@ def audit_generation(generation_dir: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Read-only SF-088 evidence coverage and anomaly audit")
+    parser = argparse.ArgumentParser(
+        description="Read-only SF-088 evidence coverage and anomaly audit"
+    )
     parser.add_argument("--generation-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
