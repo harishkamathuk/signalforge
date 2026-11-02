@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from datetime import UTC, datetime
-import json
 from hashlib import sha256
 from pathlib import Path
 
