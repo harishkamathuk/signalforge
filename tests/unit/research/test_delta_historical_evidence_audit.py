@@ -44,3 +44,96 @@ def test_cli_refuses_to_write_within_generation(tmp_path) -> None:
     folder.mkdir()
     with pytest.raises(SystemExit):
         audit.main(["--generation-dir", str(folder), "--output", str(folder / "audit.json")])
+
+def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
+    from datetime import UTC, datetime
+    from hashlib import sha256
+    from signalforge.research.delta_historical_qualification import DeltaRawCapture
+    start = acquisition.SF088_START
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=start + timedelta(minutes=2), chunk_minutes=1,
+    )
+    monkeypatch.setattr(audit, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(audit, "SF088_END", start + timedelta(minutes=2))
+    monkeypatch.setattr(audit, "SF088_EXPECTED_MINUTES", 2)
+    root = tmp_path / "generation-0001"
+    product = {"success": True, "result": {
+        "id": 27, "symbol": "BTCUSD", "contract_type": "perpetual_futures",
+        "contract_value": "0.001", "contract_unit_currency": "BTC", "tick_size": "0.5",
+    }}
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    prod_raw = json.dumps(product).encode()
+    prod_capture = DeltaRawCapture(
+        request_url="https://api.india.delta.exchange/v2/products/BTCUSD",
+        acquired_at=now, content_sha256=sha256(prod_raw).hexdigest(), content=prod_raw,
+    )
+    from signalforge.research.delta_historical_qualification import parse_delta_product_response
+    prod = parse_delta_product_response(prod_capture, expected_symbol="BTCUSD")
+    hashes = []
+    semantic = []
+    for pass_no in (1, 2):
+        folder = root / f"pass-{pass_no}"
+        folder.mkdir(parents=True)
+        (folder / "product.json").write_bytes(prod_raw)
+        (folder / "product.meta.json").write_text(json.dumps({
+            "raw_sha256": sha256(prod_raw).hexdigest(),
+            "request_url": prod_capture.request_url,
+            "acquired_at": now.isoformat(),
+            "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+        }))
+        pass_hashes = []
+        pass_semantic = []
+        for chunk in plan:
+            row = {"time": chunk.provider_start, "open": "65000.1" if chunk.index == 0 else "65000",
+                   "high": "65001", "low": "65000", "close": "65000", "volume": "1"}
+            # The first row must still pass OHLC invariants.
+            raw = json.dumps({"success": True, "result": [row]}).encode()
+            url = ("https://api.india.delta.exchange/v2/history/candles"
+                   f"?resolution=1m&symbol=BTCUSD&start={chunk.provider_start}&end={chunk.provider_end}")
+            capture = DeltaRawCapture(
+                request_url=url, acquired_at=now,
+                content_sha256=sha256(raw).hexdigest(), content=raw,
+            )
+            candles = audit.parse_delta_candles_response(capture)
+            digest = audit._candle_semantic_sha256(candles)
+            pass_hashes.append(capture.content_sha256)
+            pass_semantic.append(digest)
+            stem = f"chunk-{chunk.index:06d}"
+            (folder / f"{stem}.json").write_bytes(raw)
+            (folder / f"{stem}.meta.json").write_text(json.dumps({
+                "chunk_identity": chunk.identity, "canonical_start": chunk.start.isoformat(),
+                "canonical_end": chunk.end.isoformat(), "provider_start": chunk.provider_start,
+                "provider_end": chunk.provider_end, "request_url": url, "acquired_at": now.isoformat(),
+                "row_count": 1, "duplicate_count": 0, "missing_count": 0,
+                "raw_sha256": capture.content_sha256, "semantic_sha256": digest,
+                "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+            }))
+        hashes.append(pass_hashes)
+        semantic.append(pass_semantic)
+    report = {
+        "mode": "EVIDENCE_ONLY", "generation_namespace": "generation-0001",
+        "frozen_start": start.isoformat(), "frozen_end": (start + timedelta(minutes=2)).isoformat(),
+        "expected_minutes": 2, "chunk_identities": [c.identity for c in plan],
+        "chunk_count_per_pass": 2,
+        "source_product_id": 27, "source_symbol": "BTCUSD",
+        "source_api_origin": "https://api.india.delta.exchange",
+        "source_product_semantic_sha256": prod.semantic_sha256,
+        "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+        "first_pass_raw_sha256": hashes[0], "second_pass_raw_sha256": hashes[1],
+        "first_pass_semantic_sha256": semantic[0], "second_pass_semantic_sha256": semantic[1],
+    }
+    report["report_sha256"] = audit._sha256_json(report)
+    (root / "evidence-only-report.json").write_text(json.dumps(report))
+    result = audit.audit_generation(root)
+    assert result["audit_status"] == "PASS_WITH_UNQUALIFIED_METADATA"
+    assert result["observed_unique_minutes_pass_1"] == 2
+    assert result["passes"]["pass_1"]["issues"]["off_current_snapshot_tick_price_fields"] == 1
+    assert result["passes"]["pass_1"]["anomaly_examples"][0]["field"] == "open"
+    assert result["passes"]["pass_1"]["anomaly_examples"][0]["value"] == "65000.1"
+
+    # Contradicting product provenance must fail closed.
+    report["source_product_semantic_sha256"] = "0" * 64
+    report["report_sha256"] = audit._sha256_json({k:v for k,v in report.items() if k != "report_sha256"})
+    (root / "evidence-only-report.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="product semantics contradict"):
+        audit.audit_generation(root)
