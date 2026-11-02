@@ -89,7 +89,8 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
             # The first row must still pass OHLC invariants.
             raw = json.dumps({"success": True, "result": [row]}).encode()
             url = ("https://api.india.delta.exchange/v2/history/candles"
-                   f"?resolution=1m&symbol=BTCUSD&start={chunk.provider_start}&end={chunk.provider_end}")
+                   f"?resolution=1m&symbol=BTCUSD&start={chunk.provider_start}"
+                   f"&end={chunk.provider_end}")
             capture = DeltaRawCapture(
                 request_url=url, acquired_at=now,
                 content_sha256=sha256(raw).hexdigest(), content=raw,
@@ -103,7 +104,8 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
             (folder / f"{stem}.meta.json").write_text(json.dumps({
                 "chunk_identity": chunk.identity, "canonical_start": chunk.start.isoformat(),
                 "canonical_end": chunk.end.isoformat(), "provider_start": chunk.provider_start,
-                "provider_end": chunk.provider_end, "request_url": url, "acquired_at": now.isoformat(),
+                "provider_end": chunk.provider_end,
+                "request_url": url, "acquired_at": now.isoformat(),
                 "row_count": 1, "duplicate_count": 0, "missing_count": 0,
                 "raw_sha256": capture.content_sha256, "semantic_sha256": digest,
                 "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
@@ -133,7 +135,9 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
 
     # Contradicting product provenance must fail closed.
     report["source_product_semantic_sha256"] = "0" * 64
-    report["report_sha256"] = audit._sha256_json({k:v for k,v in report.items() if k != "report_sha256"})
+    report["report_sha256"] = audit._sha256_json(
+        {k: v for k, v in report.items() if k != "report_sha256"}
+    )
     (root / "evidence-only-report.json").write_text(json.dumps(report))
     with pytest.raises(ValueError, match="product semantics contradict"):
         audit.audit_generation(root)
