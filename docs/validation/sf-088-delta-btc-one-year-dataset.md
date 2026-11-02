@@ -255,3 +255,14 @@ python -m pytest tests/unit/research/test_delta_historical_evidence_audit.py \
 After local validation and a merged review, the untracked temporary root-level
 `sf088_offline_evidence_audit.py` may be deleted manually; retain the immutable
 source generation and both separate audit reports.
+
+The audit marks hard integrity defects as `audit_status=FAIL` and exits nonzero,
+while retaining a separate diagnostic report. Missing minutes, duplicates,
+out-of-grid timestamps, fractional volume and cross-pass disagreement cannot
+silently pass. Off-current-tick observations do not block this **raw-evidence**
+audit because historical specification applicability is unresolved.
+At most 100 per-pass price-field examples are embedded in the report; full
+per-pass anomaly counts and `anomaly_examples_truncated` remain explicit.
+Use only an ignored/protected `.signalforge-data` or `signalforge-data` output
+location. Inspect `git check-ignore -v .signalforge-data/sf088/audits/`
+before running, and do not commit the report or raw data.
