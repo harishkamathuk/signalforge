@@ -4,17 +4,25 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from datetime import UTC, datetime
-from hashlib import sha256
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from signalforge.research.delta_historical_dataset_acquisition import (
-    SF088_END, SF088_EXPECTED_MINUTES, SF088_START, SF088_SYMBOL, SF088_ACQUISITION_VERSION,
-    _candle_semantic_sha256, _sha256_json, _verify_evidence_source_url,
+    SF088_ACQUISITION_VERSION,
+    SF088_END,
+    SF088_EXPECTED_MINUTES,
+    SF088_START,
+    SF088_SYMBOL,
+    _candle_semantic_sha256,
+    _sha256_json,
+    _verify_evidence_source_url,
     build_sf088_chunk_plan,
 )
 from signalforge.research.delta_historical_qualification import (
-    DeltaRawCapture, parse_delta_candles_response, parse_delta_product_response,
+    DeltaRawCapture,
+    parse_delta_candles_response,
+    parse_delta_product_response,
 )
 
 
