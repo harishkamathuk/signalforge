@@ -142,3 +142,16 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
     (root / "evidence-only-report.json").write_text(json.dumps(report))
     with pytest.raises(ValueError, match="product semantics contradict"):
         audit.audit_generation(root)
+
+    # A contradictory chunk-sidecar quality count must fail closed.
+    report["source_product_semantic_sha256"] = prod.semantic_sha256
+    report["report_sha256"] = audit._sha256_json(
+        {k: v for k, v in report.items() if k != "report_sha256"}
+    )
+    (root / "evidence-only-report.json").write_text(json.dumps(report))
+    sidecar = root / "pass-1" / "chunk-000000.meta.json"
+    tampered = json.loads(sidecar.read_text())
+    tampered["row_count"] = 99
+    sidecar.write_text(json.dumps(tampered))
+    with pytest.raises(ValueError, match="sidecar quality counts mismatch"):
+        audit.audit_generation(root)
