@@ -134,6 +134,55 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
     assert result["passes"]["pass_1"]["anomaly_examples"][0]["field"] == "open"
     assert result["passes"]["pass_1"]["anomaly_examples"][0]["value"] == "65000.1"
 
+    # Rehash internally consistent evidence with missing/duplicate source observations.
+    first_raw = root / "pass-1" / "chunk-000000.json"
+    first_meta = root / "pass-1" / "chunk-000000.meta.json"
+    original_raw = first_raw.read_bytes()
+    original_meta = first_meta.read_bytes()
+    original_report = json.dumps(report)
+
+    for kind in ("missing", "duplicate"):
+        baseline_row = json.loads(original_raw)["result"][0]
+        rows = [] if kind == "missing" else [baseline_row, baseline_row]
+        changed = json.dumps({"success": True, "result": rows}).encode()
+        meta = json.loads(original_meta)
+        capture = DeltaRawCapture(
+            request_url=meta["request_url"], acquired_at=now,
+            content_sha256=sha256(changed).hexdigest(), content=changed,
+        )
+        meta["raw_sha256"] = capture.content_sha256
+        meta["semantic_sha256"] = audit._candle_semantic_sha256(
+            audit.parse_delta_candles_response(capture)
+        )
+        meta["row_count"] = len(rows)
+        meta["missing_count"] = 1 if kind == "missing" else 0
+        meta["duplicate_count"] = 1 if kind == "duplicate" else 0
+        first_raw.write_bytes(changed)
+        first_meta.write_text(json.dumps(meta))
+        report["first_pass_raw_sha256"][0] = meta["raw_sha256"]
+        report["first_pass_semantic_sha256"][0] = meta["semantic_sha256"]
+        report["report_sha256"] = audit._sha256_json(
+            {k: v for k, v in report.items() if k != "report_sha256"}
+        )
+        (root / "evidence-only-report.json").write_text(json.dumps(report))
+        diagnostic = audit.audit_generation(root)
+        assert diagnostic["audit_status"] == "FAIL"
+        if kind == "missing":
+            assert diagnostic["passes"]["pass_1"]["missing_minute_count"] == 1
+        else:
+            assert diagnostic["passes"]["pass_1"]["issues"]["duplicate_minute"] == 1
+
+        output = tmp_path / ".signalforge-data" / f"{kind}-audit.json"
+        assert audit.main([
+            "--generation-dir", str(root), "--output", str(output),
+        ]) == 1
+        assert json.loads(output.read_text())["audit_status"] == "FAIL"
+
+        first_raw.write_bytes(original_raw)
+        first_meta.write_bytes(original_meta)
+        report = json.loads(original_report)
+        (root / "evidence-only-report.json").write_text(original_report)
+
     # Contradicting product provenance must fail closed.
     report["source_product_semantic_sha256"] = "0" * 64
     report["report_sha256"] = audit._sha256_json(
