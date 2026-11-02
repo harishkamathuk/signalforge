@@ -218,3 +218,51 @@ complete one-year horizon.
 rights or canonical representability cannot be established faithfully.
 
 No strategy signals or performance metrics are inspected by SF-088.
+
+
+## Maintained offline raw-evidence audit (Stage A)
+
+Use the source-controlled offline audit instead of the temporary repository-root script.
+This reads immutable `generation-0001` evidence and writes a separate, write-once
+JSON report; it does **not** access Delta, qualify product metadata, or publish a
+canonical dataset.
+
+```bash
+python -m signalforge.research.delta_historical_evidence_audit \
+  --generation-dir .signalforge-data/sf088/evidence/evidence-only/generation-0001 \
+  --output .signalforge-data/sf088/audits/generation-0001-completeness-v2.json
+```
+
+The v2 audit recalculates raw/semantic hashes, checks source/request identities,
+coverage, duplicate/missing/out-of-window minutes, OHLC shape and volume through
+the existing parser, and reports every current-snapshot tick-grid discrepancy with
+the exact field and price. Current-snapshot tick discrepancies are observations,
+**not** determinations about historically applicable contract rules.
+
+The report deliberately uses a separate audit version/hash: do not overwrite the
+existing `generation-0001-completeness.json`, and do not edit any source capture.
+Local raw responses and reports remain outside Git. Historical applicability
+remains unresolved; the existing `validate_product_applicability()` boundary
+continues to block canonical publication.
+
+Run the synthetic regression checks independently:
+
+```bash
+python -m pytest tests/unit/research/test_delta_historical_evidence_audit.py \
+  tests/unit/research/test_delta_historical_dataset_acquisition.py -q
+```
+
+After local validation and a merged review, the untracked temporary root-level
+`sf088_offline_evidence_audit.py` may be deleted manually; retain the immutable
+source generation and both separate audit reports.
+
+The audit marks hard integrity defects as `audit_status=FAIL` and exits nonzero,
+while retaining a separate diagnostic report. Missing minutes, duplicates,
+out-of-grid timestamps, fractional volume and cross-pass disagreement cannot
+silently pass. Off-current-tick observations do not block this **raw-evidence**
+audit because historical specification applicability is unresolved.
+At most 100 per-pass price-field examples are embedded in the report; full
+per-pass anomaly counts and `anomaly_examples_truncated` remain explicit.
+Use only an ignored/protected `.signalforge-data` or `signalforge-data` output
+location. Inspect `git check-ignore -v .signalforge-data/sf088/audits/`
+before running, and do not commit the report or raw data.
