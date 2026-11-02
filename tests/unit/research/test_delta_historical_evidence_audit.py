@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 
 from signalforge.research import delta_historical_dataset_acquisition as acquisition
 from signalforge.research import delta_historical_evidence_audit as audit
+from signalforge.research.delta_historical_qualification import (
+    DeltaRawCapture,
+    parse_delta_product_response,
+)
 
 
 def test_missing_evidence_fails(tmp_path) -> None:
@@ -46,9 +51,6 @@ def test_cli_refuses_to_write_within_generation(tmp_path) -> None:
         audit.main(["--generation-dir", str(folder), "--output", str(folder / "audit.json")])
 
 def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
-    from datetime import UTC, datetime
-    from hashlib import sha256
-    from signalforge.research.delta_historical_qualification import DeltaRawCapture
     start = acquisition.SF088_START
     plan = acquisition.build_sf088_chunk_plan(
         start=start, end=start + timedelta(minutes=2), chunk_minutes=1,
@@ -67,7 +69,6 @@ def test_complete_fixture_and_tick_observation(tmp_path, monkeypatch) -> None:
         request_url="https://api.india.delta.exchange/v2/products/BTCUSD",
         acquired_at=now, content_sha256=sha256(prod_raw).hexdigest(), content=prod_raw,
     )
-    from signalforge.research.delta_historical_qualification import parse_delta_product_response
     prod = parse_delta_product_response(prod_capture, expected_symbol="BTCUSD")
     hashes = []
     semantic = []
