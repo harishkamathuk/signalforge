@@ -218,3 +218,40 @@ complete one-year horizon.
 rights or canonical representability cannot be established faithfully.
 
 No strategy signals or performance metrics are inspected by SF-088.
+
+
+## Maintained offline raw-evidence audit (Stage A)
+
+Use the source-controlled offline audit instead of the temporary repository-root script.
+This reads immutable `generation-0001` evidence and writes a separate, write-once
+JSON report; it does **not** access Delta, qualify product metadata, or publish a
+canonical dataset.
+
+```bash
+python -m signalforge.research.delta_historical_evidence_audit \
+  --generation-dir .signalforge-data/sf088/evidence/evidence-only/generation-0001 \
+  --output .signalforge-data/sf088/audits/generation-0001-completeness-v2.json
+```
+
+The v2 audit recalculates raw/semantic hashes, checks source/request identities,
+coverage, duplicate/missing/out-of-window minutes, OHLC shape and volume through
+the existing parser, and reports every current-snapshot tick-grid discrepancy with
+the exact field and price. Current-snapshot tick discrepancies are observations,
+**not** determinations about historically applicable contract rules.
+
+The report deliberately uses a separate audit version/hash: do not overwrite the
+existing `generation-0001-completeness.json`, and do not edit any source capture.
+Local raw responses and reports remain outside Git. Historical applicability
+remains unresolved; the existing `validate_product_applicability()` boundary
+continues to block canonical publication.
+
+Run the synthetic regression checks independently:
+
+```bash
+python -m pytest tests/unit/research/test_delta_historical_evidence_audit.py \
+  tests/unit/research/test_delta_historical_dataset_acquisition.py -q
+```
+
+After local validation and a merged review, the untracked temporary root-level
+`sf088_offline_evidence_audit.py` may be deleted manually; retain the immutable
+source generation and both separate audit reports.
