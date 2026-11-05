@@ -85,6 +85,8 @@ class BtcMomentumBaselineV0Strategy:
     ) -> BtcMomentumBaselineDecision:
         candle = context.candle
         indicator = context.indicators
+        if str(candle.instrument_id) != "DELTA:BTCUSD":
+            raise ValueError("BTC baseline requires the approved DELTA:BTCUSD instrument")
         if candle.instrument_id != indicator.instrument_id or candle.interval != indicator.interval:
             raise ValueError("BTC candle and indicator evidence must refer to the same interval")
         reasons: list[str] = []
