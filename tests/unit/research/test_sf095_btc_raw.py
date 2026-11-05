@@ -366,7 +366,8 @@ def test_raw_diagnostic_preserves_stop_target_ambiguity():
     )
     changed = HistoricalBarDataset(dataset.manifest, tuple(bars))
     result = _raw_run(changed)
-    assert result.terminated_early
+    # Both ambiguous branches close, so chronology can continue safely.
+    assert not result.terminated_early
     assert result.outcomes[0].certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
     assert HistoricalAmbiguityReason.STOP_VS_TARGET in (
         result.outcomes[0].ambiguity_reasons
