@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from datetime import datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from typing import Protocol
 
 from signalforge.config.identity import config_hash
 from signalforge.config.strategy_registry import (
@@ -20,8 +21,9 @@ from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import RunIdentity
+from signalforge.domain.provenance import MarketSessionPolicyIdentity
 from signalforge.domain.signals import Signal
-from signalforge.domain.time import IST, CandleInterval, to_ist
+from signalforge.domain.time import CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
@@ -29,6 +31,7 @@ from signalforge.research.historical_bars import (
     aggregate_one_minute_to_five_minute,
 )
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
+from signalforge.runtime.market_session import NSE_INTRADAY_MARKET_SESSION_POLICY
 from signalforge.runtime.strategy import (
     ArmedPolicyIntent,
     ArmedSetupView,
@@ -40,10 +43,49 @@ from signalforge.runtime.strategy import (
 )
 
 _BPS = Decimal("10000")
-_SESSION_OPEN = time(9, 15)
-_SESSION_END = time(15, 30)
-_FORCED_EXIT = time(15, 15)
 HISTORICAL_EXECUTION_CALCULATION_VERSION = "historical-bar-execution-v1"
+
+
+class HistoricalPriceMode(StrEnum):
+    """Explicit historical price authority; raw levels are never execution-valid."""
+
+    EXECUTION_VALID = "execution_valid"
+    RAW_DIAGNOSTIC = "raw_diagnostic"
+
+
+class HistoricalSessionPolicy(Protocol):
+    """Historical projection of the shared SF-089 market/session policy boundary."""
+
+    @property
+    def identity(self) -> MarketSessionPolicyIdentity: ...
+
+    def compulsory_exit_at(self, at: datetime) -> datetime | None: ...
+
+
+class ContinuousHistoricalSessionPolicy:
+    """24x7 UTC historical chronology; no implicit UTC-midnight position exit."""
+
+    @property
+    def identity(self) -> MarketSessionPolicyIdentity:
+        return MarketSessionPolicyIdentity("continuous_utc", "1.0.0")
+
+    def accepts_event(self, at: datetime) -> bool:
+        if at.tzinfo is None:
+            raise ValueError("Historical timestamp must be aware")
+        return True
+
+    def trading_date(self, at: datetime) -> date:
+        if at.tzinfo is None:
+            raise ValueError("Historical timestamp must be aware")
+        return at.astimezone(UTC).date()
+
+    def compulsory_exit_at(self, at: datetime) -> None:
+        if at.tzinfo is None:
+            raise ValueError("Historical timestamp must be aware")
+        return None
+
+
+CONTINUOUS_HISTORICAL_SESSION_POLICY = ContinuousHistoricalSessionPolicy()
 
 
 class HistoricalOutcomeCertainty(StrEnum):
@@ -97,12 +139,18 @@ class HistoricalExecutionAssumptionProfile:
     target_slippage_bps: Decimal
     forced_exit_slippage_bps: Decimal
     tick_rule_version: str
+    price_mode: HistoricalPriceMode = HistoricalPriceMode.EXECUTION_VALID
 
     def __post_init__(self) -> None:
         if not self.profile_id.strip() or not self.version.strip():
             raise ValueError("Execution assumption identity must not be empty")
         if not self.tick_rule_version.strip():
             raise ValueError("tick_rule_version must not be empty")
+        if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC:
+            if self.tick_rule_version != "unresolved":
+                raise ValueError("Raw diagnostic requires explicitly unresolved tick rule")
+        elif self.tick_rule_version == "unresolved":
+            raise ValueError("Execution-valid profile cannot use unresolved tick rule")
         for name in (
             "entry_slippage_bps",
             "stop_slippage_bps",
@@ -130,6 +178,18 @@ class HistoricalExecutionAssumptionProfile:
             "nse-tick-v1",
         )
 
+    @classmethod
+    def reference_raw(cls) -> HistoricalExecutionAssumptionProfile:
+        zero = Decimal("0")
+        return cls("REFERENCE_RAW", "1.0.0", zero, zero, zero, zero,
+                   "unresolved", HistoricalPriceMode.RAW_DIAGNOSTIC)
+
+    @classmethod
+    def adverse_raw(cls) -> HistoricalExecutionAssumptionProfile:
+        return cls("ADVERSE_RAW", "1.0.0", Decimal("10"), Decimal("10"),
+                   Decimal("10"), Decimal("0"), "unresolved",
+                   HistoricalPriceMode.RAW_DIAGNOSTIC)
+
     @property
     def semantic_id(self) -> str:
         return config_hash(self.semantic_mapping())
@@ -143,6 +203,10 @@ class HistoricalExecutionAssumptionProfile:
             "target_slippage_bps": self.target_slippage_bps,
             "forced_exit_slippage_bps": self.forced_exit_slippage_bps,
             "tick_rule_version": self.tick_rule_version,
+            **(
+                {"price_mode": self.price_mode.value}
+                if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC else {}
+            ),
         }
 
 
@@ -313,6 +377,12 @@ class HistoricalExecutionRunResult:
     outcomes: tuple[HistoricalExecutionOutcome, ...]
     summary: HistoricalExecutionSummary
     terminated_early: bool
+    execution_valid: bool = True
+    market_session_policy_identity: MarketSessionPolicyIdentity = (
+        MarketSessionPolicyIdentity("nse_intraday", "1.0.0")
+    )
+    source_diagnostic_id: str | None = None
+    price_mode: HistoricalPriceMode = HistoricalPriceMode.EXECUTION_VALID
 
     @property
     def result_id(self) -> str:
@@ -334,6 +404,18 @@ class HistoricalExecutionRunResult:
             "outcomes": [item.semantic_mapping() for item in self.outcomes],
             "summary": self.summary.semantic_mapping(),
             "terminated_early": self.terminated_early,
+            **(
+                {
+                    "execution_valid": False,
+                    "price_mode": self.price_mode.value,
+                    "market_session_policy": {
+                        "policy_id": self.market_session_policy_identity.policy_id,
+                        "policy_version": self.market_session_policy_identity.policy_version,
+                    },
+                    "source_diagnostic_id": self.source_diagnostic_id,
+                }
+                if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC else {}
+            ),
         }
 
 
