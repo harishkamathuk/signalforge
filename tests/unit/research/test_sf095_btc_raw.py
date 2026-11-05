@@ -407,7 +407,7 @@ def test_btc_next_candle_only_expiry_and_signal_low_invalidation(
             old,
             open=Price(Decimal("100")),
             high=Price(Decimal("100.01")),
-            low=Price(Decimal("99.98" if at_stop else "99.99")),
+            low=Price(Decimal("99.98" if at_stop else "100")),
             close=Price(Decimal("100")),
         )
     altered = HistoricalBarDataset(dataset.manifest, tuple(bars))
