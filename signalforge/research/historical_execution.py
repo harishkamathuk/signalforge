@@ -25,9 +25,9 @@ from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     HistoricalBar,
-    HistoricalPriceBasis,
     HistoricalBarDataset,
     HistoricalContinuityError,
+    HistoricalPriceBasis,
     aggregate_one_minute_to_five_minute,
 )
 from signalforge.runtime.indicators import IndicatorContinuity, IndicatorEngine
@@ -520,7 +520,7 @@ class HistoricalBarExecutionRunner:
                 or measurement_start - coverage[0].start < timedelta(minutes=250 * 5)
             ):
                 raise ValueError("RAW_DIAGNOSTIC requires sufficient pre-roll coverage")
-            if any(a.end != b.start for a, b in zip(coverage, coverage[1:])):
+            if any(a.end != b.start for a, b in zip(coverage, coverage[1:], strict=False)):
                 raise ValueError("RAW_DIAGNOSTIC continuous grid must have no gaps")
         else:
             if tick_schedule is None:
