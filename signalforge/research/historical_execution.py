@@ -106,6 +106,7 @@ class HistoricalAmbiguityReason(StrEnum):
     MISSING_EXECUTION_EVIDENCE = "missing_execution_evidence"
     UNSUPPORTED_STRATEGY_POLICY = "unsupported_strategy_policy"
     DATASET_END_OPEN = "dataset_end_open"
+    DATASET_END_ARMED = "dataset_end_armed"
 
 
 class HistoricalFillTiming(StrEnum):
@@ -657,9 +658,11 @@ class HistoricalBarExecutionRunner:
                 _unresolved(
                     active,
                     (
-                        (HistoricalAmbiguityReason.DATASET_END_OPEN,)
-                        if raw else
-                        (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,)
+                        (
+                            HistoricalAmbiguityReason.DATASET_END_OPEN
+                            if active.is_open else HistoricalAmbiguityReason.DATASET_END_ARMED,
+                        )
+                        if raw else (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,)
                     ),
                     (
                         "active lifecycle remains unresolved at dataset end"
