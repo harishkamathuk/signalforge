@@ -527,6 +527,8 @@ class HistoricalBarExecutionRunner:
                 raise ValueError("Execution-valid historical run requires tick schedule")
             if tick_schedule.instrument_id != dataset.manifest.instrument_id:
                 raise ValueError("TickSizeSchedule instrument must match historical dataset")
+            if market_session_policy is not NSE_INTRADAY_MARKET_SESSION_POLICY:
+                raise ValueError("Execution-valid historical mode requires NSE session policy")
             if source_diagnostic_id is not None or measurement_start is not None:
                 raise ValueError("Raw research identity requires RAW_DIAGNOSTIC")
         strategy = self._registry.resolve(strategy_selection)
