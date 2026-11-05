@@ -8,9 +8,11 @@ from types import MappingProxyType
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
 from signalforge.config.rsi_mean_reversion_v1 import RsiMeanReversionV1Config
 from signalforge.config.strategy_v1 import StrategyV1EvaluationConfig
 from signalforge.domain.provenance import StrategyIdentity
+from signalforge.runtime.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Strategy
 from signalforge.runtime.rsi_mean_reversion_v1 import RsiMeanReversionV1Strategy
 from signalforge.runtime.strategy import Strategy
 from signalforge.runtime.strategy_v1 import IntradayMomentumV1Strategy
@@ -203,12 +205,24 @@ def _build_rsi_mean_reversion_v1(
     return RsiMeanReversionV1Strategy(config)
 
 
+def _build_btc_momentum_baseline_v0(
+    parameters: Mapping[str, object],
+) -> Strategy:
+    config = BtcMomentumBaselineV0Config.model_validate(dict(parameters))
+    return BtcMomentumBaselineV0Strategy(config)
+
+
 DEFAULT_STRATEGY_REGISTRY = StrategyRegistry(
     (
         StrategyRegistration(
             "intraday_momentum_v1",
             "1.0.0",
             _build_intraday_momentum_v1,
+        ),
+        StrategyRegistration(
+            "btc_momentum_baseline_v0",
+            "0.1.0-experimental",
+            _build_btc_momentum_baseline_v0,
         ),
         StrategyRegistration(
             "rsi_mean_reversion_v1",
