@@ -294,11 +294,20 @@ counts, SHA-256 digests and the existing audit's exact five off-current-snapshot
 tick observations, **not** a rewritten candle series.
 
 The SMA uses the 20 latest completed five-minute closing prices, with no values
-until 20 complete bars have arrived. It is an exploratory numerical diagnostic,
+until 20 complete bars have arrived. Derived digests use numerical canonical
+Decimal serialization rather than display scale and label five-minute values
+by UTC candle **open**; the report also identifies when the first and last SMA
+values become available at the corresponding end-exclusive candle boundaries.
+It is an exploratory numerical diagnostic,
 **not** an entry, exit, strategy filter, simulated trade or profitability metric.
 
-The report is written once outside immutable generation evidence, only under
-`.signalforge-data/`; it refuses overwrites, missing/inconsistent minutes,
+The report is written once outside immutable generation evidence, **under the same
+resolved `.signalforge-data/` root as the input generation**. A similarly named
+`signalforge-data/` directory, another unrelated `.signalforge-data/` tree, or a
+symlink that escapes the input's protected root is refused. The project
+`.gitignore` ignores `.signalforge-data/`; verify the local source and output
+with `git check-ignore -v` before execution. The command refuses overwrites,
+missing/inconsistent minutes,
 wrong provenance and audit failures. Retain raw prices unchanged and keep the
 full local reports outside Git, under the previously qualified personal/internal
 academic data-use boundary.
