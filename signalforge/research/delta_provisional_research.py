@@ -225,8 +225,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if protected_root is None:
         parser.error("generation must reside under the protected .signalforge-data root")
-    if not output.is_relative_to(protected_root) or output == protected_root:
-        parser.error("output must remain under the source .signalforge-data root")
+    # Confine reports to the dedicated audit subtree, never another immutable
+    # generation or an unrelated location under the protected data root.
+    audits_root = protected_root / "sf088" / "audits"
+    if not output.is_relative_to(audits_root) or output == audits_root:
+        parser.error("output must stay under the source .signalforge-data/sf088/audits")
     if output == root or output.is_relative_to(root):
         parser.error("output must be outside the immutable evidence generation")
     if output.exists():
