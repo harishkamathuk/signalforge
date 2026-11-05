@@ -606,13 +606,18 @@ def _arm(
     run: RunIdentity,
     candle: CompletedCandle,
     decision: StrategyDecision,
-    tick_schedule: TickSizeSchedule,
+    tick_schedule: TickSizeSchedule | None,
 ) -> _Active:
     if candle.close is None or candle.low is None:
         raise ValueError("Actionable candle requires close and low")
     intent = strategy.arm_intent(candle, decision)
-    tick = tick_schedule.tick_size_on(to_ist(candle.interval.end).date())
-    tradable_trigger = ceil_to_tick(intent.raw_trigger, tick)
+    tradable_trigger = (
+        intent.raw_trigger if tick_schedule is None else
+        ceil_to_tick(
+            intent.raw_trigger,
+            tick_schedule.tick_size_on(to_ist(candle.interval.end).date()),
+        )
+    )
     signal = Signal.create(
         instrument_id=candle.instrument_id,
         interval=candle.interval,
@@ -650,14 +655,15 @@ def _process_bar(
     active: _Active,
     bar: HistoricalBar,
     strategy: Strategy,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
+    session: HistoricalSessionPolicy,
 ) -> HistoricalExecutionOutcome | None:
-    active.reachability.append(_reachability(active, bar))
+    active.reachability.append(_reachability(active, bar, session))
     return (
-        _process_open_bar(active, bar, ticks, profile)
+        _process_open_bar(active, bar, ticks, profile, session)
         if active.is_open
-        else _process_armed_bar(active, bar, strategy, ticks, profile)
+        else _process_armed_bar(active, bar, strategy, ticks, profile, session)
     )
 
 
@@ -665,14 +671,15 @@ def _process_armed_bar(
     active: _Active,
     bar: HistoricalBar,
     strategy: Strategy,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
+    session: HistoricalSessionPolicy,
 ) -> HistoricalExecutionOutcome | None:
     start, end = bar.interval.start, bar.interval.end
-    forced = _forced_exit_at(start)
+    forced = session.compulsory_exit_at(start)
     cutoff = active.policy.strategy_entry_cutoff_at
 
-    if start >= forced:
+    if forced is not None and start >= forced:
         return _expired(active, "forced_session_entry_expiry")
     if cutoff is not None and start >= cutoff:
         return _expired(active, "entry_cutoff_reached")
@@ -733,9 +740,14 @@ def _process_armed_bar(
             (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,),
             "unsupported post-fill economics",
         )
-    tick = ticks.tick_size_on(to_ist(bar.interval.start).date())
     active.raw_target = economics.raw_target_price
-    active.tradable_target = ceil_to_tick(economics.raw_target_price, tick)
+    active.tradable_target = (
+        economics.raw_target_price if ticks is None else
+        ceil_to_tick(
+            economics.raw_target_price,
+            ticks.tick_size_on(to_ist(bar.interval.start).date()),
+        )
+    )
 
     stop = bar.low.value <= active.view.stop_price.value
     target = bar.high.value >= active.tradable_target.value
@@ -774,12 +786,14 @@ def _process_armed_bar(
 def _process_open_bar(
     active: _Active,
     bar: HistoricalBar,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
+    session: HistoricalSessionPolicy,
 ) -> HistoricalExecutionOutcome | None:
     assert active.entry_fill is not None
     assert active.tradable_target is not None
-    if bar.interval.start >= _forced_exit_at(bar.interval.start):
+    forced = session.compulsory_exit_at(bar.interval.start)
+    if forced is not None and bar.interval.start >= forced:
         return _closed(
             active,
             _sell_fill(
@@ -891,6 +905,7 @@ def _resolve_open_reaches(
 def _reachability(
     active: _Active,
     bar: HistoricalBar,
+    session: HistoricalSessionPolicy,
 ) -> HistoricalBarReachabilityEvidence:
     actions: list[str] = []
     if active.is_open:
@@ -901,7 +916,8 @@ def _reachability(
             and bar.high.value >= active.tradable_target.value
         ):
             actions.append("target")
-        if bar.interval.start >= _forced_exit_at(bar.interval.start):
+        forced = session.compulsory_exit_at(bar.interval.start)
+        if forced is not None and bar.interval.start >= forced:
             actions.append("forced_session_exit")
     else:
         if bar.high.value >= active.view.tradable_trigger.value:
@@ -913,7 +929,7 @@ def _reachability(
         for boundary, name in (
             (cutoff, "strategy_entry_cutoff"),
             (active.view.valid_until, "validity_expiry"),
-            (_forced_exit_at(bar.interval.start), "session_cutoff"),
+            (session.compulsory_exit_at(bar.interval.start), "session_cutoff"),
         ):
             if boundary is not None and bar.interval.start <= boundary < bar.interval.end:
                 actions.append(name)
@@ -932,11 +948,13 @@ def _buy_fill(
     bar: HistoricalBar,
     timing: HistoricalFillTiming,
     bps: Decimal,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
 ) -> HistoricalModeledFill:
     raw = Price(base.value * (Decimal("1") + bps / _BPS))
-    tick = ticks.tick_size_on(to_ist(bar.interval.start).date())
-    return HistoricalModeledFill(base, ceil_to_tick(raw, tick), bar.interval, timing, bps)
+    fill = raw if ticks is None else ceil_to_tick(
+        raw, ticks.tick_size_on(to_ist(bar.interval.start).date())
+    )
+    return HistoricalModeledFill(base, fill, bar.interval, timing, bps)
 
 
 def _sell_fill(
@@ -944,11 +962,13 @@ def _sell_fill(
     bar: HistoricalBar,
     timing: HistoricalFillTiming,
     bps: Decimal,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
 ) -> HistoricalModeledFill:
     raw = Price(base.value * (Decimal("1") - bps / _BPS))
-    tick = ticks.tick_size_on(to_ist(bar.interval.start).date())
-    return HistoricalModeledFill(base, floor_to_tick(raw, tick), bar.interval, timing, bps)
+    fill = raw if ticks is None else floor_to_tick(
+        raw, ticks.tick_size_on(to_ist(bar.interval.start).date())
+    )
+    return HistoricalModeledFill(base, fill, bar.interval, timing, bps)
 
 
 def _r(active: _Active, exit_price: Price) -> Decimal:
@@ -1099,11 +1119,6 @@ def _blocked(
 def _expected_minute_starts(dataset: HistoricalBarDataset) -> Iterator[datetime]:
     """Use canonical coverage rather than reconstructing an NSE session."""
     yield from dataset.manifest.effective_grid.minute_starts()
-
-def _forced_exit_at(at: datetime) -> datetime:
-    local = to_ist(at)
-    return datetime.combine(local.date(), _FORCED_EXIT, tzinfo=IST)
-
 
 def _requires_run_termination(outcome: HistoricalExecutionOutcome) -> bool:
     if outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED:
