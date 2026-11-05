@@ -17,7 +17,7 @@ def _candles(count: int = 100) -> list[DeltaCandle]:
         DeltaCandle(
             time=start + 60 * n,
             open=Decimal("65000.1") if n == 0 else Decimal("65000"),
-            high=Decimal("65001"),
+            high=Decimal("65100"),
             low=Decimal("65000"),
             close=Decimal("65000.1") if n == 0 else Decimal(65000 + n),
             volume=Decimal(1),
