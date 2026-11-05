@@ -148,6 +148,19 @@ class HistoricalExecutionAssumptionProfile:
         if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC:
             if self.tick_rule_version != "unresolved":
                 raise ValueError("Raw diagnostic requires explicitly unresolved tick rule")
+            permitted = {
+                "REFERENCE_RAW": (Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0")),
+                "ADVERSE_RAW": (Decimal("10"), Decimal("10"), Decimal("10"), Decimal("0")),
+            }
+            expected = permitted.get(self.profile_id)
+            actual = (
+                self.entry_slippage_bps,
+                self.stop_slippage_bps,
+                self.target_slippage_bps,
+                self.forced_exit_slippage_bps,
+            )
+            if self.version != "1.0.0" or expected != actual:
+                raise ValueError("Unknown or contradictory frozen RAW_DIAGNOSTIC profile")
         elif self.tick_rule_version == "unresolved":
             raise ValueError("Execution-valid profile cannot use unresolved tick rule")
         for name in (
@@ -382,6 +395,21 @@ class HistoricalExecutionRunResult:
     )
     source_diagnostic_id: str | None = None
     price_mode: HistoricalPriceMode = HistoricalPriceMode.EXECUTION_VALID
+
+    def __post_init__(self) -> None:
+        if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC:
+            if (
+                self.execution_valid
+                or self.tick_rule_version != "unresolved"
+                or self.tick_schedule_semantic_id != "UNRESOLVED_NOT_EXECUTION_VALID"
+                or not self.source_diagnostic_id
+                or self.market_session_policy_identity != (
+                    CONTINUOUS_HISTORICAL_SESSION_POLICY.identity
+                )
+            ):
+                raise ValueError("Raw diagnostic result must be explicitly non-execution-valid")
+        elif not self.execution_valid or self.source_diagnostic_id is not None:
+            raise ValueError("Execution-valid results cannot contain raw diagnostic provenance")
 
     @property
     def result_id(self) -> str:
