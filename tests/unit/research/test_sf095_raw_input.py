@@ -6,11 +6,10 @@ from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
-from signalforge.research.delta_historical_qualification import DeltaCandle, DeltaRawCapture
-
 import pytest
 
 from signalforge.research import btc_raw_diagnostic_input as source
+from signalforge.research.delta_historical_qualification import DeltaCandle, DeltaRawCapture
 
 
 def test_protected_source_path_and_missing_evidence_fail_closed(tmp_path: Path):
