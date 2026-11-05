@@ -29,6 +29,7 @@ def test_real_strategies_share_registry_and_keep_frozen_identity() -> None:
     reference = _resolve("rsi_mean_reversion_v1")
 
     assert DEFAULT_STRATEGY_REGISTRY.registrations == (
+        ("btc_momentum_baseline_v0", "0.1.0-experimental"),
         ("intraday_momentum_v1", "1.0.0"),
         ("rsi_mean_reversion_v1", "1.0.0"),
     )
