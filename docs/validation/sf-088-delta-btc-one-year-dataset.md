@@ -304,7 +304,9 @@ It is an exploratory numerical diagnostic,
 The report is written once outside immutable generation evidence, **under the same
 resolved `.signalforge-data/` root as the input generation**. A similarly named
 `signalforge-data/` directory, another unrelated `.signalforge-data/` tree, or a
-symlink that escapes the input's protected root is refused. The project
+symlink that escapes the input's protected root is refused. Outputs are
+further confined to the same root's `sf088/audits/` subtree: no report may
+be written into **any** acquisition generation. The project
 `.gitignore` ignores `.signalforge-data/`; verify the local source and output
 with `git check-ignore -v` before execution. The command refuses overwrites,
 missing/inconsistent minutes,
