@@ -25,6 +25,7 @@ from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval, to_ist
 from signalforge.research.historical_bars import (
     HistoricalBar,
+    HistoricalPriceBasis,
     HistoricalBarDataset,
     HistoricalContinuityError,
     aggregate_one_minute_to_five_minute,
@@ -395,6 +396,7 @@ class HistoricalExecutionRunResult:
     )
     source_diagnostic_id: str | None = None
     price_mode: HistoricalPriceMode = HistoricalPriceMode.EXECUTION_VALID
+    measurement_start: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC:
@@ -403,12 +405,17 @@ class HistoricalExecutionRunResult:
                 or self.tick_rule_version != "unresolved"
                 or self.tick_schedule_semantic_id != "UNRESOLVED_NOT_EXECUTION_VALID"
                 or not self.source_diagnostic_id
+                or self.measurement_start is None
                 or self.market_session_policy_identity != (
                     CONTINUOUS_HISTORICAL_SESSION_POLICY.identity
                 )
             ):
                 raise ValueError("Raw diagnostic result must be explicitly non-execution-valid")
-        elif not self.execution_valid or self.source_diagnostic_id is not None:
+        elif (
+            not self.execution_valid
+            or self.source_diagnostic_id is not None
+            or self.measurement_start is not None
+        ):
             raise ValueError("Execution-valid results cannot contain raw diagnostic provenance")
 
     @property
@@ -440,6 +447,10 @@ class HistoricalExecutionRunResult:
                         "policy_version": self.market_session_policy_identity.policy_version,
                     },
                     "source_diagnostic_id": self.source_diagnostic_id,
+                    "measurement_start": (
+                        None if self.measurement_start is None
+                        else self.measurement_start.isoformat()
+                    ),
                 }
                 if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC else {}
             ),
