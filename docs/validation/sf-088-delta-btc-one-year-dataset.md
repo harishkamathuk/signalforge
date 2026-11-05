@@ -266,3 +266,60 @@ per-pass anomaly counts and `anomaly_examples_truncated` remain explicit.
 Use only an ignored/protected `.signalforge-data` or `signalforge-data` output
 location. Inspect `git check-ignore -v .signalforge-data/sf088/audits/`
 before running, and do not commit the report or raw data.
+
+
+## Owner-approved provisional price exploration (separate from Stage B)
+
+The owner approved a **restricted exploratory-only** path on 2026-11-05,
+recorded in [issue #240](https://github.com/harishkamathuk/signalforge/issues/240).
+This does **not** qualify the one-year historical contract, change the
+`validate_product_applicability()` guard, publish a canonical dataset, or
+authorize strategy performance, fills, P&L or live/paper execution.
+
+After independently confirming the protected `generation-0001` is intact,
+run the explicit local-only, provider-free command:
+
+```bash
+umask 077
+python -m signalforge.research.delta_provisional_research \
+  --generation-dir .signalforge-data/sf088/evidence/evidence-only/generation-0001 \
+  --output .signalforge-data/sf088/audits/generation-0001-price-exploration-v1.json
+```
+
+The command first reruns the existing maintained **two-pass evidence audit**,
+requiring complete coverage and a successful structural integrity result.
+It then re-verifies the first-pass chunk hashes while constructing deterministic
+completed UTC five-minute closes and exploratory SMA(20). Its JSON contains only
+counts, SHA-256 digests and the existing audit's exact five off-current-snapshot
+tick observations, **not** a rewritten candle series.
+
+The SMA uses the 20 latest completed five-minute closing prices, with no values
+until 20 complete bars have arrived. Derived digests use numerical canonical
+Decimal serialization rather than display scale and label five-minute values
+by UTC candle **open**; the report also identifies when the first and last SMA
+values become available at the corresponding end-exclusive candle boundaries.
+It is an exploratory numerical diagnostic,
+**not** an entry, exit, strategy filter, simulated trade or profitability metric.
+
+The report is written once outside immutable generation evidence, **under the same
+resolved `.signalforge-data/` root as the input generation**. A similarly named
+`signalforge-data/` directory, another unrelated `.signalforge-data/` tree, or a
+symlink that escapes the input's protected root is refused. Outputs are
+further confined to the same root's `sf088/audits/` subtree: no report may
+be written into **any** acquisition generation. The project
+`.gitignore` ignores `.signalforge-data/`; verify the local source and output
+with `git check-ignore -v` before execution. The command refuses overwrites,
+missing/inconsistent minutes,
+wrong provenance and audit failures. Retain raw prices unchanged and keep the
+full local reports outside Git, under the previously qualified personal/internal
+academic data-use boundary.
+
+Every output is labelled `UNQUALIFIED_HISTORICAL_METADATA` and explicitly states
+that no historical tick rule is assumed, no canonical dataset was published, and
+trade/strategy performance use is not authorized. Stage B remains **BLOCKED**.
+
+Acceptance requires local execution against the protected real generation,
+a fresh write-once report/digest, focused tests, repository CI and adversarial
+PR review. Successful synthetic CI tests alone do not prove real-generation
+acceptance. If new effective-dated product history is established, qualification
+must still proceed through the original separately reviewed strict Stage B path.
