@@ -448,23 +448,47 @@ class HistoricalBarExecutionRunner:
         *,
         strategy_selection: StrategySelection,
         engine_calculation_version: str,
-        tick_schedule: TickSizeSchedule,
+        tick_schedule: TickSizeSchedule | None,
         execution_profile: HistoricalExecutionAssumptionProfile,
+        market_session_policy: HistoricalSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
+        source_diagnostic_id: str | None = None,
     ) -> HistoricalExecutionRunResult:
-        if tick_schedule.instrument_id != dataset.manifest.instrument_id:
-            raise ValueError("TickSizeSchedule instrument must match historical dataset")
+        raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
+        if raw:
+            if tick_schedule is not None:
+                raise ValueError("RAW_DIAGNOSTIC must not accept a historical tick schedule")
+            if market_session_policy.identity != CONTINUOUS_HISTORICAL_SESSION_POLICY.identity:
+                raise ValueError("RAW_DIAGNOSTIC requires continuous historical session policy")
+            if not source_diagnostic_id or not source_diagnostic_id.strip():
+                raise ValueError("RAW_DIAGNOSTIC requires a source diagnostic evidence identity")
+            if dataset.manifest.grid is None:
+                raise ValueError("RAW_DIAGNOSTIC requires explicit continuous grid")
+        else:
+            if tick_schedule is None:
+                raise ValueError("Execution-valid historical run requires tick schedule")
+            if tick_schedule.instrument_id != dataset.manifest.instrument_id:
+                raise ValueError("TickSizeSchedule instrument must match historical dataset")
+            if source_diagnostic_id is not None:
+                raise ValueError("Source diagnostic ID requires RAW_DIAGNOSTIC")
         strategy = self._registry.resolve(strategy_selection)
+        if raw and (
+            strategy.identity.strategy_id != "btc_momentum_baseline_v0"
+            or str(dataset.manifest.instrument_id) != "DELTA:BTCUSD"
+        ):
+            raise ValueError("RAW_DIAGNOSTIC is restricted to approved DELTA:BTCUSD baseline")
         run = RunIdentity(
             run_id=deterministic_id(
                 RunId,
                 str(dataset.dataset_id),
                 strategy.config_identity.config_hash,
                 engine_calculation_version,
+                *((execution_profile.semantic_id, source_diagnostic_id) if raw else ()),
             ),
             strategy=strategy.identity,
             config_id=strategy.config_identity.config_id,
             config_hash=strategy.config_identity.config_hash,
             engine_calculation_version=engine_calculation_version,
+            market_session_policy=market_session_policy.identity,
         )
         engine = IndicatorEngine(
             dataset.manifest.instrument_id,
@@ -491,6 +515,8 @@ class HistoricalBarExecutionRunner:
                         tick_schedule,
                         outcomes,
                         True,
+                        market_session_policy,
+                        source_diagnostic_id,
                     )
                 candle = next(c for c in candles if c.interval.contains(start))
                 engine.break_continuity()
@@ -503,6 +529,7 @@ class HistoricalBarExecutionRunner:
                     strategy,
                     tick_schedule,
                     execution_profile,
+                    market_session_policy,
                 )
                 if terminal is not None:
                     outcomes.append(terminal)
@@ -515,6 +542,8 @@ class HistoricalBarExecutionRunner:
                             tick_schedule,
                             outcomes,
                             True,
+                            market_session_policy,
+                            source_diagnostic_id,
                         )
                     active = None
 
@@ -554,7 +583,7 @@ class HistoricalBarExecutionRunner:
                 _unresolved(
                     active,
                     (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,),
-                    "active lifecycle survived regular-session evidence",
+                    "active lifecycle remains unresolved at dataset end",
                 )
             )
 
@@ -566,6 +595,8 @@ class HistoricalBarExecutionRunner:
             tick_schedule,
             outcomes,
             False,
+            market_session_policy,
+            source_diagnostic_id,
         )
 
 
@@ -1090,10 +1121,18 @@ def _result(
     strategy: Strategy,
     engine_version: str,
     profile: HistoricalExecutionAssumptionProfile,
-    tick_schedule: TickSizeSchedule,
+    tick_schedule: TickSizeSchedule | None,
     outcomes: list[HistoricalExecutionOutcome],
     terminated: bool,
+    session: HistoricalSessionPolicy,
+    source_diagnostic_id: str | None,
 ) -> HistoricalExecutionRunResult:
+    raw = profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
+    # Raw barriers must not be misreported as historically tradable tick prices.
+    output = (
+        [replace(o, tradable_trigger=None, tradable_target_price=None) for o in outcomes]
+        if raw else outcomes
+    )
     return HistoricalExecutionRunResult(
         dataset_id=str(dataset.dataset_id),
         strategy_id=strategy.identity.strategy_id,
@@ -1105,10 +1144,17 @@ def _result(
         execution_profile_version=profile.version,
         execution_profile_semantic_id=profile.semantic_id,
         tick_rule_version=profile.tick_rule_version,
-        tick_schedule_semantic_id=_tick_schedule_semantic_id(tick_schedule),
-        outcomes=tuple(outcomes),
+        tick_schedule_semantic_id=(
+            "UNRESOLVED_NOT_EXECUTION_VALID" if tick_schedule is None
+            else _tick_schedule_semantic_id(tick_schedule)
+        ),
+        outcomes=tuple(output),
         summary=_summary(outcomes),
         terminated_early=terminated,
+        execution_valid=not raw,
+        market_session_policy_identity=session.identity,
+        source_diagnostic_id=source_diagnostic_id,
+        price_mode=profile.price_mode,
     )
 
 
