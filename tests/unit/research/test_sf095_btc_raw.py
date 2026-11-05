@@ -30,10 +30,10 @@ from signalforge.research.historical_bars import (
 )
 from signalforge.research.historical_execution import (
     CONTINUOUS_HISTORICAL_SESSION_POLICY,
+    HistoricalAmbiguityReason,
     HistoricalBarExecutionRunner,
     HistoricalExecutionAssumptionProfile,
     HistoricalOutcomeCertainty,
-    HistoricalAmbiguityReason,
     HistoricalPriceMode,
     HistoricalTerminalState,
 )
@@ -150,10 +150,10 @@ def test_raw_arm_intent_and_actual_fill_economics():
 
 
 def _synthetic_continuous_dataset() -> HistoricalBarDataset:
-    """Non-performance fixture crossing UTC midnight, 252 complete 5m bars."""
+    """Non-performance fixture with OPEN position persisting through UTC midnight."""
     legacy = load_historical_bar_fixture(EXAMPLE)
-    start = datetime(2026, 10, 31, 23, 50, tzinfo=UTC)
-    minutes = 252 * 5
+    start = datetime(2026, 11, 1, 2, 55, tzinfo=UTC)
+    minutes = 255 * 5
     original = legacy.bars[0]
     bars = []
     for offset in range(minutes):
@@ -242,6 +242,9 @@ def test_raw_diagnostic_cross_midnight_open_remains_unresolved():
     assert outcome.certainty is HistoricalOutcomeCertainty.UNRESOLVED
     assert outcome.terminal_state is HistoricalTerminalState.UNRESOLVED
     assert outcome.entry_fill is not None
+    assert outcome.entry_fill.bucket.start.date() != (
+        dataset.manifest.requested_end.date()
+    )
     assert outcome.tradable_trigger is None
     assert outcome.tradable_target_price is None
     assert all("forced_session_exit" not in evidence.reachable_actions
