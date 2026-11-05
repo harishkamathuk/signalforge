@@ -100,9 +100,17 @@ class BtcMomentumBaselineV0Strategy:
             reasons.append("insufficient_warmup")
         if context.feed_state is not None and context.feed_state is not MarketDataFeedState.HEALTHY:
             reasons.append("feed_not_healthy")
-        if indicator.ema20 is None or indicator.ema50 is None or not indicator.ema20 > indicator.ema50:
+        if (
+            indicator.ema20 is None
+            or indicator.ema50 is None
+            or not indicator.ema20 > indicator.ema50
+        ):
             reasons.append("trend_not_met")
-        if candle.close is None or indicator.ema9 is None or not candle.close.value > indicator.ema9:
+        if (
+            candle.close is None
+            or indicator.ema9 is None
+            or not candle.close.value > indicator.ema9
+        ):
             reasons.append("setup_not_met")
         if indicator.rsi14 is None or not Decimal("58") <= indicator.rsi14 <= Decimal("65"):
             reasons.append("rsi_not_met")
