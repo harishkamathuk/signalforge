@@ -811,7 +811,7 @@ def _process_open_bar(
 def _resolve_open_reaches(
     active: _Active,
     bar: HistoricalBar,
-    ticks: TickSizeSchedule,
+    ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
 ) -> HistoricalExecutionOutcome | None:
     assert active.tradable_target is not None
