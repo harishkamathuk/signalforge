@@ -419,6 +419,17 @@ def test_btc_next_candle_only_expiry_and_signal_low_invalidation(
     assert result.outcomes[0].entry_fill is None
 
 
+def test_armed_setup_at_dataset_end_is_not_misclassified_as_open_position():
+    dataset = _synthetic_continuous_dataset()
+    result = _raw_run(dataset, runner=_synthetic_runner(255))
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].terminal_state is HistoricalTerminalState.UNRESOLVED
+    assert result.outcomes[0].entry_fill is None
+    assert result.outcomes[0].ambiguity_reasons == (
+        HistoricalAmbiguityReason.DATASET_END_ARMED,
+    )
+
+
 def test_raw_diagnostic_rejects_unaligned_measurement_start_and_mutable_status():
     dataset = _synthetic_continuous_dataset()
     with pytest.raises(ValueError, match="five-minute bucket"):
