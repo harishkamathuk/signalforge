@@ -25,6 +25,7 @@ from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
 from signalforge.research.historical_bars import (
     HistoricalBarDataset,
+    HistoricalPriceBasis,
     load_historical_bar_fixture,
 )
 from signalforge.research.historical_execution import (
@@ -148,15 +149,15 @@ def test_raw_arm_intent_and_actual_fill_economics():
 
 
 def _synthetic_continuous_dataset() -> HistoricalBarDataset:
-    """Non-performance fixture crossing UTC midnight, exactly 251 complete 5m bars."""
+    """Non-performance fixture crossing UTC midnight, 252 complete 5m bars."""
     legacy = load_historical_bar_fixture(EXAMPLE)
     start = datetime(2026, 10, 31, 23, 50, tzinfo=UTC)
-    minutes = 251 * 5
+    minutes = 252 * 5
     original = legacy.bars[0]
     bars = []
     for offset in range(minutes):
         at = start + timedelta(minutes=offset)
-        price = Decimal("100.2") if offset >= 250 * 5 else Decimal("100")
+        price = Decimal("100.2") if offset >= 251 * 5 else Decimal("100")
         bars.append(replace(
             original,
             instrument_id=BTC,
@@ -174,6 +175,7 @@ def _synthetic_continuous_dataset() -> HistoricalBarDataset:
         requested_instrument="DELTA:BTCUSD",
         resolved_provider_instrument="BTCUSD",
         expected_session_dates=(),
+        price_basis=HistoricalPriceBasis.TRADED,
         grid=HistoricalBarGrid(
             "continuous-test", "1",
             (CandleInterval(start, start + timedelta(minutes=minutes)),),
@@ -197,7 +199,7 @@ class _SyntheticTrigger(BtcMomentumBaselineV0Strategy):
     def evaluate_completed_candle(
         self, context: CompletedCandleStrategyContext
     ) -> BtcMomentumBaselineDecision:
-        is_signal = context.completed_regular_session_candles == 250
+        is_signal = context.completed_regular_session_candles == 251
         return BtcMomentumBaselineDecision(
             context.candle.instrument_id,
             context.candle.interval,
@@ -224,6 +226,7 @@ def test_raw_diagnostic_cross_midnight_open_remains_unresolved():
         execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
         market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
         source_diagnostic_id="synthetic-only-test-source",
+        measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
     )
     first = runner.run(dataset, **arguments)
     second = runner.run(dataset, **arguments)
@@ -259,6 +262,7 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             engine_calculation_version="engine-v1", tick_schedule=None,
             execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
             source_diagnostic_id="test-evidence",
+            measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
         )
     with pytest.raises(ValueError, match="source diagnostic"):
         runner.run(
@@ -266,6 +270,7 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             engine_calculation_version="engine-v1", tick_schedule=None,
             execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
             market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+            measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
         )
     assert HistoricalExecutionAssumptionProfile.reference_raw().semantic_id != (
         HistoricalExecutionAssumptionProfile.adverse_raw().semantic_id
