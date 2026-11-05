@@ -33,6 +33,7 @@ from signalforge.research.historical_execution import (
     HistoricalBarExecutionRunner,
     HistoricalExecutionAssumptionProfile,
     HistoricalOutcomeCertainty,
+    HistoricalAmbiguityReason,
     HistoricalPriceMode,
     HistoricalTerminalState,
 )
@@ -280,4 +281,109 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             "invalid", "1", Decimal("0"), Decimal("0"), Decimal("0"),
             Decimal("0"), "today-tick",
             HistoricalPriceMode.RAW_DIAGNOSTIC,
+        )
+
+
+def _synthetic_runner(signal_count: int) -> HistoricalBarExecutionRunner:
+    """Inject a deterministic execution probe, never the real BTC strategy signals."""
+
+    class _Probe(_SyntheticTrigger):
+        def evaluate_completed_candle(
+            self, context: CompletedCandleStrategyContext
+        ) -> BtcMomentumBaselineDecision:
+            yes = context.completed_regular_session_candles == signal_count
+            return BtcMomentumBaselineDecision(
+                context.candle.instrument_id, context.candle.interval,
+                yes, yes, ("synthetic_probe",), None
+            )
+
+    return HistoricalBarExecutionRunner(
+        registry=StrategyRegistry((
+            StrategyRegistration(
+                "btc_momentum_baseline_v0", "0.1.0-experimental",
+                lambda _: _Probe(BtcMomentumBaselineV0Config()),
+            ),
+        ))
+    )
+
+
+def _raw_run(dataset, *, profile=None, runner=None, measurement_start=None):
+    return (runner or _synthetic_runner(251)).run(
+        dataset,
+        strategy_selection=SELECTION,
+        engine_calculation_version="engine-v1",
+        tick_schedule=None,
+        execution_profile=profile or HistoricalExecutionAssumptionProfile.reference_raw(),
+        market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+        source_diagnostic_id="synthetic-only-test-source",
+        measurement_start=measurement_start or (
+            dataset.manifest.requested_start + timedelta(minutes=250 * 5)
+        ),
+    )
+
+
+def test_pre_roll_can_only_warm_indicators_and_never_arm():
+    dataset = _synthetic_continuous_dataset()
+    result = _raw_run(dataset, runner=_synthetic_runner(250))
+    assert result.outcomes == ()
+    assert result.execution_valid is False
+    assert result.measurement_start == (
+        dataset.manifest.requested_start + timedelta(minutes=250 * 5)
+    )
+
+
+def test_raw_adverse_entry_fill_sets_new_target_from_actual_fill():
+    dataset = _synthetic_continuous_dataset()
+    reference = _raw_run(dataset)
+    adverse = _raw_run(
+        dataset, profile=HistoricalExecutionAssumptionProfile.adverse_raw()
+    )
+    ref = reference.outcomes[0]
+    adv = adverse.outcomes[0]
+    assert ref.entry_fill is not None
+    assert ref.entry_fill.fill_price.value == Decimal("100.2")
+    assert adv.entry_fill is not None
+    assert adv.entry_fill.fill_price.value == Decimal("100.3002")
+    assert adv.raw_target_price is not None
+    assert adv.raw_target_price.value == Decimal("100.7655")
+    assert ref.raw_target_price is not None
+    assert ref.raw_target_price.value == Decimal("100.515")
+    assert adverse.result_id != reference.result_id
+    assert adverse.execution_valid is False
+
+
+def test_raw_diagnostic_preserves_stop_target_ambiguity():
+    dataset = _synthetic_continuous_dataset()
+    entry_index = 251 * 5
+    bars = list(dataset.bars)
+    bars[entry_index] = replace(
+        bars[entry_index],
+        high=Price(Decimal("101")),
+        low=Price(Decimal("99")),
+    )
+    changed = HistoricalBarDataset(dataset.manifest, tuple(bars))
+    result = _raw_run(changed)
+    assert result.terminated_early
+    assert result.outcomes[0].certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert HistoricalAmbiguityReason.STOP_VS_TARGET in (
+        result.outcomes[0].ambiguity_reasons
+    )
+    assert result.execution_valid is False
+
+
+def test_raw_diagnostic_rejects_unaligned_measurement_start_and_mutable_status():
+    dataset = _synthetic_continuous_dataset()
+    with pytest.raises(ValueError, match="five-minute bucket"):
+        _raw_run(
+            dataset, measurement_start=(
+                dataset.manifest.requested_start + timedelta(minutes=250 * 5 + 1)
+            )
+        )
+    result = _raw_run(dataset)
+    with pytest.raises(ValueError, match="non-execution-valid"):
+        replace(result, execution_valid=True)
+    with pytest.raises(ValueError, match="RAW_DIAGNOSTIC profile"):
+        HistoricalExecutionAssumptionProfile(
+            "REFERENCE_RAW", "1.0.0", Decimal("10"), Decimal("0"), Decimal("0"),
+            Decimal("0"), "unresolved", HistoricalPriceMode.RAW_DIAGNOSTIC
         )
