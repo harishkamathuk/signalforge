@@ -128,6 +128,15 @@ def test_frozen_boundaries_and_250_candle_readiness(overrides, actionable):
         assert decision.macd_signal_positive is False
 
 
+def test_btc_strategy_rejects_unapproved_instrument() -> None:
+    context = _context()
+    other = replace(context.candle, instrument_id=InstrumentId("NSE:TEST"))
+    with pytest.raises(ValueError, match="approved DELTA:BTCUSD"):
+        DEFAULT_STRATEGY_REGISTRY.resolve(SELECTION).evaluate_completed_candle(
+            replace(context, candle=other)
+        )
+
+
 def test_raw_arm_intent_and_actual_fill_economics():
     strategy = DEFAULT_STRATEGY_REGISTRY.resolve(SELECTION)
     context = _context()
