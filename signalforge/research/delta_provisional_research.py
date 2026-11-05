@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 from collections import deque
-from datetime import UTC, datetime
 from decimal import Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
