@@ -1212,6 +1212,7 @@ def _result(
     terminated: bool,
     session: HistoricalSessionPolicy,
     source_diagnostic_id: str | None,
+    measurement_start: datetime | None,
 ) -> HistoricalExecutionRunResult:
     raw = profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
     # Raw barriers must not be misreported as historically tradable tick prices.
@@ -1241,6 +1242,7 @@ def _result(
         market_session_policy_identity=session.identity,
         source_diagnostic_id=source_diagnostic_id,
         price_mode=profile.price_mode,
+        measurement_start=measurement_start,
     )
 
 
