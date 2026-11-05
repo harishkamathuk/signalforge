@@ -43,9 +43,11 @@ Strategy decisions use the **traded-price** series. Mark price, index price,
 spot BTC, another venue, or another Delta product must not be substituted
 silently.
 
-Historical research must preserve the qualified source/provenance contract
-established by SF-087/SF-088 as applicable. Canonical event/candle chronology is
-timezone-aware UTC.
+SF-087 supplies the qualified source-semantic basis. A concrete historical
+dataset must separately satisfy the applicable dataset-validation/qualification
+gate before it is eligible for strategy-performance research; the existence of
+an SF-088 dataset artifact does not by itself confer that status. Canonical
+event/candle chronology is timezone-aware UTC.
 
 Continuous market-data coverage does not itself define a daily strategy
 session. UTC calendar boundaries are not trading boundaries.
@@ -98,7 +100,7 @@ The RSI boundaries are inclusive. The ADX and EMA comparisons are strict.
 Qualification uses the unrounded canonical indicator values. Display rounding
 must not affect a decision.
 
-The strategy should retain explicit diagnostic/rejection evidence for the
+The strategy must retain explicit diagnostic/rejection evidence for the
 individual qualification conditions.
 
 ## Entry and ARMED lifecycle
@@ -174,9 +176,16 @@ raw_target = actual_fill + 1.5 × risk
 The target formula is strategy-owned. Tradable-price normalization remains a
 shared execution responsibility.
 
-The first research contract expresses risk primarily as **price-distance R**.
-Position quantity, contract multiplier/value, leverage, margin and monetary
-capital sizing are not strategy semantics in this version.
+The initial per-unit price-risk distance is:
+
+```text
+initial_risk_per_unit = actual_fill - stop
+```
+
+For normalized research, **1R** corresponds to that initial per-unit risk and
+realised R is measured relative to it. Position quantity, contract
+multiplier/value, leverage, margin and monetary capital sizing are not strategy
+semantics in this version.
 
 ## Continuous-market time policy
 
@@ -304,6 +313,14 @@ Do not import NSE-specific:
 - compulsory 15:15 exit;
 - NSE tick-size schedules;
 - NSE transaction-cost assumptions.
+
+## Research horizon
+
+The intended first horizon is **historical baseline research** under a
+predeclared validation contract. Any later Delta live PAPER operation is a
+separate downstream stage gated by historical evidence and SF-092 readiness.
+
+This version does not authorize Demo/Testnet or live-capital execution.
 
 ## Governance and validation boundary
 
