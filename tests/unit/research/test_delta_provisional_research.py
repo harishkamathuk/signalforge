@@ -258,6 +258,8 @@ def test_output_location_bound_to_same_protected_root(
         unignored / "output.json",
         other / "output.json",
         escape / "output.json",
+        protected / "sf088" / "evidence" / "evidence-only" / "generation-0002" / "output.json",
+        protected / "misc" / "output.json",
         root / "output.json",
     ):
         with pytest.raises(SystemExit):
