@@ -9,6 +9,7 @@ import argparse
 import json
 from collections import deque
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from decimal import Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
@@ -18,6 +19,7 @@ from signalforge.research.delta_historical_dataset_acquisition import (
     SF088_EXPECTED_MINUTES,
     SF088_START,
     _candle_semantic_sha256,
+    _canonical_decimal,
     _sha256_json,
     build_sf088_chunk_plan,
 )
@@ -62,6 +64,8 @@ def summarize_completed_five_minute_closes(
     window: deque[Decimal] = deque()
     rolling = Decimal(0)
     minute_count = five_count = sma_count = 0
+    first_sma_available_at: str | None = None
+    last_sma_available_at: str | None = None
 
     with localcontext() as context:
         context.prec = 40
@@ -82,7 +86,7 @@ def summarize_completed_five_minute_closes(
             bucket.clear()
             five_count += 1
             closes_digest.update(
-                f"{minute - 240}:{format(completed_close, 'f')}\n".encode("ascii")
+                f"{minute - 240}:{_canonical_decimal(completed_close)}\n".encode("ascii")
             )
             window.append(completed_close)
             rolling += completed_close
@@ -91,8 +95,14 @@ def summarize_completed_five_minute_closes(
             if len(window) == 20:
                 sma_count += 1
                 sma = rolling / Decimal(20)
+                # The digest labels the completed candle by its UTC open, while
+                # its value only becomes available at the end-exclusive boundary.
+                available_at = datetime.fromtimestamp(minute + 60, UTC).isoformat()
+                if first_sma_available_at is None:
+                    first_sma_available_at = available_at
+                last_sma_available_at = available_at
                 sma_digest.update(
-                    f"{minute - 240}:{format(sma, 'f')}\n".encode("ascii")
+                    f"{minute - 240}:{_canonical_decimal(sma)}\n".encode("ascii")
                 )
     if bucket:
         raise ValueError("provisional input ends in incomplete five-minute bucket")
@@ -104,6 +114,8 @@ def summarize_completed_five_minute_closes(
         "five_minute_close_sha256": closes_digest.hexdigest(),
         "sma20_completed_points": sma_count,
         "sma20_sha256": sma_digest.hexdigest(),
+        "sma20_first_available_at_utc": first_sma_available_at,
+        "sma20_last_available_at_utc": last_sma_available_at,
         "sma20_warmup_completed_bars": min(five_count, 19),
     }
 
@@ -204,11 +216,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.generation_dir.resolve(strict=True)
     output = args.output.resolve()
-    # Never write into the immutable source or publish exploratory results
-    # outside the protected local market-data area.
-    if not any(part in {".signalforge-data", "signalforge-data"} for part in output.parts):
-        parser.error("output must reside in a dedicated local signalforge-data directory")
-    if output == root or root in output.parents or output in root.parents:
+    # Bind the report to the SAME .signalforge-data root as the protected source.
+    # A similarly named directory elsewhere need not be Git-ignored; resolving
+    # first prevents a symlinked parent from escaping this boundary.
+    protected_root = next(
+        (parent for parent in (root, *root.parents) if parent.name == ".signalforge-data"),
+        None,
+    )
+    if protected_root is None:
+        parser.error("generation must reside under the protected .signalforge-data root")
+    if not output.is_relative_to(protected_root) or output == protected_root:
+        parser.error("output must remain under the source .signalforge-data root")
+    if output == root or output.is_relative_to(root):
         parser.error("output must be outside the immutable evidence generation")
     if output.exists():
         parser.error("refusing to overwrite existing provisional report")
