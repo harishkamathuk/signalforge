@@ -110,8 +110,9 @@ def _test_factory(parameters: Mapping[str, object]) -> _TestStrategy:
     return _TestStrategy(_TestConfig.model_validate(dict(parameters)))
 
 
-def test_default_registry_contains_both_real_strategies() -> None:
+def test_default_registry_contains_approved_and_experimental_strategies() -> None:
     assert DEFAULT_STRATEGY_REGISTRY.registrations == (
+        ("btc_momentum_baseline_v0", "0.1.0-experimental"),
         ("intraday_momentum_v1", "1.0.0"),
         ("rsi_mean_reversion_v1", "1.0.0"),
     )
