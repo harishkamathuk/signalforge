@@ -375,6 +375,41 @@ def test_raw_diagnostic_preserves_stop_target_ambiguity():
     assert result.execution_valid is False
 
 
+
+
+@pytest.mark.parametrize(
+    ("invalidate", "expected_detail"),
+    [
+        (False, "validity_window_end"),
+        (True, "pre_entry_invalidation"),
+    ],
+)
+def test_btc_next_candle_only_expiry_and_signal_low_invalidation(
+    invalidate: bool, expected_detail: str,
+):
+    """Synthetic chronology checks shared ARMED lifecycle with BTC policy."""
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    first = 251 * 5
+    for offset in range(5):
+        old = bars[first + offset]
+        at_stop = invalidate and offset == 0
+        bars[first + offset] = replace(
+            old,
+            open=Price(Decimal("100")),
+            high=Price(Decimal("100.01")),
+            low=Price(Decimal("99.98" if at_stop else "99.99")),
+            close=Price(Decimal("100")),
+        )
+    altered = HistoricalBarDataset(dataset.manifest, tuple(bars))
+    result = _raw_run(altered)
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert result.outcomes[0].terminal_state is HistoricalTerminalState.EXPIRED
+    assert result.outcomes[0].detail == expected_detail
+    assert result.outcomes[0].entry_fill is None
+
+
 def test_raw_diagnostic_rejects_unaligned_measurement_start_and_mutable_status():
     dataset = _synthetic_continuous_dataset()
     with pytest.raises(ValueError, match="five-minute bucket"):
