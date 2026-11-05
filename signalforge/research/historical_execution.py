@@ -20,8 +20,7 @@ from signalforge.domain.ids import RunId, deterministic_id
 from signalforge.domain.instruments import TickSizeSchedule
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
-from signalforge.domain.provenance import RunIdentity
-from signalforge.domain.provenance import MarketSessionPolicyIdentity
+from signalforge.domain.provenance import MarketSessionPolicyIdentity, RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval, to_ist
 from signalforge.research.historical_bars import (
