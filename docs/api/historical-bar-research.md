@@ -127,6 +127,34 @@ A raw run requires:
 - `CONTINUOUS_HISTORICAL_SESSION_POLICY`, which has no compulsory exit;
 - `tick_schedule=None` and a raw profile.
 
+The SF-088 `generation-0001` protected **evidence-only** archive is not a
+strict SF-084 dataset. For the approved Tier-1 contract only, SF-095 provides
+a read-only transient diagnostic input bridge:
+
+::: signalforge.research.btc_raw_diagnostic_input.RawDiagnosticSource
+
+::: signalforge.research.btc_raw_diagnostic_input.load_sf095_raw_diagnostic_source
+
+This bridge reruns independent two-pass audit, verifies the frozen provisional
+report and five-minute-close hashes, checks each retained first-pass chunk's
+raw and semantic digest, and maps exactly the observed provider OHLCV into
+`HistoricalBarDataset` **in memory** without checking against today's tick.
+It does not publish this dataset, call a provider or weaken SF-088's strict
+historical metadata qualification gate. Its returned
+`source_diagnostic_id` must be forwarded to the historical runner; the
+derived `dataset_id` is only a reproducible **diagnostic representation**,
+not SF-088 Stage-B `READY_FOR_BTC_STRATEGY_RESEARCH`.
+
+```python
+from pathlib import Path
+
+raw_source = load_sf095_raw_diagnostic_source(
+    Path(".signalforge-data/sf088/evidence/evidence-only/generation-0001")
+)
+dataset = raw_source.dataset
+source_id = raw_source.source_diagnostic_id
+```
+
 For example, once the source-diagnostic identity and dataset have been
 independently verified in conversation 04:
 
