@@ -226,11 +226,11 @@ def test_independent_completed_bar_sma_oracle_and_utc_timestamp() -> None:
     ]
     actual = provisional.summarize_completed_five_minute_closes(rows)
     expected_closes = "".join(
-        f"{start + i * 300}:{i + 1}\\n" for i in range(21)
+        f"{start + i * 300}:{i + 1}\n" for i in range(21)
     ).encode("ascii")
     expected_smas = (
-        f"{start + 19 * 300}:10.5\\n"
-        f"{start + 20 * 300}:11.5\\n"
+        f"{start + 19 * 300}:10.5\n"
+        f"{start + 20 * 300}:11.5\n"
     ).encode("ascii")
     assert actual["five_minute_close_sha256"] == sha256(expected_closes).hexdigest()
     assert actual["sma20_sha256"] == sha256(expected_smas).hexdigest()
