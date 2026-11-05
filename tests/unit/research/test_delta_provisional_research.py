@@ -1,8 +1,11 @@
 """Contract tests for unqualified, read-only SF-088 price exploration."""
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal, getcontext
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -116,3 +119,78 @@ def test_command_refuses_output_overwrite_and_immutable_source(
             "--generation-dir", str(root),
             "--output", str(tmp_path / "public-report.json"),
         ])
+
+
+def test_provisional_report_preserves_unqualified_status_and_detects_tampering(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Exercise local-only derivation on a bounded synthetic source fixture."""
+    from signalforge.research import delta_historical_dataset_acquisition as acquisition
+
+    start = provisional.SF088_START
+    end = start + timedelta(minutes=5)
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=end, chunk_minutes=5,
+    )
+    monkeypatch.setattr(provisional, "build_sf088_chunk_plan", lambda: plan)
+    monkeypatch.setattr(provisional, "SF088_END", end)
+    monkeypatch.setattr(provisional, "SF088_EXPECTED_MINUTES", 5)
+    root = tmp_path / "generation-0001"
+    folder = root / "pass-1"
+    folder.mkdir(parents=True)
+    candles = _candles(5)
+    raw = json.dumps({
+        "success": True,
+        "result": [
+            {
+                "time": item.time,
+                "open": str(item.open),
+                "high": str(item.high),
+                "low": str(item.low),
+                "close": str(item.close),
+                "volume": str(item.volume),
+            }
+            for item in reversed(candles)
+        ],
+    }).encode("ascii")
+    raw_digest = sha256(raw).hexdigest()
+    semantic_digest = acquisition._candle_semantic_sha256(tuple(reversed(candles)))
+    stem = folder / "chunk-000000"
+    stem.with_suffix(".json").write_bytes(raw)
+    stem.with_suffix(".meta.json").write_text(json.dumps({
+        "raw_sha256": raw_digest, "semantic_sha256": semantic_digest,
+        "request_url": "https://api.india.delta.exchange/v2/history/candles",
+        "acquired_at": "2026-11-01T00:00:00+00:00",
+    }))
+    (root / "evidence-only-report.json").write_text(json.dumps({
+        "report_sha256": "b" * 64,
+        "first_pass_raw_sha256": [raw_digest],
+        "first_pass_semantic_sha256": [semantic_digest],
+    }))
+
+    def audited(_root: Path) -> dict[str, object]:
+        return {
+            "audit_status": "PASS_WITH_UNQUALIFIED_METADATA",
+            "frozen_start": start.isoformat(),
+            "frozen_end": end.isoformat(),
+            "observed_unique_minutes_pass_1": 5,
+            "two_pass_semantic_match_independently_recomputed": True,
+            "audit_sha256": "a" * 64,
+            "passes": {"pass_1": {
+                "anomaly_examples": [{"field": "open", "value": "65000.1"}],
+                "issues": {"off_current_snapshot_tick_price_fields": 1},
+            }},
+        }
+
+    monkeypatch.setattr(provisional, "audit_generation", audited)
+    result = provisional.explore_generation(root)
+    assert result["historical_metadata_status"] == "UNQUALIFIED_HISTORICAL_METADATA"
+    assert result["canonical_dataset_published"] is False
+    assert result["historical_tick_size_assumed"] is False
+    assert result["source_prices_repaired"] is False
+    assert result["current_snapshot_tick_observations"][0]["value"] == "65000.1"
+    assert result["derived_price_diagnostics"]["completed_five_minute_closes"] == 1
+
+    stem.with_suffix(".json").write_bytes(raw + b" ")
+    with pytest.raises(ValueError, match="raw digest mismatch"):
+        provisional.explore_generation(root)
