@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, getcontext
 from hashlib import sha256
 from pathlib import Path
@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from signalforge.research import delta_provisional_research as provisional
+from signalforge.research import delta_historical_evidence_audit as evidence_audit
 from signalforge.research.delta_historical_qualification import DeltaCandle
 
 
@@ -192,5 +193,217 @@ def test_provisional_report_preserves_unqualified_status_and_detects_tampering(
     assert result["derived_price_diagnostics"]["completed_five_minute_closes"] == 1
 
     stem.with_suffix(".json").write_bytes(raw + b" ")
+    with pytest.raises(ValueError, match="raw digest mismatch"):
+        provisional.explore_generation(root)
+
+
+def test_canonical_hashes_preserve_numeric_identity() -> None:
+    """Equivalent Decimal scales cannot change semantic diagnostic hashes."""
+    rows = _candles(10)
+    scaled = [replace(row, close=Decimal(str(row.close) + "0")) for row in rows]
+    a = provisional.summarize_completed_five_minute_closes(rows)
+    b = provisional.summarize_completed_five_minute_closes(scaled)
+    assert a["five_minute_close_sha256"] == b["five_minute_close_sha256"]
+    assert a["sma20_sha256"] == b["sma20_sha256"]
+
+    actual_change = scaled.copy()
+    actual_change[9] = replace(actual_change[9], close=Decimal("65009.25"))
+    assert provisional.summarize_completed_five_minute_closes(
+        actual_change
+    )["five_minute_close_sha256"] != a["five_minute_close_sha256"]
+
+
+def test_independent_completed_bar_sma_oracle_and_utc_timestamp() -> None:
+    """21 fixed closes 1..21 give first SMA=10.5 and second=11.5."""
+    start = int(provisional.SF088_START.timestamp())
+    rows = [
+        DeltaCandle(
+            time=start + 60 * index, open=Decimal(index // 5 + 1),
+            high=Decimal(index // 5 + 1), low=Decimal(index // 5 + 1),
+            close=Decimal(index // 5 + 1), volume=Decimal(1),
+        )
+        for index in range(105)
+    ]
+    actual = provisional.summarize_completed_five_minute_closes(rows)
+    expected_closes = "".join(
+        f"{start + i * 300}:{i + 1}\\n" for i in range(21)
+    ).encode("ascii")
+    expected_smas = (
+        f"{start + 19 * 300}:10.5\\n"
+        f"{start + 20 * 300}:11.5\\n"
+    ).encode("ascii")
+    assert actual["five_minute_close_sha256"] == sha256(expected_closes).hexdigest()
+    assert actual["sma20_sha256"] == sha256(expected_smas).hexdigest()
+    assert actual["completed_five_minute_closes"] == 21
+    assert actual["sma20_completed_points"] == 2
+    assert actual["sma20_warmup_completed_bars"] == 19
+    assert actual["sma20_first_available_at_utc"] == "2025-10-30T01:40:00+00:00"
+    assert actual["sma20_last_available_at_utc"] == "2025-10-30T01:45:00+00:00"
+
+
+def test_output_location_bound_to_same_protected_root(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Reject similarly named, unrelated or symlink-escaped output directories."""
+    protected = tmp_path / ".signalforge-data"
+    root = protected / "sf088" / "evidence" / "evidence-only" / "generation-0001"
+    root.mkdir(parents=True)
+    other = tmp_path / "elsewhere" / ".signalforge-data"
+    other.mkdir(parents=True)
+    unignored = tmp_path / "signalforge-data"
+    unignored.mkdir()
+    escape = protected / "symlink-escape"
+    escape.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    for destination in (
+        unignored / "output.json",
+        other / "output.json",
+        escape / "output.json",
+        root / "output.json",
+    ):
+        with pytest.raises(SystemExit):
+            provisional.main([
+                "--generation-dir", str(root), "--output", str(destination),
+            ])
+
+    def refused(_root: Path) -> dict[str, object]:
+        raise RuntimeError("input checked only after valid output root")
+
+    monkeypatch.setattr(provisional, "explore_generation", refused)
+    with pytest.raises(RuntimeError, match="input checked"):
+        provisional.main([
+            "--generation-dir", str(root),
+            "--output", str(protected / "sf088" / "audits" / "new.json"),
+        ])
+
+
+def test_end_to_end_provisional_cli_with_real_two_pass_audit(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """A complete synthetic two-pass generation exercises the unstubbed audit."""
+    from signalforge.research import delta_historical_dataset_acquisition as acquisition
+    from signalforge.research.delta_historical_qualification import (
+        DeltaRawCapture, parse_delta_product_response,
+    )
+
+    start = provisional.SF088_START
+    end = start + timedelta(minutes=5)
+    plan = acquisition.build_sf088_chunk_plan(
+        start=start, end=end, chunk_minutes=5,
+    )
+    for module in (evidence_audit, provisional):
+        monkeypatch.setattr(module, "SF088_END", end)
+        monkeypatch.setattr(module, "SF088_EXPECTED_MINUTES", 5)
+        monkeypatch.setattr(module, "build_sf088_chunk_plan", lambda: plan)
+
+    protected = tmp_path / ".signalforge-data" / "sf088"
+    root = protected / "evidence" / "evidence-only" / "generation-0001"
+    product = {"success": True, "result": {
+        "id": 27, "symbol": "BTCUSD",
+        "contract_type": "perpetual_futures",
+        "contract_value": "0.001", "contract_unit_currency": "BTC",
+        "tick_size": "0.5",
+        "underlying_asset": {"symbol": "BTC"},
+        "quoting_asset": {"symbol": "USD"},
+        "settling_asset": {"symbol": "USD"},
+    }}
+    raw_product = json.dumps(product).encode("ascii")
+    product_capture = DeltaRawCapture(
+        request_url="https://api.india.delta.exchange/v2/products/BTCUSD",
+        acquired_at=datetime(2026, 11, 1, tzinfo=UTC),
+        content_sha256=sha256(raw_product).hexdigest(), content=raw_product,
+    )
+    product_semantic = parse_delta_product_response(
+        product_capture, expected_symbol="BTCUSD"
+    ).semantic_sha256
+
+    candle_rows = [
+        {
+            "time": int(start.timestamp()) + 60 * minute,
+            "open": "65000.1" if minute == 0 else "65000",
+            "high": "65010", "low": "65000",
+            "close": str(65000 + minute), "volume": "1",
+        }
+        for minute in range(5)
+    ]
+    # Delta provides newest-first candles; the analysis must sort them explicitly.
+    candle_raw = json.dumps({"success": True, "result": candle_rows[::-1]}).encode("ascii")
+    captured = DeltaRawCapture(
+        request_url="https://api.india.delta.exchange/v2/history/candles"
+        f"?resolution=1m&symbol=BTCUSD&start={plan[0].provider_start}"
+        f"&end={plan[0].provider_end}",
+        acquired_at=product_capture.acquired_at,
+        content_sha256=sha256(candle_raw).hexdigest(),
+        content=candle_raw,
+    )
+    semantic = acquisition._candle_semantic_sha256(
+        evidence_audit.parse_delta_candles_response(captured)
+    )
+    for pass_number in (1, 2):
+        folder = root / f"pass-{pass_number}"
+        folder.mkdir(parents=True)
+        (folder / "product.json").write_bytes(raw_product)
+        (folder / "product.meta.json").write_text(json.dumps({
+            "raw_sha256": product_capture.content_sha256,
+            "request_url": product_capture.request_url,
+            "acquired_at": product_capture.acquired_at.isoformat(),
+            "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+        }))
+        (folder / "chunk-000000.json").write_bytes(candle_raw)
+        (folder / "chunk-000000.meta.json").write_text(json.dumps({
+            "chunk_identity": plan[0].identity,
+            "canonical_start": plan[0].start.isoformat(),
+            "canonical_end": plan[0].end.isoformat(),
+            "provider_start": plan[0].provider_start,
+            "provider_end": plan[0].provider_end,
+            "request_url": captured.request_url,
+            "acquired_at": captured.acquired_at.isoformat(),
+            "row_count": 5, "duplicate_count": 0, "missing_count": 0,
+            "raw_sha256": captured.content_sha256,
+            "semantic_sha256": semantic,
+            "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+        }))
+    report = {
+        "mode": "EVIDENCE_ONLY",
+        "generation_namespace": "generation-0001",
+        "frozen_start": start.isoformat(), "frozen_end": end.isoformat(),
+        "expected_minutes": 5, "chunk_identities": [plan[0].identity],
+        "chunk_count_per_pass": 1,
+        "source_product_id": 27, "source_symbol": "BTCUSD",
+        "source_api_origin": "https://api.india.delta.exchange",
+        "source_product_semantic_sha256": product_semantic,
+        "acquisition_version": acquisition.SF088_ACQUISITION_VERSION,
+        "first_pass_raw_sha256": [captured.content_sha256],
+        "second_pass_raw_sha256": [captured.content_sha256],
+        "first_pass_semantic_sha256": [semantic],
+        "second_pass_semantic_sha256": [semantic],
+    }
+    report["report_sha256"] = acquisition._sha256_json(report)
+    (root / "evidence-only-report.json").write_text(json.dumps(report))
+    output = protected / "audits" / "price-exploration.json"
+    assert provisional.main([
+        "--generation-dir", str(root), "--output", str(output),
+    ]) == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["independent_audit_status"] == "PASS_WITH_UNQUALIFIED_METADATA"
+    assert result["historical_metadata_status"] == "UNQUALIFIED_HISTORICAL_METADATA"
+    assert result["canonical_dataset_published"] is False
+    assert result["current_snapshot_tick_observation_count"] == 1
+    assert result["derived_price_diagnostics"]["completed_five_minute_closes"] == 1
+    assert result["report_sha256"] == acquisition._sha256_json({
+        key: value for key, value in result.items() if key != "report_sha256"
+    })
+    assert len(list(root.rglob("*.json"))) == 7
+    assert not list(protected.glob("store/*"))
+
+    # Neither an old report nor a prior successful run may be overwritten.
+    before = output.read_bytes()
+    with pytest.raises(SystemExit):
+        provisional.main([
+            "--generation-dir", str(root), "--output", str(output),
+        ])
+    assert output.read_bytes() == before
+
+    raw_path = root / "pass-2" / "chunk-000000.json"
+    raw_path.write_bytes(candle_raw + b" ")
     with pytest.raises(ValueError, match="raw digest mismatch"):
         provisional.explore_generation(root)
