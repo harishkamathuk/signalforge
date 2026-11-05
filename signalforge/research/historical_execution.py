@@ -490,27 +490,44 @@ class HistoricalBarExecutionRunner:
         execution_profile: HistoricalExecutionAssumptionProfile,
         market_session_policy: HistoricalSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
         source_diagnostic_id: str | None = None,
+        measurement_start: datetime | None = None,
     ) -> HistoricalExecutionRunResult:
         raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
         if raw:
             if tick_schedule is not None:
                 raise ValueError("RAW_DIAGNOSTIC must not accept a historical tick schedule")
-            if market_session_policy.identity != CONTINUOUS_HISTORICAL_SESSION_POLICY.identity:
+            if market_session_policy is not CONTINUOUS_HISTORICAL_SESSION_POLICY:
                 raise ValueError("RAW_DIAGNOSTIC requires continuous historical session policy")
             if not source_diagnostic_id or not source_diagnostic_id.strip():
                 raise ValueError("RAW_DIAGNOSTIC requires a source diagnostic evidence identity")
             if dataset.manifest.grid is None:
                 raise ValueError("RAW_DIAGNOSTIC requires explicit continuous grid")
+            if dataset.manifest.price_basis is not HistoricalPriceBasis.TRADED:
+                raise ValueError("RAW_DIAGNOSTIC requires proven traded-price basis")
+            if measurement_start is None or measurement_start.tzinfo is None:
+                raise ValueError("RAW_DIAGNOSTIC requires aware measurement_start")
+            measurement_start = measurement_start.astimezone(UTC)
+            coverage = dataset.manifest.grid.coverage
+            if measurement_start.second or measurement_start.microsecond:
+                raise ValueError("measurement_start must align to a complete minute")
+            if (
+                not coverage[0].start < measurement_start < coverage[-1].end
+                or measurement_start - coverage[0].start < timedelta(minutes=250 * 5)
+            ):
+                raise ValueError("RAW_DIAGNOSTIC requires sufficient pre-roll coverage")
+            if any(a.end != b.start for a, b in zip(coverage, coverage[1:])):
+                raise ValueError("RAW_DIAGNOSTIC continuous grid must have no gaps")
         else:
             if tick_schedule is None:
                 raise ValueError("Execution-valid historical run requires tick schedule")
             if tick_schedule.instrument_id != dataset.manifest.instrument_id:
                 raise ValueError("TickSizeSchedule instrument must match historical dataset")
-            if source_diagnostic_id is not None:
-                raise ValueError("Source diagnostic ID requires RAW_DIAGNOSTIC")
+            if source_diagnostic_id is not None or measurement_start is not None:
+                raise ValueError("Raw research identity requires RAW_DIAGNOSTIC")
         strategy = self._registry.resolve(strategy_selection)
         if raw and (
             strategy.identity.strategy_id != "btc_momentum_baseline_v0"
+            or strategy.identity.strategy_version != "0.1.0-experimental"
             or str(dataset.manifest.instrument_id) != "DELTA:BTCUSD"
         ):
             raise ValueError("RAW_DIAGNOSTIC is restricted to approved DELTA:BTCUSD baseline")
@@ -520,7 +537,11 @@ class HistoricalBarExecutionRunner:
                 str(dataset.dataset_id),
                 strategy.config_identity.config_hash,
                 engine_calculation_version,
-                *((execution_profile.semantic_id, source_diagnostic_id) if raw else ()),
+                *(
+                    (execution_profile.semantic_id, source_diagnostic_id,
+                     measurement_start.isoformat())
+                    if raw and measurement_start is not None else ()
+                ),
             ),
             strategy=strategy.identity,
             config_id=strategy.config_identity.config_id,
@@ -555,6 +576,7 @@ class HistoricalBarExecutionRunner:
                         True,
                         market_session_policy,
                         source_diagnostic_id,
+                        measurement_start,
                     )
                 candle = next(c for c in candles if c.interval.contains(start))
                 engine.break_continuity()
@@ -582,6 +604,7 @@ class HistoricalBarExecutionRunner:
                             True,
                             market_session_policy,
                             source_diagnostic_id,
+                            measurement_start,
                         )
                     active = None
 
@@ -604,6 +627,12 @@ class HistoricalBarExecutionRunner:
             )
             if not decision.actionable:
                 continue
+            # Diagnostic pre-roll updates indicators but cannot produce trades.
+            if (
+                measurement_start is not None
+                and completed_candle.interval.end <= measurement_start
+            ):
+                continue
             if active is not None:
                 outcomes.append(_blocked(run, decision))
                 continue
@@ -621,7 +650,10 @@ class HistoricalBarExecutionRunner:
                 _unresolved(
                     active,
                     (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,),
-                    "active lifecycle remains unresolved at dataset end",
+                    (
+                        "active lifecycle remains unresolved at dataset end"
+                        if raw else "active lifecycle survived regular-session evidence"
+                    ),
                 )
             )
 
@@ -635,6 +667,7 @@ class HistoricalBarExecutionRunner:
             False,
             market_session_policy,
             source_diagnostic_id,
+            measurement_start,
         )
 
 
