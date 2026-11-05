@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from signalforge.domain.market import CandleQuality
 from signalforge.domain.money import Price
@@ -74,9 +75,10 @@ def load_sf095_raw_diagnostic_source(generation_dir: Path) -> RawDiagnosticSourc
         raise ValueError("Raw diagnostic source must remain under protected .signalforge-data")
     # This independently audits both passes and every first-pass content digest.
     report = explore_generation(root)
+    derived = cast(dict[str, object], report["derived_price_diagnostics"])
     if (
         report["report_sha256"] != FROZEN_PROVISIONAL_REPORT_SHA256
-        or report["derived_price_diagnostics"]["five_minute_close_sha256"]
+        or derived["five_minute_close_sha256"]
         != FROZEN_FIVE_MINUTE_CLOSE_SHA256
         or report["historical_metadata_status"] != "UNQUALIFIED_HISTORICAL_METADATA"
         or report["canonical_dataset_published"] is not False
