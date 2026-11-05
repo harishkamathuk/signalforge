@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
 from signalforge.domain.provenance import StrategyIdentity
@@ -24,13 +24,23 @@ class BtcMomentumBaselineV0Config(BaseModel):
     trend_fast_ema_period: Literal[20] = 20
     trend_slow_ema_period: Literal[50] = 50
     rsi_period: Literal[14] = 14
-    rsi_min: Literal[Decimal("58")] = Decimal("58")
-    rsi_max: Literal[Decimal("65")] = Decimal("65")
+    rsi_min: Decimal = Decimal("58")
+    rsi_max: Decimal = Decimal("65")
     adx_period: Literal[14] = 14
-    adx_threshold: Literal[Decimal("22")] = Decimal("22")
+    adx_threshold: Decimal = Decimal("22")
     macd_fast_period: Literal[12] = 12
     macd_slow_period: Literal[26] = 26
     macd_signal_period: Literal[9] = 9
+
+    @model_validator(mode="after")
+    def enforce_approved_decimal_thresholds(self) -> BtcMomentumBaselineV0Config:
+        if (
+            self.rsi_min != Decimal("58")
+            or self.rsi_max != Decimal("65")
+            or self.adx_threshold != Decimal("22")
+        ):
+            raise ValueError("Frozen BTC threshold parameters cannot be changed")
+        return self
 
     @property
     def strategy_identity(self) -> StrategyIdentity:
