@@ -97,10 +97,9 @@ def test_registered_btc_identity_and_frozen_config():
                        {"unknown_option": "enable"}):
         with pytest.raises(StrategyParameterValidationError):
             DEFAULT_STRATEGY_REGISTRY.resolve(
-                StrategySelection(*SELECTION.__dict__.values())
-            ) if False else DEFAULT_STRATEGY_REGISTRY.resolve(
-                StrategySelection(SELECTION.strategy_id, SELECTION.strategy_version,
-                                  parameters)
+                StrategySelection(
+                    SELECTION.strategy_id, SELECTION.strategy_version, parameters
+                )
             )
 
 
