@@ -200,7 +200,7 @@ def test_provisional_report_preserves_unqualified_status_and_detects_tampering(
 def test_canonical_hashes_preserve_numeric_identity() -> None:
     """Equivalent Decimal scales cannot change semantic diagnostic hashes."""
     rows = _candles(10)
-    scaled = [replace(row, close=Decimal(str(row.close) + "0")) for row in rows]
+    scaled = [replace(row, close=row.close.quantize(Decimal("0.00"))) for row in rows]
     a = provisional.summarize_completed_five_minute_closes(rows)
     b = provisional.summarize_completed_five_minute_closes(scaled)
     assert a["five_minute_close_sha256"] == b["five_minute_close_sha256"]
