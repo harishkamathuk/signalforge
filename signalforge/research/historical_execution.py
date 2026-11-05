@@ -105,6 +105,7 @@ class HistoricalAmbiguityReason(StrEnum):
     MULTIPLE_COMPETING_ACTIONS = "multiple_competing_actions"
     MISSING_EXECUTION_EVIDENCE = "missing_execution_evidence"
     UNSUPPORTED_STRATEGY_POLICY = "unsupported_strategy_policy"
+    DATASET_END_OPEN = "dataset_end_open"
 
 
 class HistoricalFillTiming(StrEnum):
@@ -508,8 +509,12 @@ class HistoricalBarExecutionRunner:
                 raise ValueError("RAW_DIAGNOSTIC requires aware measurement_start")
             measurement_start = measurement_start.astimezone(UTC)
             coverage = dataset.manifest.grid.coverage
-            if measurement_start.second or measurement_start.microsecond:
-                raise ValueError("measurement_start must align to a complete minute")
+            if (
+                measurement_start.second
+                or measurement_start.microsecond
+                or (measurement_start - coverage[0].start) % timedelta(minutes=5)
+            ):
+                raise ValueError("measurement_start must align to a five-minute bucket")
             if (
                 not coverage[0].start < measurement_start < coverage[-1].end
                 or measurement_start - coverage[0].start < timedelta(minutes=250 * 5)
@@ -649,7 +654,11 @@ class HistoricalBarExecutionRunner:
             outcomes.append(
                 _unresolved(
                     active,
-                    (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,),
+                    (
+                        (HistoricalAmbiguityReason.DATASET_END_OPEN,)
+                        if raw else
+                        (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,)
+                    ),
                     (
                         "active lifecycle remains unresolved at dataset end"
                         if raw else "active lifecycle survived regular-session evidence"
