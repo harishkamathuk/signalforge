@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from signalforge.research import delta_provisional_research as provisional
 from signalforge.research import delta_historical_evidence_audit as evidence_audit
+from signalforge.research import delta_provisional_research as provisional
 from signalforge.research.delta_historical_qualification import DeltaCandle
 
 
@@ -282,7 +282,8 @@ def test_end_to_end_provisional_cli_with_real_two_pass_audit(
     """A complete synthetic two-pass generation exercises the unstubbed audit."""
     from signalforge.research import delta_historical_dataset_acquisition as acquisition
     from signalforge.research.delta_historical_qualification import (
-        DeltaRawCapture, parse_delta_product_response,
+        DeltaRawCapture,
+        parse_delta_product_response,
     )
 
     start = provisional.SF088_START
