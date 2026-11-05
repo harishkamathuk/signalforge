@@ -392,7 +392,7 @@ def test_end_to_end_provisional_cli_with_real_two_pass_audit(
     assert result["report_sha256"] == acquisition._sha256_json({
         key: value for key, value in result.items() if key != "report_sha256"
     })
-    assert len(list(root.rglob("*.json"))) == 7
+    assert len(list(root.rglob("*.json"))) == 9
     assert not list(protected.glob("store/*"))
 
     # Neither an old report nor a prior successful run may be overwritten.
