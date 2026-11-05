@@ -90,3 +90,73 @@ completed-candle strategy boundary. It does not own indicator formulas or strate
 `examples/research/historical-bars-one-session.json` is an infrastructure fixture.
 It is synthetic deterministic bar data, not observed historical market evidence. It must
 not be used for profitability, parameter-selection, or validation claims about Strategy V1.
+
+## SF-095 experimental BTC strategy and raw diagnostic historical execution
+
+::: signalforge.config.btc_momentum_baseline_v0.BtcMomentumBaselineV0Config
+
+::: signalforge.runtime.btc_momentum_baseline_v0.BtcMomentumBaselineV0Strategy
+
+::: signalforge.research.historical_execution.HistoricalPriceMode
+
+::: signalforge.research.historical_execution.HistoricalExecutionAssumptionProfile
+
+::: signalforge.research.historical_execution.HistoricalBarExecutionRunner
+
+::: signalforge.research.historical_execution.HistoricalExecutionRunResult
+
+The registered `btc_momentum_baseline_v0 / 0.1.0-experimental` follows the
+approved specification in `docs/strategies/btc-momentum-baseline-v0.md`.
+It is a **research strategy only**. The independent frozen Tier-1 research
+contract is in `docs/validation/btc-momentum-baseline-v0-validation-v0.md`.
+
+`HistoricalPriceMode.RAW_DIAGNOSTIC` explicitly prohibits a historical
+tick schedule; it **does not** make raw trigger/target/fill prices historically
+tradable. `REFERENCE_RAW / 1.0.0` and `ADVERSE_RAW / 1.0.0` are the only
+frozen raw profiles; the adverse variant applies ten basis points to the modeled
+entry, stop exit and target exit (not to its zero forced-exit assumption).
+No current Delta tick rule is substituted for missing historical applicability.
+
+A raw run requires:
+- the registered BTC experimental strategy and canonical `DELTA:BTCUSD`;
+- a traded-price dataset with an explicit, continuous UTC coverage grid;
+- a `source_diagnostic_id` matching the experiment's separately audited
+  protected evidence;
+- an aware, predeclared `measurement_start`, with at least 250 preceding
+  complete five-minute candles of pre-roll;
+- `CONTINUOUS_HISTORICAL_SESSION_POLICY`, which has no compulsory exit;
+- `tick_schedule=None` and a raw profile.
+
+For example, once the source-diagnostic identity and dataset have been
+independently verified in conversation 04:
+
+```python
+result = HistoricalBarExecutionRunner().run(
+    dataset,
+    strategy_selection=StrategySelection(
+        "btc_momentum_baseline_v0", "0.1.0-experimental", {}
+    ),
+    engine_calculation_version="engine-v1",
+    tick_schedule=None,
+    execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
+    market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+    source_diagnostic_id="VERIFIED_SOURCE_DIAGNOSTIC_ID",
+    measurement_start=verified_measurement_start,
+)
+assert result.execution_valid is False
+```
+
+Pre-roll updates indicators but cannot arm or open trades. A position remaining
+OPEN at dataset end stays UNRESOLVED; UTC midnight is not a trading boundary.
+The result identity includes strategy/config/engine/simulator, source dataset,
+diagnostic evidence identity, measured-window start, market policy and raw profile.
+Its `tick_schedule_semantic_id` explicitly records unresolved historical
+tick applicability. Raw outcomes never populate `tradable_trigger` or
+`tradable_target_price` as executable levels.
+
+The existing execution-valid NSE mode remains the default: it still requires
+an evidence-backed `TickSizeSchedule`, the established NSE market policy and
+ADR-011 ambiguity semantics. It is not retroactively changed to raw diagnostics.
+
+**Do not interpret implementation tests or diagnostic output as evidence of
+BTC profitability, execution validity, PAPER readiness, or deployment approval.**
