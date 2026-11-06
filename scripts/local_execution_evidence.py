@@ -24,11 +24,13 @@ SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 HEX256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ALLOWED_REQUEST_KEYS = {
     "version", "request_id", "issue", "repository", "revision",
-    "argv", "classification", "request_sha256",
+    "argv", "preflight", "expected_exit_code", "expected_output",
+    "stop_conditions", "classification", "request_sha256",
 }
 ALLOWED_REPORT_KEYS = {
     "version", "request_id", "request_sha256", "issue", "repository",
-    "revision", "argv", "started_utc", "finished_utc", "exit_code",
+    "revision", "argv", "preflight", "expected_exit_code",
+    "expected_output", "stop_conditions", "started_utc", "finished_utc", "exit_code",
     "termination", "output", "output_sha256", "local_status",
     "transport_status", "classification", "report_sha256",
 }
@@ -97,6 +99,19 @@ def validate_request(data: dict[str, Any]) -> None:
         raise HandoffError("revision must be the exact lowercase 40-char SHA")
     if data["argv"] != ["python", "-V"]:
         raise HandoffError("only the offline python -V command is allowed")
+    if data["preflight"] != [
+        "exact_git_head", "trusted_origin", "clean_tracked_worktree",
+        "gitignored_report_path",
+    ]:
+        raise HandoffError("unsupported preflight contract")
+    if type(data["expected_exit_code"]) is not int or data["expected_exit_code"] != 0:
+        raise HandoffError("unsupported expected exit code")
+    if data["expected_output"] != "Python 3.12.x":
+        raise HandoffError("unsupported expected output")
+    if data["stop_conditions"] != [
+        "preflight_failure", "request_mismatch", "unsafe_output",
+    ]:
+        raise HandoffError("unsupported stop conditions")
     if data["classification"] != "SANITIZED_SMOKE_ONLY":
         raise HandoffError("unsupported evidence classification")
     if not isinstance(data["request_sha256"], str) or not HEX256_PATTERN.fullmatch(
@@ -235,6 +250,10 @@ def execute(request_path: Path, repo: Path, approval: str) -> Path:
         "repository": REPOSITORY,
         "revision": request["revision"],
         "argv": request["argv"],
+        "preflight": request["preflight"],
+        "expected_exit_code": request["expected_exit_code"],
+        "expected_output": request["expected_output"],
+        "stop_conditions": request["stop_conditions"],
         "started_utc": started,
         "finished_utc": finished,
         "exit_code": exit_code,
@@ -266,7 +285,11 @@ def verify_report(path: Path, request_path: Path) -> dict[str, Any]:
         "SANITIZED_SMOKE_ONLY"
     ):
         raise HandoffError("invalid report version/classification")
-    for key in ("request_id", "request_sha256", "issue", "repository", "revision", "argv"):
+    for key in (
+        "request_id", "request_sha256", "issue", "repository", "revision",
+        "argv", "preflight", "expected_exit_code", "expected_output",
+        "stop_conditions",
+    ):
         if report[key] != request[key]:
             raise HandoffError(f"request/report mismatch: {key}")
     if report["transport_status"] != "NOT_ATTEMPTED":
@@ -317,6 +340,14 @@ def main() -> int:
                 "version": CONTRACT_VERSION, "request_id": args.request_id,
                 "issue": args.issue, "repository": REPOSITORY,
                 "revision": args.revision, "argv": ["python", "-V"],
+                "preflight": [
+                    "exact_git_head", "trusted_origin", "clean_tracked_worktree",
+                    "gitignored_report_path",
+                ],
+                "expected_exit_code": 0, "expected_output": "Python 3.12.x",
+                "stop_conditions": [
+                    "preflight_failure", "request_mismatch", "unsafe_output",
+                ],
                 "classification": "SANITIZED_SMOKE_ONLY",
             }
             obj["request_sha256"] = digest(obj, "request_sha256")
