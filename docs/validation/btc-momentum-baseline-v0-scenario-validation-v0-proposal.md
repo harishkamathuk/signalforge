@@ -4,6 +4,8 @@
 
 **PROPOSED — SPECIFICATION ONLY — NOT APPROVED FOR EXECUTION**
 
+- Contract ID: `btc_momentum_baseline_v0_scenario_validation_v0`
+- Contract version: `0.1.0-proposal`
 - Owner: 04 — Backtesting & Validation
 - Work item: SF-255 / GitHub #255
 - Parent decision: SF-253 / #253
@@ -92,9 +94,10 @@ scenario study, but it must not be silently substituted after scenario performan
 
 The proposed scenario contract retains the SF-094 windows:
 
-- warm-up/pre-roll: `[2025-10-30T00:00:00Z, 2025-10-31T00:00:00Z)`
-- IS: `[2025-10-31T00:00:00Z, 2026-07-01T00:00:00Z)`
-- OOS: `[2026-07-01T00:00:00Z, 2026-10-30T00:00:00Z)`
+- warm-up/pre-roll: `[2025-10-30T00:00:00Z, 2025-10-31T00:00:00Z)` = **288** completed five-minute candles;
+- IS: `[2025-10-31T00:00:00Z, 2026-07-01T00:00:00Z)` = **69,984** measured five-minute decision candles;
+- OOS: `[2026-07-01T00:00:00Z, 2026-10-30T00:00:00Z)` = **34,848** measured five-minute decision candles;
+- total measured decision grid = **104,832** five-minute candles.
 
 The lifecycle must remain continuous across the IS/OOS boundary. No reset is permitted.
 
@@ -121,8 +124,53 @@ canonical semantic mapping must include:
 
 A friendly label alone is insufficient.
 
-The actual path rule remains **UNAPPROVED** under this proposal. Examples such as O-H-L-C or
-O-L-H-C are alternatives for Gate B consideration, not selected rules.
+### 3.1.1 Concrete proposed first scenario — Gate B pending
+
+To make the methodology reviewable, this proposal recommends one exact first scenario assumption set:
+
+`BTC_OHLC_PATH_V1 / 0.1.0-proposal`
+
+This is a **proposal only**. It is not operative until #254/01/#253 Gate B accepts it.
+
+Canonical proposed semantics:
+
+- `price_path_rule_id = OPEN_HIGH_LOW_CLOSE`
+- `price_path_rule_version = 1.0.0-proposal`
+- each valid observed one-minute candle is traversed hypothetically as
+  **Open → High → Low → Close**;
+- each adjacent pair of those four observed values is treated as a continuous monotone
+  hypothetical segment for **level-ordering only**;
+- no synthetic exchange timestamp, provider trade, tick identifier or elapsed sub-minute time is created;
+- the source candle Open remains first and Close remains last; the High-before-Low ordering is
+  purely the declared scenario assumption and never historical fact;
+- strategy decisions still occur only on completed five-minute candles; this scenario never
+  changes signal timing or qualifying indicators;
+- when an ARMED setup is active, entry trigger and pre-entry invalidation are evaluated in
+  first-crossing order along the declared hypothetical segments;
+- after a modeled entry fill, stop/target economics are computed from that modeled fill using the
+  frozen strategy rule, then subsequent stop/target crossings are evaluated in declared segment order;
+- one ARMED or one OPEN lifecycle is carried continuously across bars and across UTC midnight;
+- expiry occurs at the already-known end of the immediately following five-minute validity window,
+  **after** processing the final constituent one-minute candle up to its observed Close; no
+  fractional-minute expiry timestamp is invented;
+- `event_tie_policy_id = REJECT_SAME_LEVEL_TIE_V1`: if two lifecycle events are reached at the
+  same hypothetical level/location and ordering would change the lifecycle/economics, classify the
+  opportunity `SCENARIO_UNSUPPORTED`; do not apply favourable/adverse precedence;
+- `gap_policy_id = OBSERVED_OPEN_FIRST_V1`: if the observed one-minute Open is already beyond a
+  relevant entry/stop/target barrier, the observed Open is the modeled base price before profile
+  slippage; do not improve the fill back to the barrier;
+- `time_boundary_policy_id = FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1`: only the strategy's known
+  five-minute validity boundary is modeled; any future strategy/session rule requiring an unknown
+  in-minute cutoff remains `SCENARIO_UNSUPPORTED`;
+- `fill_application_policy_id = RAW_PROFILE_AFTER_BASE_V1`: determine the modeled base fill from
+  the declared path/gap rule first, then apply the selected frozen raw execution profile exactly once.
+
+This scenario is intentionally **not** claimed to be more likely than O-L-H-C or actual market
+chronology. It is selected as the smallest deterministic thought experiment for Gate B review.
+Changing to another path is a different scenario identity and requires a new preregistered study.
+
+The prior generic statement that O-H-L-C/O-L-H-C were merely examples is therefore superseded by
+this concrete proposal. Parent #253 may accept, reject or replace it before implementation.
 
 ### 3.2 Calculation identity
 
@@ -163,13 +211,31 @@ Scenario selection may not depend on:
 
 ## 4. Execution profiles and economics
 
-The scenario study may reuse the existing raw diagnostic execution profiles only if Gate B confirms
-their semantic compatibility:
+The proposed first scenario study reuses the existing frozen raw diagnostic execution profiles,
+subject to Gate B acceptance of this exact composition:
 
 1. `REFERENCE_RAW / 1.0.0`
-2. `ADVERSE_RAW / 1.0.0`
+   - modeled entry base fill: declared path/gap base price;
+   - extra entry slippage: **0 bps**;
+   - modeled STOP exit base: first declared-path stop crossing or observed gap Open;
+   - extra STOP slippage: **0 bps**;
+   - modeled TARGET exit base: first declared-path target crossing or observed gap Open;
+   - extra TARGET slippage: **0 bps**.
 
-They remain **assumption profiles**, not historical fills.
+2. `ADVERSE_RAW / 1.0.0`
+   - determine the same declared path/gap base price first;
+   - apply **10 bps adverse slippage** once to the modeled long ENTRY fill;
+   - compute post-fill risk and target from that actual modeled entry fill;
+   - apply **10 bps adverse slippage** once to modeled STOP exits;
+   - apply **10 bps adverse slippage** once to modeled TARGET exits;
+   - do not apply slippage a second time merely because the event originated from an observed gap Open.
+
+For long-side adverse slippage, ENTRY is moved upward relative to its base price; STOP/TARGET exits
+are moved downward relative to their base prices, matching the existing frozen ADVERSE_RAW meaning.
+
+These are still **scenario assumptions**, not historical fills. If #254 finds that this composition
+cannot be represented without changing accepted profile semantics, Gate B must reject this proposal
+and version a different profile contract before any experiment.
 
 Historical tick applicability remains `UNRESOLVED`; do not use today's Delta tick retrospectively.
 
@@ -204,6 +270,34 @@ For each predeclared scenario/profile/window, report separately:
 - completeness status.
 
 A completed script does not itself establish a complete experiment.
+
+### 5.1.1 Predeclared completeness gate
+
+For the proposed first study, conditional performance metrics are permitted only when **all** of the
+following hold for the relevant scenario/profile run:
+
+1. source verification passes and the full measured decision grid is present:
+   - IS = **69,984 / 69,984** decisions;
+   - OOS = **34,848 / 34,848** decisions;
+   - total measured = **104,832 / 104,832** decisions;
+2. there is no early runner termination before the end of the frozen OOS window;
+3. `SCENARIO_UNSUPPORTED = 0` across the measured IS and OOS windows;
+4. no source candle used by the study is missing, repaired, synthesized or silently substituted;
+5. any dataset-end conditional OPEN/ARMED lifecycle is preserved explicitly rather than force-closed;
+6. deterministic repeatability and provenance gates pass.
+
+A dataset-end OPEN/ARMED lifecycle **does not by itself fail completeness** if the full decision grid
+was evaluated and the state is preserved as conditional unresolved evidence. It is excluded from
+closed-trade performance denominators and reported separately.
+
+If any measured opportunity is `SCENARIO_UNSUPPORTED`, the run may still publish source coverage,
+unsupported counts and lifecycle diagnostics, but **must not publish scenario-conditioned point
+performance metrics for that scenario/profile/window**. Its methodology disposition is
+`SCENARIO_METHOD_INCONCLUSIVE`, not `SCENARIO_METHOD_VALID`.
+
+This zero-unsupported rule is deliberately strict for the first study so the acceptance threshold
+cannot be relaxed after results are seen. A later study may use a different predeclared threshold
+only under a new contract version and experiment identity.
 
 ### 5.2 Conditional lifecycle evidence
 
@@ -470,7 +564,7 @@ The following remain Gate B decisions:
 5. gap handling;
 6. cutoff/expiry ordering;
 7. scenario fill application interaction with raw profiles;
-8. exact completeness thresholds, if stricter than full declared grid;
+8. whether parent Gate B accepts the proposed **full-grid + zero-unsupported** completeness rule;
 9. any economic interpretation thresholds;
 10. final accepted result/status names.
 
@@ -484,7 +578,7 @@ This proposal does not authorize:
 - a real historical scenario run;
 - any simulator or CLI implementation;
 - an implementation issue;
-- a chosen OHLC path;
+- an **approved/operative** OHLC path (this proposal names one candidate for Gate B review only);
 - OOS performance inspection;
 - strategy tuning;
 - execution-valid historical fills;
