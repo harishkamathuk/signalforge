@@ -141,7 +141,10 @@ allowlisted, versioned set of known assumptions, **not a strategy DSL**.
    emits *hypothetical level visits*, not actual trades, ticks or timestamps.
 2. Strategy decisions are computed only on completed 5m candles. A scenario
    cannot signal earlier or consume forming candles. ARMED and OPEN policy
-   comes from existing typed strategy intent and session policy.
+   comes from existing typed strategy intent and session policy. At the
+   **frozen BTC validity boundary**, lifecycle finalisation for the prior
+   ARMED setup must precede the newly completed-candle actionable decision
+   (see explicit sequence below); an OPEN position is not expired.
 3. **Owner-selected first scenario for specification finalisation:**
    `BTC_OHLC_PATH_V1 / 0.1.0-proposal` fixes the hypothetical one-minute
    **Open → High → Low → Close** sequence with continuous monotone
@@ -191,7 +194,7 @@ accepted normative contract or an operative scenario configuration**:
 | Hypothetical 1m price sequence | Open → High → Low → Close; continuous monotone level traversal per segment | Compatible *as a declared assumption*, never observed chronology |
 | Event ties | Order-changing equal-level ties become `SCENARIO_UNSUPPORTED` | Compatible; no favorable/adverse default |
 | Gap base | Actual observed bar Open, then named profile exactly once | Compatible; retain strict bar-open price precedence |
-| Validity end | Process final 1m constituent bar through Close, expire at known 5m boundary | Compatible for the **frozen BTC validity**; no general rule for intraminute time cutoffs |
+| Validity end and new signal | Process the final constituent 1m bar through Close; expire prior unfilled ARMED setup at the known 5m boundary; evaluate the completed 5m candle, allowing a fresh independent opportunity if qualified; then process next 1m Open | Required by the **frozen BTC validity**; no general rule for intraminute time cutoffs or change to strict execution |
 | In-minute cutoff | Unsupported without an explicit approved time rule | Compatible fail-closed behavior |
 | Modeled entry economics | Fill base first; apply REFERENCE_RAW or ADVERSE_RAW once; derive post-fill target from resulting entry | Compatible with typed `post_fill_economics()` boundary; no second gap slippage |
 | Sample and methodology | 288 warm-up; 69,984 IS + 34,848 OOS decision candles; zero measured `SCENARIO_UNSUPPORTED` for point estimates | No architectural conflict; research methodology/interpretation owned by #255 |
@@ -228,6 +231,24 @@ inventing an improved barrier-price fill. The selected
 processes the final constituent minute through Close before the known
 five-minute validity expiry; an unknown in-minute cutoff is still
 `SCENARIO_UNSUPPORTED`, with no fabricated fractional timestamp.
+At that **known BTC completed-five-minute boundary**, the required causal
+sequence is: **(1)** process the final 1m bar through its Close under
+the active prior setup, **(2)** expire a still-ARMED/unfilled prior
+setup whose validity ends at that boundary, **(3)** evaluate the just
+completed 5m strategy decision and, if it qualifies and no OPEN or
+other conflicting actionable state remains, arm a **new independent**
+opportunity, then **(4)** process the next 1m bar starting at the
+boundary, with observed Open first. Neither old nor new setup can act
+on a price observation outside its own validity window. A prior OPEN
+position persists instead of expiring and continues to block new
+actionable setup creation. This is the **frozen BTC strategy lifecycle
+ordering** from the normative strategy specification, not a new
+hypothetical within-minute timestamp or a blanket timing policy for
+other strategies. The accepted strict historical runner and its
+recorded evidence are **not modified or reinterpreted** by this
+proposal; a future simulator implementation must separately prove
+this sequence and document any incompatibility with the strict runner
+without silently patching strict results.
 `RAW_PROFILE_AFTER_BASE_V1 / 1.0.0-proposal` applies the predeclared RAW
 profile once after determining the path/gap base, and retains the
 strategy-owned post-fill target rule.
@@ -270,12 +291,15 @@ A scenario calculation identity must include, at minimum:
 
 #### Canonical execution manifest and identity — M2 contract correction
 
-The preceding list is **mandatory**, not optional metadata. Avoid an
-illustrative positional `H(...)` preimage that accidentally omits a
-field. Instead define a versioned canonical, typed
+The preceding list describes required **run/result provenance**, not
+fields all included in the pre-run hash. Avoid an illustrative
+positional `H(...)` preimage that accidentally omits a field.
+Define a versioned canonical, typed **pre-run input-only**
 `ScenarioExecutionManifest` with the following **complete minimum**
 identity-bearing groups (any newly authoritative result-changing input
-must be added to the mapping and calculation version before execution):
+must be added to the mapping and calculation version before execution).
+**Run ID, opportunity/result IDs, produced observations, terminal state,
+output location and evidence hash are NOT manifest inputs**:
 
 | Manifest group | Required identity-bearing contents |
 |---|---|
@@ -301,10 +325,13 @@ run-ID preimage (avoid self-reference).
 `scenario_result_id = H("scenario-result-v1", scenario_run_id,
 canonical(result_evidence_digest, completion_status,
 terminal_boundary, unresolved_reasons, output_schema_version))`.
-Every output records its run ID, full input manifest and canonical result
-digest; the latter binds the ordered causal/conditional evidence and
-measured decision coverage without overwriting a previously protected
-artifact. An exhaustion record must retain the **same** run ID, budget
+Every output records its run ID, full **pre-run input-only manifest**
+and canonical result digest. The **produced result**, outside the
+manifest/run-ID preimage, retains result ID, opportunity identities,
+ordered causal/conditional observation traces, rejected/unsupported
+cases, modeled R, conditional OPEN/ARMED end state, completion status,
+measured decision coverage, output location and evidence hash, without
+overwriting a previously protected artifact. An exhaustion record must retain the **same** run ID, budget
 policy ID/version and limits, attempted count, last complete source
 bucket, failing source boundary, pre-failure lifecycle/state identifiers,
 reason and explicit `SCENARIO_UNSUPPORTED` / termination status. A
