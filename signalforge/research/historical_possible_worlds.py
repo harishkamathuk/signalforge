@@ -14,6 +14,24 @@ from decimal import Decimal
 from enum import StrEnum
 
 
+@dataclass(frozen=True, slots=True)
+class WorldProvenance:
+    """All inputs that make the conditional-world computation reproducible."""
+
+    dataset_id: str
+    strategy_id: str
+    config_hash: str
+    profile_semantic_id: str
+    simulator_calculation_version: str = "historical-possible-worlds-proof-v0"
+
+    def __post_init__(self) -> None:
+        if not all((
+            self.dataset_id, self.strategy_id, self.config_hash,
+            self.profile_semantic_id, self.simulator_calculation_version,
+        )):
+            raise ValueError("complete provenance is required")
+
+
 class Lifecycle(StrEnum):
     FLAT = "flat"
     ARMED = "armed"
@@ -78,6 +96,7 @@ class CausalEvent:
 class World:
     """Independent possible history; equal future state does not erase history."""
 
+    provenance: WorldProvenance
     lifecycle: Lifecycle = Lifecycle.FLAT
     position: Position | None = None
     events: tuple[CausalEvent, ...] = ()
@@ -94,6 +113,13 @@ class World:
     def identity(self) -> str:
         p = self.position
         mapping = {
+            "provenance": {
+                "dataset_id": self.provenance.dataset_id,
+                "strategy_id": self.provenance.strategy_id,
+                "config_hash": self.provenance.config_hash,
+                "profile_semantic_id": self.provenance.profile_semantic_id,
+                "simulator_calculation_version": self.provenance.simulator_calculation_version,
+            },
             "lifecycle": self.lifecycle.value,
             "position": None if p is None else (
                 p.signal_id, str(p.stop), str(p.trigger),
@@ -181,7 +207,7 @@ def _apply(world: World, minute_key: str, transition: SupportedTransition) -> Wo
         ),
         transition.outcome_r,
     )
-    return World(state, new_position, (*world.events, event))
+    return World(world.provenance, state, new_position, (*world.events, event))
 
 
 def propagate(
