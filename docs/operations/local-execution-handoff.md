@@ -75,13 +75,12 @@ database. This workflow does not require PostgreSQL.
 From the trusted repository root, with the exact commit SHA from `git rev-parse HEAD`:
 
 ```bash
-mkdir -p .signalforge-data/handoff/requests
 umask 077
 python scripts/local_execution_evidence.py prepare \
   --issue 247 \
   --revision "$(git rev-parse HEAD)" \
   --request-id sf247-wsl-smoke-0001 \
-  --output .signalforge-data/handoff/requests/sf247-wsl-smoke-0001.json
+  --repo .
 ```
 
 Request creation is write-once. Do not reuse IDs or overwrite evidence. Review the
