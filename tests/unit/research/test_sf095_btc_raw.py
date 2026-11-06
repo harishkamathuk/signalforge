@@ -686,6 +686,14 @@ def test_sf097_bounded_flat_continuation_preserves_possible_expiry_or_stop(
     assert outcome.stop_price is not None
     assert outcome.entry_fill.fill_price.value > outcome.stop_price.value
     assert outcome.possible_outcomes[1].realised_r is not None
+    entry_price = outcome.entry_fill.fill_price.value
+    stop_price = outcome.stop_price.value
+    expected_stop_fill = stop_price * (
+        Decimal("1") - profile.stop_slippage_bps / Decimal("10000")
+    )
+    assert outcome.possible_outcomes[1].realised_r == (
+        (expected_stop_fill - entry_price) / (entry_price - stop_price)
+    )
     assert result.summary.total_actionable_opportunities == 1
     assert result.summary.bounded_ambiguous_opportunities == 1
     assert result.summary.determinate_coverage_rate == Decimal("0")
@@ -748,3 +756,51 @@ def test_sf097_continuation_rejects_unversioned_policy() -> None:
     dataset = _synthetic_continuous_dataset()
     with pytest.raises(TypeError, match="explicitly versioned"):
         _raw_run(dataset, continuation_policy="bounded_flat_v1")
+
+
+def test_sf097_later_signal_is_processed_after_proven_flat_convergence() -> None:
+    dataset = _sf097_same_bar_both_reachable()
+
+    class _TwoSignals(_SyntheticTrigger):
+        def evaluate_completed_candle(
+            self, context: CompletedCandleStrategyContext
+        ) -> BtcMomentumBaselineDecision:
+            qualifies = context.completed_regular_session_candles in (251, 253)
+            return BtcMomentumBaselineDecision(
+                context.candle.instrument_id, context.candle.interval,
+                qualifies, qualifies, ("synthetic_two_signals",), None,
+            )
+
+    runner = HistoricalBarExecutionRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            "btc_momentum_baseline_v0", "0.1.0-experimental",
+            lambda _: _TwoSignals(BtcMomentumBaselineV0Config()),
+        ),
+    )))
+    original = _raw_run(dataset, runner=runner)
+    assert original.terminated_early
+    assert len(original.outcomes) == 1
+    continued = _raw_run(
+        dataset, runner=runner,
+        continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert not continued.terminated_early
+    assert len(continued.outcomes) == 2
+    assert continued.outcomes[0].certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert continued.outcomes[1].signal_interval != continued.outcomes[0].signal_interval
+    assert continued.summary.total_actionable_opportunities == 2
+    assert continued.summary.bounded_ambiguous_opportunities == 1
+    assert continued.summary.unresolved_opportunities == 1
+
+
+def test_sf097_bounded_flat_opt_in_not_supported_for_execution_valid_mode() -> None:
+    dataset = _synthetic_continuous_dataset()
+    with pytest.raises(ValueError, match="RAW_DIAGNOSTIC research only"):
+        HistoricalBarExecutionRunner().run(
+            dataset,
+            strategy_selection=SELECTION,
+            engine_calculation_version="engine-v1",
+            tick_schedule=None,
+            execution_profile=HistoricalExecutionAssumptionProfile.zero(),
+            continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+        )
