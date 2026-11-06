@@ -611,6 +611,13 @@ class HistoricalBarExecutionRunner:
                      measurement_start.isoformat())
                     if raw and measurement_start is not None else ()
                 ),
+                # Preserve every legacy v1 run/signal/opportunity identity.
+                # Only the opt-in v2 computation introduces a new namespace.
+                *(
+                    (BOUNDED_FLAT_SIMULATOR_VERSION,)
+                    if continuation_policy is HistoricalContinuationPolicy.BOUNDED_FLAT_V1
+                    else ()
+                ),
             ),
             strategy=strategy.identity,
             config_id=strategy.config_identity.config_id,
