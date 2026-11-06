@@ -276,7 +276,7 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             dataset, strategy_selection=SELECTION,
             engine_calculation_version="engine-v1", tick_schedule=None,
             execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
-            raw_source=RawDiagnosticSource(dataset, "test-evidence"),
+            raw_source=RawDiagnosticSource(dataset, "synthetic-test-evidence"),
             measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
         )
     with pytest.raises(ValueError, match="provenance-bound raw source"):
@@ -454,7 +454,7 @@ def test_raw_rejects_cross_paired_source_and_dataset() -> None:
     altered_bars = list(first.bars)
     altered_bars[0] = replace(altered_bars[0], high=Price(Decimal("101")))
     second = HistoricalBarDataset(first.manifest, tuple(altered_bars))
-    verified = RawDiagnosticSource(first, "frozen-evidence-hash")
+    verified = RawDiagnosticSource(first, "synthetic-first-evidence")
     with pytest.raises(ValueError, match="raw source dataset"):
         _synthetic_runner(251).run(
             second,
@@ -510,3 +510,14 @@ def test_btc_macd_values_retained_without_filtering() -> None:
     assert "macd_line=0" in decision.reasons
     assert "macd_signal=-1" in decision.reasons
     assert "macd_histogram=1" in decision.reasons
+
+def test_frozen_evidence_label_cannot_be_forged_by_raw_bundle_constructor() -> None:
+    from signalforge.research.btc_raw_diagnostic_input import (
+        FROZEN_PROVISIONAL_REPORT_SHA256,
+    )
+
+    with pytest.raises(ValueError, match="protected evidence audit"):
+        RawDiagnosticSource(
+            _synthetic_continuous_dataset(),
+            FROZEN_PROVISIONAL_REPORT_SHA256,
+        )
