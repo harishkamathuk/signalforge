@@ -120,8 +120,8 @@ No current Delta tick rule is substituted for missing historical applicability.
 A raw run requires:
 - the registered BTC experimental strategy and canonical `DELTA:BTCUSD`;
 - a traded-price dataset with an explicit, continuous UTC coverage grid;
-- a `source_diagnostic_id` matching the experiment's separately audited
-  protected evidence;
+- a `RawDiagnosticSource` bundle returned by the protected-evidence audit
+  (dataset and source evidence identity are not caller-paired strings);
 - an aware, predeclared `measurement_start`, with at least 250 preceding
   complete five-minute candles of pre-roll;
 - `CONTINUOUS_HISTORICAL_SESSION_POLICY`, which has no compulsory exit;
@@ -152,7 +152,7 @@ raw_source = load_sf095_raw_diagnostic_source(
     Path(".signalforge-data/sf088/evidence/evidence-only/generation-0001")
 )
 dataset = raw_source.dataset
-source_id = raw_source.source_diagnostic_id
+source_id = raw_source.source_diagnostic_id  # provenance carried by raw_source
 ```
 
 For example, once the source-diagnostic identity and dataset have been
@@ -160,7 +160,8 @@ independently verified in conversation 04:
 
 ```python
 result = HistoricalBarExecutionRunner().run(
-    dataset,
+    raw_source.dataset,
+    raw_source=raw_source,
     strategy_selection=StrategySelection(
         "btc_momentum_baseline_v0", "0.1.0-experimental", {}
     ),
@@ -168,7 +169,6 @@ result = HistoricalBarExecutionRunner().run(
     tick_schedule=None,
     execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
     market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
-    source_diagnostic_id="VERIFIED_SOURCE_DIAGNOSTIC_ID",
     measurement_start=verified_measurement_start,
 )
 assert result.execution_valid is False
@@ -188,3 +188,10 @@ ADR-011 ambiguity semantics. It is not retroactively changed to raw diagnostics.
 
 **Do not interpret implementation tests or diagnostic output as evidence of
 BTC profitability, execution validity, PAPER readiness, or deployment approval.**
+
+In RAW_DIAGNOSTIC summaries, qualified candles blocked by an existing ARMED
+or OPEN lifecycle remain auditable in `outcomes` and are counted separately as
+`blocked_non_actionable_signals`; they do not inflate `total_actionable_opportunities`
+or determinate-coverage denominators. Legacy execution-valid NSE summary identity
+remains unchanged. Retained qualifying BTC signal decisions also carry raw Decimal
+MACD line, signal and histogram observations as non-filter diagnostics.
