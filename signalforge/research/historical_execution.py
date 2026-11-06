@@ -381,6 +381,35 @@ class HistoricalExecutionSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoricalRawDecisionEvidence:
+    """Measured completed-candle rejection/indicator trace, RAW_DIAGNOSTIC only."""
+
+    interval: CandleInterval
+    qualified: bool
+    actionable: bool
+    blocked_by_active_lifecycle: bool
+    indicator_ready: bool
+    reasons: tuple[str, ...]
+    macd_line: Decimal | None
+    macd_signal: Decimal | None
+    macd_histogram: Decimal | None
+
+    def semantic_mapping(self) -> dict[str, object]:
+        return {
+            "interval_start": self.interval.start.isoformat(),
+            "interval_end": self.interval.end.isoformat(),
+            "qualified": self.qualified,
+            "actionable": self.actionable,
+            "blocked_by_active_lifecycle": self.blocked_by_active_lifecycle,
+            "indicator_ready": self.indicator_ready,
+            "reasons": list(self.reasons),
+            "macd_line": self.macd_line,
+            "macd_signal": self.macd_signal,
+            "macd_histogram": self.macd_histogram,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class HistoricalExecutionRunResult:
     dataset_id: str
     strategy_id: str
@@ -403,6 +432,7 @@ class HistoricalExecutionRunResult:
     source_diagnostic_id: str | None = None
     price_mode: HistoricalPriceMode = HistoricalPriceMode.EXECUTION_VALID
     measurement_start: datetime | None = None
+    raw_decision_evidence: tuple[HistoricalRawDecisionEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if self.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC:
@@ -421,6 +451,7 @@ class HistoricalExecutionRunResult:
             not self.execution_valid
             or self.source_diagnostic_id is not None
             or self.measurement_start is not None
+            or self.raw_decision_evidence
         ):
             raise ValueError("Execution-valid results cannot contain raw diagnostic provenance")
 
@@ -453,6 +484,9 @@ class HistoricalExecutionRunResult:
                         "policy_version": self.market_session_policy_identity.policy_version,
                     },
                     "source_diagnostic_id": self.source_diagnostic_id,
+                    "raw_decision_evidence": [
+                        item.semantic_mapping() for item in self.raw_decision_evidence
+                    ],
                     "measurement_start": (
                         None if self.measurement_start is None
                         else self.measurement_start.isoformat()
@@ -574,6 +608,7 @@ class HistoricalBarExecutionRunner:
         candle_by_end = {c.interval.end: c for c in candles}
         bar_by_start = {b.interval.start: b for b in dataset.bars}
         outcomes: list[HistoricalExecutionOutcome] = []
+        raw_decisions: list[HistoricalRawDecisionEvidence] = []
         active: _Active | None = None
         completed = 0
 
@@ -593,6 +628,7 @@ class HistoricalBarExecutionRunner:
                         market_session_policy,
                         source_diagnostic_id,
                         measurement_start,
+                        raw_decisions,
                     )
                 candle = next(c for c in candles if c.interval.contains(start))
                 engine.break_continuity()
@@ -621,6 +657,7 @@ class HistoricalBarExecutionRunner:
                             market_session_policy,
                             source_diagnostic_id,
                             measurement_start,
+                            raw_decisions,
                         )
                     active = None
 
@@ -641,6 +678,23 @@ class HistoricalBarExecutionRunner:
                     feed_state=None,
                 )
             )
+            # Retain *all* measured candle decisions (including rejected and
+            # blocked) with unrounded MACD evidence. This is an audit trace,
+            # never a signal filter or NSE execution-valid output change.
+            if raw and measurement_start is not None and (
+                completed_candle.interval.end > measurement_start
+            ):
+                raw_decisions.append(HistoricalRawDecisionEvidence(
+                    interval=completed_candle.interval,
+                    qualified=decision.qualified,
+                    actionable=decision.actionable,
+                    blocked_by_active_lifecycle=active is not None and decision.actionable,
+                    indicator_ready=snapshot.ready,
+                    reasons=decision.reasons,
+                    macd_line=snapshot.macd_line,
+                    macd_signal=snapshot.macd_signal,
+                    macd_histogram=snapshot.macd_histogram,
+                ))
             if not decision.actionable:
                 continue
             # Diagnostic pre-roll updates indicators but cannot produce trades.
@@ -690,6 +744,7 @@ class HistoricalBarExecutionRunner:
             market_session_policy,
             source_diagnostic_id,
             measurement_start,
+            raw_decisions,
         )
 
 
@@ -1251,6 +1306,7 @@ def _result(
     session: HistoricalSessionPolicy,
     source_diagnostic_id: str | None,
     measurement_start: datetime | None,
+    raw_decisions: list[HistoricalRawDecisionEvidence],
 ) -> HistoricalExecutionRunResult:
     raw = profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
     # Raw barriers must not be misreported as historically tradable tick prices.
@@ -1281,6 +1337,7 @@ def _result(
         source_diagnostic_id=source_diagnostic_id,
         price_mode=profile.price_mode,
         measurement_start=measurement_start,
+        raw_decision_evidence=tuple(raw_decisions) if raw else (),
     )
 
 
