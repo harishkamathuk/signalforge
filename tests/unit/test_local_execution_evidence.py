@@ -190,3 +190,56 @@ def test_dirty_checkout_is_rejected(
     path.write_bytes(canonical_bytes(request))
     with pytest.raises(HandoffError, match="uncommitted"):
         execute(path, repo, request["request_id"])
+
+
+def test_missing_python_executable_records_failure(
+    checkout: tuple[Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing executable produces FAIL evidence rather than a PASS claim."""
+    import scripts.local_execution_evidence as handoff
+
+    repo, revision = checkout
+    request = request_for(revision)
+    path = tmp_path / "request.json"
+    path.write_bytes(canonical_bytes(request))
+    monkeypatch.setattr(handoff.sys, "executable", "/missing-sf247-python")
+    report = execute(path, repo, request["request_id"])
+    result = verify_report(report, path)
+    assert result["local_status"] == "FAIL"
+    assert result["termination"] == "EXECUTION_ERROR"
+    assert result["exit_code"] is None
+
+
+def test_unignored_output_root_blocks_execution(
+    checkout: tuple[Path, str], tmp_path: Path,
+) -> None:
+    """The helper will not publish evidence into a Git-visible directory."""
+    repo, revision = checkout
+    (repo / ".gitignore").write_text("other-root/\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", ".gitignore"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "new ignore"], check=True)
+    new_revision = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True,
+    ).strip()
+    assert new_revision != revision
+    request = request_for(new_revision)
+    path = tmp_path / "request.json"
+    path.write_bytes(canonical_bytes(request))
+    with pytest.raises(HandoffError, match="not Git-ignored"):
+        execute(path, repo, request["request_id"])
+
+
+def test_protected_root_symlink_blocks_execution(
+    checkout: tuple[Path, str], tmp_path: Path,
+) -> None:
+    """A symlinked data root cannot redirect output to another directory."""
+    repo, revision = checkout
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo / ".signalforge-data").symlink_to(elsewhere, target_is_directory=True)
+    request = request_for(revision)
+    path = tmp_path / "request.json"
+    path.write_bytes(canonical_bytes(request))
+    with pytest.raises(HandoffError, match="symlink"):
+        execute(path, repo, request["request_id"])
+    assert list(elsewhere.iterdir()) == []
