@@ -158,12 +158,12 @@ def test_seal_report_write_once_and_ignored(tmp_path) -> None:
     repo = tmp_path / "checkout"
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
-    (repo / ".gitignore").write_text(".signalforge-data/\\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".signalforge-data/\n", encoding="utf-8")
     t = task()
     task_path = tmp_path / "task.json"
-    task_path.write_bytes(canonical_bytes(t) + b"\\n")
+    task_path.write_bytes(canonical_bytes(t) + b"\n")
     report_path = tmp_path / "candidate.json"
-    report_path.write_bytes(canonical_bytes(report_for(t)) + b"\\n")
+    report_path.write_bytes(canonical_bytes(report_for(t)) + b"\n")
     sealed = seal_report(repo=repo, task_path=task_path, candidate_path=report_path)
     assert sealed.is_file()
     assert sealed.read_bytes() == report_path.read_bytes()
