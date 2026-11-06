@@ -2,7 +2,7 @@
 
 ## Status
 
-**PROPOSED — SPECIFICATION ONLY — NOT APPROVED FOR EXECUTION**
+**PROPOSED NORMATIVE CONTRACT — ASSUMPTION SET SELECTED — NOT YET ACCEPTED FOR EXECUTION**
 
 - Contract ID: `btc_momentum_baseline_v0_scenario_validation_v0`
 - Contract version: `0.1.0-proposal`
@@ -16,6 +16,8 @@
 - Proposed architecture vocabulary: PR #256 / SF-254
 - Historical source authority remains SF-088 / #225
 - Execution-valid status: **No**
+- Scenario-assumption selection: **APPROVED FOR SPECIFICATION FINALISATION by parent #253; final Gate B normative acceptance still pending**
+- Strategy-owner disposition: **`STRATEGY_SEMANTICS_UNCHANGED`**
 - PAPER / Demo / Testnet / live authority: **No**
 
 This document defines a proposed research methodology for a future **scenario-conditioned**
@@ -131,7 +133,7 @@ To make the methodology reviewable, this proposal recommends one exact first sce
 
 `BTC_OHLC_PATH_V1 / 0.1.0-proposal`
 
-This is a **proposal only**. It is not operative until #254/01/#253 Gate B accepts it.
+This exact assumption set has been **selected and approved by the project owner on #253 for specification finalisation**. It remains non-operative until final Gate B normative-contract acceptance and merge. Architecture compatibility is confirmed by #254/#256, and 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED`.
 
 Canonical proposed semantics:
 
@@ -233,9 +235,7 @@ subject to Gate B acceptance of this exact composition:
 For long-side adverse slippage, ENTRY is moved upward relative to its base price; STOP/TARGET exits
 are moved downward relative to their base prices, matching the existing frozen ADVERSE_RAW meaning.
 
-These are still **scenario assumptions**, not historical fills. If #254 finds that this composition
-cannot be represented without changing accepted profile semantics, Gate B must reject this proposal
-and version a different profile contract before any experiment.
+These are still **scenario assumptions**, not historical fills. #254 has confirmed that this composition is architecturally representable without changing accepted profile semantics. Any later semantic change requires a new versioned contract and experiment identity before execution.
 
 Historical tick applicability remains `UNRESOLVED`; do not use today's Delta tick retrospectively.
 
@@ -555,18 +555,19 @@ This proposal accepts the following **candidate shared vocabulary** from SF-254 
 
 This validation proposal does **not** approve SF-254's material model choices.
 
-The following remain Gate B decisions:
+Parent #253 has now **approved the selected first assumption set for specification finalisation**:
 
-1. whether parent Gate B accepts the proposed `OPEN_HIGH_LOW_CLOSE / 1.0.0-proposal` price-path rule;
-2. single scenario versus fixed preregistered scenario set;
-3. whether parent accepts the proposed monotone level-traversal meaning;
-4. whether parent accepts `REJECT_SAME_LEVEL_TIE_V1 / 1.0.0-proposal`;
-5. whether parent accepts `OBSERVED_OPEN_FIRST_V1 / 1.0.0-proposal`;
-6. whether parent accepts `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1 / 1.0.0-proposal`;
-7. whether parent accepts `RAW_PROFILE_AFTER_BASE_V1 / 1.0.0-proposal` with the frozen raw profiles;
-8. whether parent Gate B accepts the proposed **full-grid + zero-unsupported** completeness rule;
-9. any economic interpretation thresholds;
-10. final accepted result/status names.
+1. `OPEN_HIGH_LOW_CLOSE / 1.0.0-proposal`;
+2. one deterministic first scenario;
+3. monotone level traversal between OHLC waypoints;
+4. `REJECT_SAME_LEVEL_TIE_V1 / 1.0.0-proposal`;
+5. `OBSERVED_OPEN_FIRST_V1 / 1.0.0-proposal`;
+6. `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1 / 1.0.0-proposal`;
+7. `RAW_PROFILE_AFTER_BASE_V1 / 1.0.0-proposal` with frozen REFERENCE_RAW / ADVERSE_RAW semantics;
+8. full frozen measured grid + zero measured `SCENARIO_UNSUPPORTED` for point metrics;
+9. separate `SCENARIO_METHOD_VALID / INVALID / INCONCLUSIVE` methodology labels.
+
+This selection is **not final Gate B normative-contract acceptance** and does not authorize implementation or a scenario experiment. Final acceptance still requires exact-head contract/review/DoD evidence and merge under the approved governance path. No economic-performance success threshold has been approved.
 
 If #254 changes the taxonomy or typed assumption boundary before acceptance, this document must be
 reconciled before Gate B.
@@ -575,8 +576,8 @@ reconciled before Gate B.
 ### 13.1 Reconciliation status with corrected SF-254 architecture
 
 The corrected SF-254 architecture proposal at PR #256 head
-`197aca316dfe7062924bef8cfc212b05b1e1e7aa` has reviewed this concrete
-scenario as **architecturally compatible, not approved**.
+`1b6cfa27b7e368ecfcbe78bda2d9848072fe5cf6` has reviewed this concrete
+scenario as **architecturally compatible**. Parent #253 subsequently approved the exact assumption selection for specification finalisation; neither fact makes the model operative before final Gate B normative acceptance.
 
 This validation proposal adopts SF-254's corrected identity-format requirement:
 
@@ -596,9 +597,7 @@ For `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, the canonical proposed mapping is:
 | Time boundary | `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1` | `1.0.0-proposal` |
 | Fill application | `RAW_PROFILE_AFTER_BASE_V1` | `1.0.0-proposal` |
 
-This resolves the previously identified cross-contract identity-format mismatch.
-It does **not** approve any of those assumptions. Parent #253 Gate B and 01 strategy-owner review
-remain required before the mapping can become operative.
+This resolves the previously identified cross-contract identity-format mismatch. Parent #253 has since approved these exact assumptions for specification finalisation, and 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED`. The mapping still cannot become operative until final Gate B normative-contract acceptance and merge.
 
 ## 14. Explicit non-goals
 
@@ -624,8 +623,10 @@ SF-255 is ready for parent acceptance only when:
 - this proposed validation methodology has been adversarially reviewed;
 - #254 terminology/provenance is reconciled;
 - the actual scenario assumption set and unsupported cases are explicit;
-- the 01 strategy-owner disposition is recorded;
+- the 01 strategy-owner disposition is recorded (**satisfied: `STRATEGY_SEMANTICS_UNCHANGED`**);
 - source-controlled architecture/ADR and validation contract revisions are identified;
-- parent #253 explicitly accepts the material assumptions and Gate B.
+- parent #253's material-assumption selection is recorded (**satisfied for specification finalisation**);
+- exact-head cross-contract review/DoD requirements are satisfied;
+- parent #253 records final Gate B normative-contract acceptance after those evidence gates.
 
 Until then, this file is a **proposal only** and no historical scenario performance may be executed.
