@@ -279,7 +279,7 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             raw_source=RawDiagnosticSource(dataset, "test-evidence"),
             measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
         )
-    with pytest.raises(ValueError, match="source diagnostic"):
+    with pytest.raises(ValueError, match="provenance-bound raw source"):
         runner.run(
             dataset, strategy_selection=SELECTION,
             engine_calculation_version="engine-v1", tick_schedule=None,
