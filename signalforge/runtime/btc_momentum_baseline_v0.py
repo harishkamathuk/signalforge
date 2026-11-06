@@ -124,6 +124,13 @@ class BtcMomentumBaselineV0Strategy:
         if actionable:
             reasons.append("qualified")
             reasons.append("actionable")
+            # Record MACD numerical evidence without making it a signal filter.
+            # Decimal stringification preserves the canonical indicator precision.
+            reasons.extend((
+                f"macd_line={indicator.macd_line}",
+                f"macd_signal={indicator.macd_signal}",
+                f"macd_histogram={indicator.macd_histogram}",
+            ))
         elif qualified:
             reasons.append("qualified_not_actionable")
         return BtcMomentumBaselineDecision(
