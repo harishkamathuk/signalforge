@@ -855,19 +855,35 @@ def _process_armed_bar(
         )
         branches = [HistoricalPossibleOutcome(HistoricalTerminalState.OPEN_POSSIBLE, None, None)]
         if stop:
+            # For raw diagnostics, possible close branches use the *selected*
+            # adverse sell-fill assumptions. Preserve NSE/ADR-011 legacy bounds.
+            stop_exit = (
+                _sell_fill(
+                    active.view.stop_price, bar, HistoricalFillTiming.INTRABAR_UNKNOWN,
+                    profile.stop_slippage_bps, ticks,
+                ).fill_price
+                if ticks is None else active.view.stop_price
+            )
             branches.append(
                 HistoricalPossibleOutcome(
                     HistoricalTerminalState.CLOSED,
                     HistoricalExitReason.STOP,
-                    _r(active, active.view.stop_price),
+                    _r(active, stop_exit),
                 )
             )
         if target:
+            target_exit = (
+                _sell_fill(
+                    active.tradable_target, bar, HistoricalFillTiming.INTRABAR_UNKNOWN,
+                    profile.target_slippage_bps, ticks,
+                ).fill_price
+                if ticks is None else active.tradable_target
+            )
             branches.append(
                 HistoricalPossibleOutcome(
                     HistoricalTerminalState.CLOSED,
                     HistoricalExitReason.TARGET,
-                    _r(active, active.tradable_target),
+                    _r(active, target_exit),
                 )
             )
         return _bounded(active, reasons, tuple(branches), "entry/exit order unknown")
