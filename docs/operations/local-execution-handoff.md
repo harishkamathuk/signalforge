@@ -1,6 +1,121 @@
 # SF-247 — Operator-controlled local execution/evidence handoff
 
-## Plain English
+## Supervised local coding-agent development — approved primary workflow
+
+**Plain English:** The intended operator experience is to delegate an approved
+development task to **one local coding agent** in WSL2, not to manually type each
+Git and Python command. The agent may edit files, run focused tests, diagnose
+failures and prepare local commits **within the task's approved scope**. The
+operator starts and supervises the session and authorizes sensitive actions.
+ChatGPT prepares/reviews tasks and evidence, but **does not directly control
+the WSL2 process**.
+
+The existing `python -V` helper below remains a **smoke/transport pilot**.
+It cannot be presented as acceptance of supervised coding-agent development.
+
+### Agent selection and safeguards
+
+On WSL2, first identify whether Codex or another *one chosen* local agent CLI
+is already installed and whether its authentication/usage limits are acceptable.
+Do not assume any agent is free, already installed, or configured. Reuse the
+existing WSL2 repository and virtual environment.
+
+Before the operator launches it, verify the selected agent's **actual**
+workspace/sandbox, approval, network and credential-access settings. Configure
+the agent to require operator approval for destructive Git, remote pushes,
+dependency installation, network access, access to protected datasets,
+database changes and out-of-scope operations. No unattended mode or automatic
+agent startup from a Drive file. Do not use an option granting unrestricted
+filesystem/host access to avoid approval prompts.
+
+**Security distinction:** JSON task restrictions and textual prompts are
+*instructions*, not a sandbox or proof that access controls have been enforced.
+The agent's sandbox and operator approvals are separate technical controls.
+If those cannot be verified, classify the exercise as **BLOCKED**.
+
+### Agent task package
+
+`scripts/local_agent_task_handoff.py` contains the v1 versioned task/report
+schema, SHA-256 verification and fixed supervised permission boundaries.
+It **does not launch Codex, execute code, publish files or access Drive**.
+A task package contains task ID, GitHub issue, exact Git base SHA, scope,
+allowlisted `docs/` or `tests/` paths, acceptance criteria, operator approval
+conditions and an explicit prohibited-operation list.
+
+Example: create a short local instruction file (review its contents before
+use) under the existing ignored handoff root, such as
+`.signalforge-data/handoff/pilot-instructions.txt`. For the pilot choose a
+bounded **documentation-only** change on a disposable feature branch; do not
+touch strategy code, database migrations, protected market data or order paths.
+
+```bash
+cd ~/dev/signalforge
+source .venv/bin/activate
+git status --short
+git rev-parse HEAD
+
+python scripts/local_agent_task_handoff.py prepare \
+  --repo . \
+  --task-id sf247-supervised-pilot-001 \
+  --issue 247 \
+  --task-file .signalforge-data/handoff/pilot-instructions.txt \
+  --allowed-path docs/validation/sf247-pilot.md \
+  --acceptance "Documentation change is reviewable" \
+  --acceptance "Focused documentation check passes"
+```
+
+The command creates a **write-once** protected task JSON and prints its SHA.
+Choose a new ID for a repeat; never overwrite an old task or evidence package.
+Use `verify --task PATH` to validate any received JSON.
+
+The operator then copies/passes the **verified task** to the chosen agent's
+normal local interactive interface and starts a **supervised session**. The
+agent should perform the task, collect its Git diff/test outcomes, and
+prepare sanitized evidence in the operator-controlled protected location.
+Use the agent's documented interaction/approval commands for the installed
+version; do not invent CLI flags or make the task package directly executable.
+The operator checks actual Git status/diff and test results before accepting
+the agent's summary.
+
+A matching report may be verified with:
+
+```bash
+python scripts/local_agent_task_handoff.py verify \
+  --task .signalforge-data/handoff/agent-tasks/sf247-supervised-pilot-001.json \
+  --report .signalforge-data/handoff/agent-reports/sf247-supervised-pilot-001.json
+```
+
+The agent report is a **sanitized declaration**, not cryptographic proof that
+an agent really edited, tested, obtained approvals or ran within a sandbox.
+Compare against independent Git diffs, actual test output and the observed
+operator approval trail. A complete v1 report includes task identity/base
+SHA, observed head SHA, changed-file list, bounded checks/exit codes,
+operator-approval references, findings, classification and SHA-256.
+The report file must remain Git-ignored and be created without overwriting
+anything. Do not export raw logs or full protected data.
+
+### Real acceptance gates
+
+A `LOCAL_HANDOFF_READY` claim now requires **all**:
+
+1. A chosen, authenticated local agent demonstrably installed on the real WSL2
+   host with verified sandbox and supervisory approval settings.
+2. A unique verified task package bound to the actual Git base SHA.
+3. A real, **agent-performed** scoped development change and focused tests
+   without manually typing each command.
+4. Operator confirmation of Git diff, test status, approval/stop behavior and
+   the sanitized, write-once report; its hashes match task identity.
+5. An actual authenticated upload to the existing private Drive **02 Execution
+   Reports** folder and independent retrieval/hash verification, where Drive
+   is selected for the handoff.
+6. GitHub PR/issue milestone evidence, adversarial review and repository DoD.
+
+If only the smoke protocol works, disposition is **PARTIAL**. If agent sandbox
+or protected-data boundaries cannot be established, disposition is **BLOCKED**.
+
+---
+
+## Plain English — legacy read-only smoke protocol
 
 This is a **manual smoke-test handoff**, not remote execution. ChatGPT can exchange an
 approved JSON request and a sanitized JSON report with the existing WSL2 workstation,
