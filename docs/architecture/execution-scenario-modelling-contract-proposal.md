@@ -134,6 +134,40 @@ allowlisted, versioned set of known assumptions, **not a strategy DSL**.
    event tie or budget exhaustion, **reject or terminate** with an explicit
    reason; never recover by choosing a favorable/adverse path.
 
+### Sibling #255 concrete candidate — reviewed, NOT approved
+
+The corrected sibling validation draft in [PR #257](https://github.com/harishkamathuk/signalforge/pull/257),
+head `b0a62520a1fd1a1689b9b9e517bc558683b12230`, proposes the
+**single** assumption set `BTC_OHLC_PATH_V1 / 0.1.0-proposal`.
+It is an architecturally representable candidate within the typed,
+allowlisted scenario lane, **not a selected historical path or an approved
+scenario configuration**:
+
+| Boundary | #255 proposed rule | #254 architecture disposition |
+|---|---|---|
+| Hypothetical 1m price sequence | Open → High → Low → Close; continuous monotone level traversal per segment | Compatible *as a declared assumption*, never observed chronology |
+| Event ties | Order-changing equal-level ties become `SCENARIO_UNSUPPORTED` | Compatible; no favorable/adverse default |
+| Gap base | Actual observed bar Open, then named profile exactly once | Compatible; retain strict bar-open price precedence |
+| Validity end | Process final 1m constituent bar through Close, expire at known 5m boundary | Compatible for the **frozen BTC validity**; no general rule for intraminute time cutoffs |
+| In-minute cutoff | Unsupported without an explicit approved time rule | Compatible fail-closed behavior |
+| Modeled entry economics | Fill base first; apply REFERENCE_RAW or ADVERSE_RAW once; derive post-fill target from resulting entry | Compatible with typed `post_fill_economics()` boundary; no second gap slippage |
+| Sample and methodology | 288 warm-up; 69,984 IS + 34,848 OOS decision candles; zero measured `SCENARIO_UNSUPPORTED` for point estimates | No architectural conflict; research methodology/interpretation owned by #255 |
+| Result labels | `SCENARIO_METHOD_VALID / INVALID / INCONCLUSIVE` | Distinct from strict SF-096 labels; methodology disposition must remain separate from economic performance |
+
+**Outstanding explicit parent #253 Gate B choices:** approve/reject the named
+hypothetical path and monotone crossing interpretation, tie/expiry/gap/fill
+assumptions as one coherent versioned set, permissible coverage gate, and
+the study's separate outcome labels. The strategy owner (01) must
+independently return its semantic disposition. A scenario reaching a
+strictly ambiguous outcome does not change its strict evidence label.
+
+**Research method clarification:** zero `SCENARIO_UNSUPPORTED` is the
+validation sibling's predeclared completeness threshold; the architecture
+must still support recording positive unsupported counts without hiding them.
+A retained conditional OPEN/ARMED state at the dataset end is **not** a
+fabricated closure; #255 explicitly permits lifecycle-coverage completion
+without counting that state as a closed trade.
+
 ### Event-tie and gaps — unresolved choices for parent approval
 
 A path that touches two levels at the same hypothetical location/time can
