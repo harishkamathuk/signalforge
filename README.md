@@ -64,6 +64,11 @@ SignalForge uses a lightweight GitFlow-style branch model:
 
 Normal feature work should enter `develop` through pull requests.
 
+For the SF-247 local TUI workflow (OpenCode/Freebuff output staged under `/tmp`,
+Codex-uploaded sanitized evidence, and ChatGPT/GitHub review), see
+[SF-247 local output handoff](docs/operations/local-execution-handoff.md).
+No agent launcher, background service, or remote execution authority is introduced.
+
 Every implementation work item must satisfy the repository [Engineering Definition of Done](docs/engineering-definition-of-done.md) in addition to its issue-specific acceptance criteria. Pull requests must retain adversarial findings, validation evidence and any durable architectural clarification rather than leaving material rationale only in chat.
 
 Python source documentation follows the repository [Python Documentation Standard](docs/python-documentation-standard.md): Google-style docstrings for public APIs and mandatory rationale comments for non-obvious ordering, invariants, safety boundaries and persistence/recovery behaviour.
