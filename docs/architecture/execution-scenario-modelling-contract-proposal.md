@@ -142,11 +142,15 @@ allowlisted, versioned set of known assumptions, **not a strategy DSL**.
 2. Strategy decisions are computed only on completed 5m candles. A scenario
    cannot signal earlier or consume forming candles. ARMED and OPEN policy
    comes from existing typed strategy intent and session policy.
-3. Candidate first increment: **one declared fixed, continuous OHLC traversal
-   rule per scenario**. The path rule itself is an unresolved material choice
-   (e.g. O-H-L-C versus O-L-H-C), not something selected by the engine based
-   on outcome, strategy direction, future profit, or volatility. Whether a
-   path can be assumed monotone between visits requires approval.
+3. **Owner-selected first scenario for specification finalisation:**
+   `BTC_OHLC_PATH_V1 / 0.1.0-proposal` fixes the hypothetical one-minute
+   **Open → High → Low → Close** sequence with continuous monotone
+   level-order traversal and first crossings. This selection is recorded
+   on parent #253 (owner decision #6694636203), **not** inferred by the
+   engine from outcome, strategy direction, future profit or volatility.
+   It remains **non-operative pending final normative Gate B acceptance**;
+   an O-L-H-C alternative would require a different registered scenario
+   and new approval, not an execution-time choice.
 4. Exact ordering of an entry trigger, pre-entry invalidation, stop, target,
    cutoff and expiry is evaluated by walking the hypothetical path and known
    UTC time boundaries **without fabricating exchange event timestamps**.
@@ -210,18 +214,29 @@ A retained conditional OPEN/ARMED state at the dataset end is **not** a
 fabricated closure; #255 explicitly permits lifecycle-coverage completion
 without counting that state as a closed trade.
 
-### Event-tie and gaps — unresolved choices for parent approval
+### Event ties, gaps and cutoffs — selected for specification finalisation, NOT operative
 
-A path that touches two levels at the same hypothetical location/time can
-change lifecycle outcome. The assumption set must explicitly define
-`event_tie_policy_id` (or reject tied events), and explain precedence of
-known time/session cutoffs. No universal favorable/adverse tie rule is approved.
-A gap-through at the observed bar open is distinct from a hypothetical
-intrabar crossing. Specify both the filled base and stop/target gap behavior
-consistent with strict historical policy. If scenario path assumptions cannot
-represent intraminute cutoff times without fake timestamps, **fail closed**
-rather than assign arbitrary fractional minutes. These are decisions to be
-resolved with #255 and parent #253, not guessed in implementation.
+For the owner-selected `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, the
+explicit `REJECT_SAME_LEVEL_TIE_V1 / 1.0.0-proposal` policy classifies
+same-level ties that change lifecycle order/economics as
+`SCENARIO_UNSUPPORTED`; it does **not** introduce universal favorable or
+adverse precedence. The selected `OBSERVED_OPEN_FIRST_V1 /
+1.0.0-proposal` policy uses the **observed one-minute Open as modeled
+gap-fill base**, subject to scenario trigger reachability, rather than
+inventing an improved barrier-price fill. The selected
+`FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1 / 1.0.0-proposal` policy
+processes the final constituent minute through Close before the known
+five-minute validity expiry; an unknown in-minute cutoff is still
+`SCENARIO_UNSUPPORTED`, with no fabricated fractional timestamp.
+`RAW_PROFILE_AFTER_BASE_V1 / 1.0.0-proposal` applies the predeclared RAW
+profile once after determining the path/gap base, and retains the
+strategy-owned post-fill target rule.
+
+These **specific rules are reconciled with #255 and approved by parent
+#253 for specification finalisation only**, not as observed history or
+operative execution defaults. Final normative Gate B acceptance,
+required review/DoD evidence and merge remain pending; implementation
+must not infer any unregistered tie, gap, cutoff or fill rule.
 
 ### Research-only safety separation
 
@@ -322,9 +337,11 @@ scenario fill into a strict historical fact.
 
 ## 4. Hypothetical ambiguity example (synthetic only)
 
-The following **illustrates** consequences of alternate **unapproved**
-fixed paths. These are not BTC historical prices and are not proposed
-as observed chronology.
+The following **illustrates** consequences of alternative hypothetical
+fixed paths: **O-H-L-C is owner-selected for specification finalisation
+only**, while O-L-H-C is an unselected comparison, not an approved first
+scenario. Neither path is observed chronology; these are not BTC
+historical prices.
 
 - One-minute observed candle: `O=101, H=109, L=99, C=102`.
 - A previously ARMED synthetic long setup: trigger `103`, invalidation
@@ -340,7 +357,9 @@ as observed chronology.
   bounded-ambiguous; never replace it with either scenario output.
 
 The example deliberately excludes gap prices, ties and timed cutoffs.
-They require their own accepted rule before implementation.
+The specific first-scenario policies are selected for specification
+finalisation in #253/#255; this synthetic comparison does not exercise
+them, and no policy becomes operative before final normative Gate B.
 
 ## 5. Alternatives and recommendation
 
