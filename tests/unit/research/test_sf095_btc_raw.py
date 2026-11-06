@@ -804,3 +804,23 @@ def test_sf097_bounded_flat_opt_in_not_supported_for_execution_valid_mode() -> N
             execution_profile=HistoricalExecutionAssumptionProfile.zero(),
             continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
         )
+
+
+def test_sf097_invalidation_observed_at_bar_open_is_determinate_expiry() -> None:
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    index = 251 * 5
+    bars[index] = replace(
+        bars[index],
+        open=Price(Decimal("99.95")), high=Price(Decimal("100.20")),
+        low=Price(Decimal("99.90")), close=Price(Decimal("100.10")),
+    )
+    changed = HistoricalBarDataset(dataset.manifest, tuple(bars))
+    result = _raw_run(
+        changed, continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert not result.terminated_early
+    assert result.outcomes[0].certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert result.outcomes[0].terminal_state is HistoricalTerminalState.EXPIRED
+    assert result.outcomes[0].entry_fill is None
+    assert result.outcomes[0].detail == "pre_entry_invalidation_at_bar_open"
