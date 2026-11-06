@@ -6,6 +6,8 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from signalforge.config.identity import ConfigIdentity, ConfigStatus, identify_config
 from signalforge.config.strategy_registry import (
     StrategyRegistration,
@@ -29,6 +31,7 @@ from signalforge.research.historical_bars import (
     load_historical_bar_fixture,
 )
 from signalforge.research.historical_execution import (
+    CONTINUOUS_HISTORICAL_SESSION_POLICY,
     HistoricalAmbiguityReason,
     HistoricalBarExecutionRunner,
     HistoricalExecutionAssumptionProfile,
@@ -804,3 +807,19 @@ def test_historical_execution_module_has_no_event_backtest_or_real_strategy_disp
         "rsi_mean_reversion_v1",
     ):
         assert forbidden not in source
+
+
+def test_execution_valid_rejects_non_nse_policy_without_changing_result_hash() -> None:
+    """Different market timing may not reuse the legacy execution-valid hash."""
+    dataset = _dataset()
+    with pytest.raises(ValueError, match="requires NSE session policy"):
+        HistoricalBarExecutionRunner(registry=_registry()).run(
+            dataset,
+            strategy_selection=StrategySelection(
+                "test_delayed_breakout", "1.0.0", {}
+            ),
+            engine_calculation_version="engine-v1",
+            tick_schedule=_ticks(),
+            execution_profile=HistoricalExecutionAssumptionProfile.zero(),
+            market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+        )

@@ -90,3 +90,120 @@ completed-candle strategy boundary. It does not own indicator formulas or strate
 `examples/research/historical-bars-one-session.json` is an infrastructure fixture.
 It is synthetic deterministic bar data, not observed historical market evidence. It must
 not be used for profitability, parameter-selection, or validation claims about Strategy V1.
+
+## SF-095 experimental BTC strategy and raw diagnostic historical execution
+
+::: signalforge.config.btc_momentum_baseline_v0.BtcMomentumBaselineV0Config
+
+::: signalforge.runtime.btc_momentum_baseline_v0.BtcMomentumBaselineV0Strategy
+
+::: signalforge.research.historical_execution.HistoricalPriceMode
+
+::: signalforge.research.historical_execution.HistoricalExecutionAssumptionProfile
+
+::: signalforge.research.historical_execution.HistoricalBarExecutionRunner
+
+::: signalforge.research.historical_execution.HistoricalExecutionRunResult
+
+The registered `btc_momentum_baseline_v0 / 0.1.0-experimental` follows the
+approved specification in `docs/strategies/btc-momentum-baseline-v0.md`.
+It is a **research strategy only**. The independent frozen Tier-1 research
+contract is in `docs/validation/btc-momentum-baseline-v0-validation-v0.md`.
+
+`HistoricalPriceMode.RAW_DIAGNOSTIC` explicitly prohibits a historical
+tick schedule; it **does not** make raw trigger/target/fill prices historically
+tradable. `REFERENCE_RAW / 1.0.0` and `ADVERSE_RAW / 1.0.0` are the only
+frozen raw profiles; the adverse variant applies ten basis points to the modeled
+entry, stop exit and target exit (not to its zero forced-exit assumption).
+No current Delta tick rule is substituted for missing historical applicability.
+
+A raw run requires:
+- the registered BTC experimental strategy and canonical `DELTA:BTCUSD`;
+- a traded-price dataset with an explicit, continuous UTC coverage grid;
+- a `RawDiagnosticSource` bundle returned by the protected-evidence audit
+  (dataset and source evidence identity are not caller-paired strings);
+- an aware, predeclared `measurement_start`, with at least 250 preceding
+  complete five-minute candles of pre-roll;
+- `CONTINUOUS_HISTORICAL_SESSION_POLICY`, which has no compulsory exit;
+- `tick_schedule=None` and a raw profile.
+
+The SF-088 `generation-0001` protected **evidence-only** archive is not a
+strict SF-084 dataset. For the approved Tier-1 contract only, SF-095 provides
+a read-only transient diagnostic input bridge:
+
+::: signalforge.research.btc_raw_diagnostic_input.RawDiagnosticSource
+
+::: signalforge.research.btc_raw_diagnostic_input.load_sf095_raw_diagnostic_source
+
+This bridge reruns independent two-pass audit, verifies the frozen provisional
+report and five-minute-close hashes, checks each retained first-pass chunk's
+raw and semantic digest, and maps exactly the observed provider OHLCV into
+`HistoricalBarDataset` **in memory** without checking against today's tick.
+It does not publish this dataset, call a provider or weaken SF-088's strict
+historical metadata qualification gate. Its returned
+`source_diagnostic_id` must be forwarded to the historical runner; the
+derived `dataset_id` is only a reproducible **diagnostic representation**,
+not SF-088 Stage-B `READY_FOR_BTC_STRATEGY_RESEARCH`.
+
+```python
+from pathlib import Path
+
+raw_source = load_sf095_raw_diagnostic_source(
+    Path(".signalforge-data/sf088/evidence/evidence-only/generation-0001")
+)
+dataset = raw_source.dataset
+source_id = raw_source.source_diagnostic_id  # provenance carried by raw_source
+```
+
+For example, once the source-diagnostic identity and dataset have been
+independently verified in conversation 04:
+
+```python
+result = HistoricalBarExecutionRunner().run(
+    raw_source.dataset,
+    raw_source=raw_source,
+    strategy_selection=StrategySelection(
+        "btc_momentum_baseline_v0", "0.1.0-experimental", {}
+    ),
+    engine_calculation_version="engine-v1",
+    tick_schedule=None,
+    execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
+    market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+    measurement_start=verified_measurement_start,
+)
+assert result.execution_valid is False
+```
+
+Pre-roll updates indicators but cannot arm or open trades. A position remaining
+OPEN at dataset end stays UNRESOLVED; UTC midnight is not a trading boundary.
+The result identity includes strategy/config/engine/simulator, source dataset,
+diagnostic evidence identity, measured-window start, market policy and raw profile.
+Its `tick_schedule_semantic_id` explicitly records unresolved historical
+tick applicability. Raw outcomes never populate `tradable_trigger` or
+`tradable_target_price` as executable levels.
+
+The existing execution-valid NSE mode remains the default: it still requires
+an evidence-backed `TickSizeSchedule`, the established NSE market policy and
+ADR-011 ambiguity semantics. It is not retroactively changed to raw diagnostics.
+
+**Do not interpret implementation tests or diagnostic output as evidence of
+BTC profitability, execution validity, PAPER readiness, or deployment approval.**
+
+In RAW_DIAGNOSTIC summaries, qualified candles blocked by an existing ARMED
+or OPEN lifecycle remain auditable in `outcomes` and are counted separately as
+`blocked_non_actionable_signals`; they do not inflate `total_actionable_opportunities`
+or determinate-coverage denominators. Legacy execution-valid NSE summary identity
+remains unchanged. For RAW_DIAGNOSTIC, `raw_decision_evidence` now retains each measured completed
+five-minute candle's decision/rejection reasons, readiness, blocked-by-active
+status, and raw Decimal MACD line/signal/histogram. The trace is included in the
+raw result semantic identity; pre-roll is excluded and NSE result mappings are
+unchanged. MACD remains non-mandatory for strategy qualification.
+
+Audited source bundles additionally bind the frozen evidence identity to the
+exact diagnostic dataset content hash. Replacing the dataset while copying the
+audit proof is rejected before research execution. Synthetic-only source
+identities remain available for unit tests.
+
+Intrabar entry-versus-exit ambiguous branches use the selected RAW_DIAGNOSTIC
+sell-fill slippage before calculating possible R outcomes. Existing NSE
+execution-valid legacy ambiguity output remains unchanged.
