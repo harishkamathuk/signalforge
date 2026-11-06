@@ -588,3 +588,33 @@ def test_adverse_raw_entry_bar_ambiguous_exit_uses_modeled_sell_fill(
     assert reference.outcomes[0].possible_outcomes[1].realised_r != (
         adverse.outcomes[0].possible_outcomes[1].realised_r
     )
+
+
+def test_raw_diagnostic_retains_rejected_candle_macd_trace() -> None:
+    """All measured candles retain rejection/MACD evidence, never only fills."""
+    dataset = _synthetic_continuous_dataset()
+    result = _raw_run(dataset, runner=HistoricalBarExecutionRunner())
+    assert result.outcomes == ()
+    assert len(result.raw_decision_evidence) == 5
+    assert all(not row.actionable for row in result.raw_decision_evidence)
+    assert all("rsi_not_met" in row.reasons for row in result.raw_decision_evidence)
+    assert all(row.macd_line is not None for row in result.raw_decision_evidence)
+    assert all(row.macd_signal is not None for row in result.raw_decision_evidence)
+    assert all(row.macd_histogram is not None for row in result.raw_decision_evidence)
+    assert result.raw_decision_evidence[0].interval.end > result.measurement_start
+    mapping = result.semantic_mapping()
+    assert len(mapping["raw_decision_evidence"]) == 5
+    assert mapping["raw_decision_evidence"][0]["macd_signal"] is not None
+    assert result.result_id == _raw_run(
+        dataset, runner=HistoricalBarExecutionRunner()
+    ).result_id
+
+
+def test_raw_trace_identifies_blocked_actionable_decisions() -> None:
+    dataset = _synthetic_continuous_dataset()
+    result = _raw_run(dataset, runner=_synthetic_runner(251))
+    assert result.raw_decision_evidence[0].actionable
+    assert not result.raw_decision_evidence[0].blocked_by_active_lifecycle
+    assert all(
+        not row.actionable for row in result.raw_decision_evidence[1:]
+    )
