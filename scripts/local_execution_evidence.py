@@ -325,7 +325,7 @@ def main() -> int:
     make.add_argument("--issue", required=True, type=int)
     make.add_argument("--revision", required=True)
     make.add_argument("--request-id", required=True)
-    make.add_argument("--output", required=True, type=Path)
+    make.add_argument("--repo", required=True, type=Path)
     run = sub.add_parser("run", help="explicitly approve and execute a request")
     run.add_argument("--request", required=True, type=Path)
     run.add_argument("--repo", required=True, type=Path)
@@ -352,9 +352,18 @@ def main() -> int:
             }
             obj["request_sha256"] = digest(obj, "request_sha256")
             validate_request(obj)
-            # Requests too are created once; never overwrite operator intent.
-            write_once(args.output, canonical_bytes(obj) + b"\n")
+            validate_checkout(args.repo, args.revision)
+            requests = _output_dir(args.repo).parent / "requests"
+            if requests.is_symlink():
+                raise HandoffError("protected request path contains a symlink")
+            requests.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if requests.is_symlink():
+                raise HandoffError("request directory changed into a symlink")
+            request_path = requests / f"{args.request_id}.json"
+            # Requests too are created once under the protected ignored root.
+            write_once(request_path, canonical_bytes(obj) + b"\n")
             print(f"request_sha256={obj['request_sha256']}")
+            print(f"local_request={request_path}")
         elif args.action == "run":
             result = execute(args.request, args.repo, args.approve_request_id)
             print(f"local_report={result}")
