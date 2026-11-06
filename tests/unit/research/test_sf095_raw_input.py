@@ -11,8 +11,8 @@ import pytest
 
 from signalforge.domain.money import Price
 from signalforge.research import btc_raw_diagnostic_input as source
-from signalforge.research.historical_bars import HistoricalBarDataset
 from signalforge.research.delta_historical_qualification import DeltaCandle, DeltaRawCapture
+from signalforge.research.historical_bars import HistoricalBarDataset
 
 
 def test_protected_source_path_and_missing_evidence_fail_closed(tmp_path: Path):
