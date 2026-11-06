@@ -43,7 +43,7 @@ The minimal Python 3.12 standard-library helper only creates/verifies a SHA-256 
 >
 > Return the actual Google Drive file IDs/links and the local SHA-256 of **sha256-manifest.json**. Upload success is not round-trip verification: ChatGPT must independently retrieve and verify the uploaded bytes.
 
-Codex is the chosen upload operator, **not a new permanent Drive integration**. Availability of Drive access from Codex has not yet been proven.
+Codex is the chosen upload operator, **not a new permanent Drive integration**. The first authenticated Codex-to-Drive transfer was independently verified for SF-247; future sessions must still use their own valid authenticated access.
 
 ## Zero-link ChatGPT pickup (single active task)
 
@@ -79,10 +79,10 @@ Drive upload integration is required.
 
 Ask ChatGPT to process the latest handoff; it identifies the appropriate report/manifest pair in the connected Drive folder. ChatGPT retrieves actual remote files through connected Drive, compares uploaded files to their remote SHA-256 manifest and checks the uploaded manifest identity against the locally recorded hash. If remote bytes cannot be fetched, report **PARTIAL**; do not invent a successful round trip. Independently verify code/test assertions against actual GitHub revisions, diffs and CI.
 
-**First real acceptance:** Run one harmless real prompt in OpenCode or Freebuff (for example, summarize the SignalForge development workflow without editing code), obtain its sanitized `report.md` under a fresh `/tmp/signalforge-.../` directory, inspect and hash it, have Codex upload to Drive, and review/read back here.
+**First real acceptance (completed 2026-11-06 for SF-247):** The pilot used one harmless real prompt in OpenCode or Freebuff (a read-only SignalForge development-workflow summary) and a sanitized `report.md` under `/tmp/signalforge-sf247-pilot-001/`. Codex uploaded the report and its manifest to the existing Drive folder. ChatGPT independently fetched both raw files and verified the exact local manifest SHA-256 `82507654d7550a4d8bd69d59f56e1bea29c094143a989a3129c54f6d02017486`, the report digest and the folder ID. Evidence and limitations are recorded in GitHub issue #247 and PR #248. This verifies this handoff, not the independent truth of all TUI-reported commands.
 
 - **HANDOFF_VERIFIED:** actual TUI execution + authenticated Drive upload + independently downloaded matching bytes/hashes + ChatGPT review.
 - **PARTIAL:** one or more checks missing, including no proof of Codex Drive access.
 - **BLOCKED:** unsafe output, mismatched hashes, invalid destination or access/safety failure.
 
-A transport acceptance test is not trading qualification, strategy validation, paper/live approval or merge readiness. PR #248 remains draft until the repository's full DoD and issue criteria are satisfied.
+A transport acceptance test is not trading qualification, strategy validation, paper/live approval or automatic PR merge approval. Apply the repository's full DoD and review gates to each PR.
