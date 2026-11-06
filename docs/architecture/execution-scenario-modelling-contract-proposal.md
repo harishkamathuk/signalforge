@@ -115,11 +115,12 @@ For cross-contract alignment, the **still-unapproved** #255 first candidate
 | Time boundary | `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1` | `1.0.0-proposal` |
 | Fill application | `RAW_PROFILE_AFTER_BASE_V1` | `1.0.0-proposal` |
 
-The four proposed `1.0.0-proposal` versions not yet present in
-#255 are **identity-format candidates**, not approved model revisions.
-Before parent Gate B, #255 must adopt or explicitly reconcile these
-exact pair mappings; they may not silently be assumed from `_V1`.
-None of this accepts the O→H→L→C path as observed chronology.
+These five explicit `(id, version)` mappings are now **reconciled** with
+#255's corrected PR #257 at head
+`1ba45856bc4598d80c4e02bfe1776139bbe13713`.
+They remain **proposed, not approved** assumption identities; `_V1`
+never substitutes for an explicit version. This reconciliation does not
+accept O→H→L→C as observed chronology or authorize its execution.
 
 The modeling layer consumes the **same strategy-owned** `ArmIntent`,
 `ArmedPolicyIntent`, `StrategyEntryFillView` and
@@ -170,7 +171,7 @@ allowlisted, versioned set of known assumptions, **not a strategy DSL**.
 ### Sibling #255 concrete candidate — reviewed, NOT approved
 
 The corrected sibling validation draft in [PR #257](https://github.com/harishkamathuk/signalforge/pull/257),
-head `b0a62520a1fd1a1689b9b9e517bc558683b12230`, proposes the
+head `1ba45856bc4598d80c4e02bfe1776139bbe13713`, proposes the
 **single** assumption set `BTC_OHLC_PATH_V1 / 0.1.0-proposal`.
 It is an architecturally representable candidate within the typed,
 allowlisted scenario lane, **not a selected historical path or an approved
@@ -190,9 +191,10 @@ scenario configuration**:
 **Outstanding explicit parent #253 Gate B choices:** approve/reject the named
 hypothetical path and monotone crossing interpretation, tie/expiry/gap/fill
 assumptions as one coherent versioned set, permissible coverage gate, and
-the study's separate outcome labels. The strategy owner (01) must
-independently return its semantic disposition. A scenario reaching a
-strictly ambiguous outcome does not change its strict evidence label.
+the study's separate outcome labels. Strategy owner 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED`
+on parent #253 for the unchanged proposed scenario semantics; this is not
+model approval. A scenario reaching a strictly ambiguous outcome does
+not change its strict evidence label.
 
 **Research method clarification:** zero `SCENARIO_UNSUPPORTED` is the
 validation sibling's predeclared completeness threshold; the architecture
@@ -419,9 +421,11 @@ unilaterally approve strategy-rule changes.
 5. Acceptance of the companion ADR-011 amendment and #255 predeclared
    scenario-validation document **before** an implementation ticket.
 
-**Current coordination status:** #255 is open and no accepted scenario
-methodology has been published in this work item as of this proposal.
-Consequently the architecture is a *candidate for sibling review*, not
-an approved study specification. The proposal must be reconciled with #255
-on names, ordering rules, scenario economics, status/taxonomy and output
-interpretation before the parent makes any model decision.
+**Current coordination status:** #255 remains open; its corrected draft
+PR #257 at head `1ba45856bc4598d80c4e02bfe1776139bbe13713`
+explicitly reconciles all five subpolicy `(id, version)` pairs, proposed
+ordering, economics and evidence labels with this architecture. Strategy
+owner 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED` for the unchanged
+scenario semantics. This is **contract compatibility, not approval**:
+#253 Gate B must still accept or reject the material assumptions and
+methodology before either proposal becomes normative.
