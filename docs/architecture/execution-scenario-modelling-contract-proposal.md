@@ -82,11 +82,44 @@ Proposed immutable typed fields:
 
 | Type | Required field(s) | Validation |
 |---|---|---|
-| `ScenarioAssumptionSet` | `scenario_id`, `scenario_version`, `price_path_rule_id`, `price_path_rule_version`, `event_tie_policy_id`, `gap_policy_id`, `time_boundary_policy_id`, `fill_application_policy_id` | Exact registered enum/version; reject unknowns, missing or unapproved combinations |
+| `ScenarioAssumptionSet` | `scenario_id`, `scenario_version`, and **explicit `(id, version)` pairs** for `price_path_rule`, `event_tie_policy`, `gap_policy`, `time_boundary_policy`, and `fill_application_policy` | Exact registered immutable IDs and versions; reject missing, unapproved, conflicting or unknown combinations |
 | `ScenarioResearchRequest` | `mode=SCENARIO_RESEARCH`, source dataset/audit, strategy selection/config, explicit assumption set, frozen execution profile, simulator calculation version, measured boundaries | Strongly typed; no coercion from strict results; no external-data substitution |
 | `ScenarioObservationTrace` | 1m source bucket, observed O/H/L/C, path assumption/ordered *hypothetical* probes, causal strategy intent/guard, modeled fill/economics, assumption vs observation tags | Each invented step marked `ASSUMED`; no fake provider timestamp/tick ID |
 | `ScenarioLifecycleOutcome` | unique scenario run + opportunity IDs, terminal or OPEN/ARMED/unresolved state, conditional exit/reason/R, source-bar refs, assumption IDs, flags | Always `SCENARIO_CONDITIONED` or explicitly unsupported |
 | `ScenarioResearchResult` | provenance, complete/terminated flag, coverage, unsupported counts, conditional metrics, strict-reference IDs (comparison only), `execution_valid=false` | Never interchangeable with strict `HistoricalExecutionRunResult` |
+
+#### Canonical subpolicy identity — M1 contract correction
+
+Each of the five subpolicies is a **separate immutable structured pair**
+`{id: nonempty_str, version: nonempty_str}`, not a string with an inferred
+suffix. The full `ScenarioAssumptionSet` contains its own explicit
+`scenario_id` and `scenario_version` plus the five pairs and any
+declared numeric parameters. Versions are exact registered strings; a
+`_V1` suffix in an ID is **not** a version. Canonical serialization uses
+fixed field names, sorted keys, exact decimal strings and UTC-aware
+timestamps. Both the scenario version and **all five subpolicy IDs and
+versions** enter the assumption semantic hash. The versioned registry
+maps each pair to fixed semantics; changing any rule definition, tie,
+gap, cutoff, fill composition or numeric parameter requires a new
+version and semantic hash. Unknown or duplicate/conflicting
+registrations are invalid, not a reason to select a default.
+
+For cross-contract alignment, the **still-unapproved** #255 first candidate
+`BTC_OHLC_PATH_V1 / 0.1.0-proposal` maps to:
+
+| Subpolicy | Proposed ID | Proposed explicit version |
+|---|---|---|
+| Price path | `OPEN_HIGH_LOW_CLOSE` | `1.0.0-proposal` |
+| Event ties | `REJECT_SAME_LEVEL_TIE_V1` | `1.0.0-proposal` |
+| Gap | `OBSERVED_OPEN_FIRST_V1` | `1.0.0-proposal` |
+| Time boundary | `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1` | `1.0.0-proposal` |
+| Fill application | `RAW_PROFILE_AFTER_BASE_V1` | `1.0.0-proposal` |
+
+The four proposed `1.0.0-proposal` versions not yet present in
+#255 are **identity-format candidates**, not approved model revisions.
+Before parent Gate B, #255 must adopt or explicitly reconcile these
+exact pair mappings; they may not silently be assumed from `_V1`.
+None of this accepts the O→H→L→C path as observed chronology.
 
 The modeling layer consumes the **same strategy-owned** `ArmIntent`,
 `ArmedPolicyIntent`, `StrategyEntryFillView` and
@@ -211,17 +244,58 @@ A scenario calculation identity must include, at minimum:
 - code/repository revision where available as **actual** provenance, never
   fabricated historical metadata.
 
-Suggested canonical construction:
-`scenario_run_id = H(dataset_content_hash, source_proof_id, strategy_id,
-config_hash, indicator_version, scenario_assumption_semantic_hash,
-execution_profile_semantic_id, scenario_simulator_version,
-session_policy_id_version, measurement_window, pre_roll_boundary)`.
-Use deterministic, canonical Decimal/string, timezone-aware UTC and ordered
-source references. Include actual approved rule mapping; an ID or label
-alone is not sufficient. Result bytes and run IDs must repeat exactly for
-the same inputs and revision. A version/assumption/profile change must change
-the scenario-result identity. A strict result ID and scenario result ID
-must inhabit **distinct namespaces** even when their source windows match.
+#### Canonical execution manifest and identity — M2 contract correction
+
+The preceding list is **mandatory**, not optional metadata. Avoid an
+illustrative positional `H(...)` preimage that accidentally omits a
+field. Instead define a versioned canonical, typed
+`ScenarioExecutionManifest` with the following **complete minimum**
+identity-bearing groups (any newly authoritative result-changing input
+must be added to the mapping and calculation version before execution):
+
+| Manifest group | Required identity-bearing contents |
+|---|---|
+| `mode_and_schema` | `SCENARIO_RESEARCH` discriminator, scenario manifest schema version, scenario simulator calculation ID/version; disjoint strict-mode namespace |
+| `source` | provider/venue, instrument/contract ID, traded-price basis, immutable source-generation/audit proof ID, qualification status, dataset ID and exact content hash, resolution, full source interval, 1m coverage and 5m aggregation/digest identity |
+| `strategy` | strategy ID **and version**, canonical config ID **and hash**, indicator engine calculation ID/version, completed-candle requirements where identity-relevant |
+| `assumptions` | scenario ID **and version**, full canonical five-subpolicy `(id, version)` mapping, all numerical options and `scenario_assumption_semantic_hash` |
+| `fills` | frozen RAW execution profile ID **and version** and exact semantic mapping/hash (not just friendly name), price mode, historically unresolved tick-applicability marker |
+| `session_and_window` | market/session policy ID **and version**, UTC pre-roll start/end and measured IS/OOS boundaries, including their half-open semantics |
+| `resource_policy` | explicit versioned budget-policy ID and semantic hash, **all finite computational limits** governing allowed state/event/transition counts and evidence/trace volume, plus exhaustion behavior |
+| `implementation` | actual source-code/repository revision and canonicalization/calculation versions used for the run; never inferred or invented provider/historical metadata |
+
+**Planned computation identity:**
+`scenario_run_id = H("scenario-run-v1", canonical(ScenarioExecutionManifest))`.
+The resource-policy semantic mapping **must be in this preimage**, so a
+different budget cap cannot silently share a run ID even if the input
+bars and model assumptions are identical. The manifest is validated and
+frozen **before** source iteration or outputs; defaults may not be
+injected afterwards. Do not use any result-computed digest in the
+run-ID preimage (avoid self-reference).
+
+**Produced result identity:**
+`scenario_result_id = H("scenario-result-v1", scenario_run_id,
+canonical(result_evidence_digest, completion_status,
+terminal_boundary, unresolved_reasons, output_schema_version))`.
+Every output records its run ID, full input manifest and canonical result
+digest; the latter binds the ordered causal/conditional evidence and
+measured decision coverage without overwriting a previously protected
+artifact. An exhaustion record must retain the **same** run ID, budget
+policy ID/version and limits, attempted count, last complete source
+bucket, failing source boundary, pre-failure lifecycle/state identifiers,
+reason and explicit `SCENARIO_UNSUPPORTED` / termination status. A
+budget change mandates a different run identity and output namespace.
+No partial/economically selected state may be reported as completed.
+
+Use deterministic canonical Decimal strings, sorted mapping fields,
+ordered lifecycle/source references, timezone-aware UTC timestamps and
+versioned serialization. The *same manifest and source* must reproduce
+identical result bytes and IDs; changing any source, strategy, config,
+scenario/subpolicy, fill, session, window, budget or calculation version
+must alter the appropriate calculation identity. Cross-version scenario
+IDs and strict result IDs occupy distinct namespaces. Future tests must
+prove identity separation, budget sensitivity, invalid/unknown fields,
+byte-identical replay and failure evidence.
 
 Output must be explicitly `SCENARIO_CONDITIONED` and
 `execution_valid=false`; never `PASS_DIAGNOSTIC`,
