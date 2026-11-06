@@ -234,3 +234,18 @@ Select it explicitly with
 calling `HistoricalBarExecutionRunner.run(...)`. Research provenance must
 retain both this calculation version and the existing source/profile identities.
 The frozen SF-096 prefix evidence must not be overwritten by any rerun.
+
+**SF-097 identity and deferred scope:** The v2 `BOUNDED_FLAT_V1` policy
+namespaces its run, signal and execution-opportunity IDs with the new simulator
+version, while preserving the v1 and NSE identity calculations exactly.
+A shared underlying candle interval is not itself an execution-outcome identity;
+cross-model joins must use the explicit dataset/strategy/config/interval and
+model-version columns, never a presumed shared opportunity ID.
+
+The separate `historical_possible_worlds` synthetic state-propagation proof
+retains pre-failure causal world IDs, the failing minute key and both finite
+resource budgets if enumeration exhausts. This evidence is intentionally
+`UNRESOLVED`, not a pruned or estimated continuation. Its resolver is
+caller-supplied, **not** a validated OHLCV-to-branch adapter. General continuation
+through still-possible OPEN states is deferred to GitHub #251 and is not
+supported by `BOUNDED_FLAT_V1`.
