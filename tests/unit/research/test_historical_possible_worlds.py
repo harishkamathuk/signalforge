@@ -124,6 +124,20 @@ def test_budget_exhaustion_produces_only_unresolved_not_pruned_worlds() -> None:
     assert result.worlds == ()
     assert result.unresolved_at == "2025-11-24T02:36Z"
     assert result.unresolved_reason == "world_budget_exhausted"
+    assert result.failing_world_ids == tuple(
+        sorted(world.identity for world in _ambiguous().worlds)
+    )
+    assert result.exhausted_budget == PropagationPolicy(max_worlds=2)
+    assert result == propagate(
+        _ambiguous(), "2025-11-24T02:36Z",
+        lambda w: (
+            (SupportedTransition(TransitionKind.EXIT, "stop", outcome_r=D("-1")),
+             SupportedTransition(TransitionKind.EXIT, "target", outcome_r=D("1.5")))
+            if w.lifecycle is Lifecycle.OPEN else
+            (SupportedTransition(TransitionKind.NOOP, "flat"),)
+        ),
+        PropagationPolicy(max_worlds=2),
+    )
     with pytest.raises(ValueError, match="cannot resume"):
         propagate(result, "2025-11-24T02:37Z", lambda _: (), PropagationPolicy())
 
@@ -135,6 +149,10 @@ def test_transition_budget_invalid_armless_entry_and_second_position() -> None:
         PropagationPolicy(max_total_transitions=2),
     )
     assert exhausted.unresolved_reason == "transition_budget_exhausted"
+    assert exhausted.exhausted_budget == PropagationPolicy(max_total_transitions=2)
+    assert exhausted.failing_world_ids == tuple(
+        sorted(w.identity for w in _ambiguous().worlds)
+    )
     with pytest.raises(ValueError, match="unsupported"):
         propagate(
             _ambiguous(), "2025-11-24T02:36Z",
