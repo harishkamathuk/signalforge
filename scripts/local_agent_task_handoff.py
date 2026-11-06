@@ -242,6 +242,33 @@ def _root(repo: Path) -> Path:
     return folder
 
 
+
+def seal_report(
+    *,
+    repo: Path,
+    task_path: Path,
+    candidate_path: Path,
+) -> Path:
+    """Seal a verified report once under the existing protected local root.
+
+    Operator review of the real Git diff and test evidence remains necessary.
+    A schema cannot prove that an agent obeyed approval restrictions.
+    """
+    task = load_json(task_path)
+    validate_task(task)
+    report = load_json(candidate_path)
+    validate_report(report, task)
+    folder = _root(repo).parent / "agent-reports"
+    if folder.is_symlink():
+        raise HandoffError("report directory may not be a symlink")
+    folder.mkdir(parents=True, mode=0o700, exist_ok=True)
+    if folder.is_symlink():
+        raise HandoffError("report directory changed into a symlink")
+    destination = folder / f"{task['task_id']}.json"
+    write_once(destination, canonical_bytes(report) + b"\n")
+    return destination
+
+
 def main() -> int:
     """Provide package preparation and validation, never execute a coding agent."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -256,6 +283,10 @@ def main() -> int:
     inspect = sub.add_parser("verify")
     inspect.add_argument("--task", required=True, type=Path)
     inspect.add_argument("--report", type=Path)
+    seal = sub.add_parser("seal-report")
+    seal.add_argument("--repo", required=True, type=Path)
+    seal.add_argument("--task", required=True, type=Path)
+    seal.add_argument("--candidate", required=True, type=Path)
     args = parser.parse_args()
     try:
         if args.action == "prepare":
@@ -279,6 +310,13 @@ def main() -> int:
             write_once(target, canonical_bytes(task) + b"\n")
             print(f"task_sha256={task['task_sha256']}")
             print(f"local_task={target}")
+        elif args.action == "seal-report":
+            destination = seal_report(
+                repo=args.repo.resolve(),
+                task_path=args.task,
+                candidate_path=args.candidate,
+            )
+            print(f"sealed_agent_report={destination}")
         else:
             task = load_json(args.task)
             validate_task(task)
