@@ -37,7 +37,9 @@ def _ambiguous() -> PropagationResult:
         _arm_first(), "2025-11-24T02:30Z",
         lambda _: (
             SupportedTransition(TransitionKind.EXPIRE, "invalidation_before_entry"),
-            SupportedTransition(TransitionKind.ENTER, "entry_before_invalidation_possible", _open()),
+            SupportedTransition(
+                TransitionKind.ENTER, "entry_before_invalidation_possible", _open()
+            ),
         ),
         PropagationPolicy(),
     )
