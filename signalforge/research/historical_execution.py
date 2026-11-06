@@ -866,6 +866,17 @@ def _process_armed_bar(
     invalidated = invalidation is not None and bar.low.value <= invalidation.price.value
     gap = bar.open.value >= active.view.tradable_trigger.value
 
+    # Observed bar OPEN precedes every intrabar trigger. Do not preserve a
+    # fictitious entry branch if the accepted invalidation has already fired
+    # at that first observed price. Keep v1 behaviour unchanged.
+    if (
+        continuation_policy is HistoricalContinuationPolicy.BOUNDED_FLAT_V1
+        and invalidation is not None
+        and not gap
+        and bar.open.value <= invalidation.price.value
+    ):
+        return _expired(active, "pre_entry_invalidation_at_bar_open")
+
     competing: list[HistoricalAmbiguityReason] = []
     if trigger and not gap:
         for boundary, reason in (
