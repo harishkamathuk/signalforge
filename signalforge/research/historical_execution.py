@@ -23,6 +23,7 @@ from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import MarketSessionPolicyIdentity, RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval, to_ist
+from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalBarDataset,
@@ -360,6 +361,7 @@ class HistoricalExecutionSummary:
     determinate_subset_expectancy_r: Decimal | None
     determinate_subset_profit_factor_r: Decimal | None
     determinate_subset_max_drawdown_r: Decimal
+    blocked_non_actionable_signals: int | None = None
 
     def semantic_mapping(self) -> dict[str, object]:
         return {
@@ -373,6 +375,8 @@ class HistoricalExecutionSummary:
             "determinate_subset_expectancy_r": self.determinate_subset_expectancy_r,
             "determinate_subset_profit_factor_r": self.determinate_subset_profit_factor_r,
             "determinate_subset_max_drawdown_r": self.determinate_subset_max_drawdown_r,
+            **({"blocked_non_actionable_signals": self.blocked_non_actionable_signals}
+               if self.blocked_non_actionable_signals is not None else {}),
         }
 
 
@@ -491,17 +495,21 @@ class HistoricalBarExecutionRunner:
         tick_schedule: TickSizeSchedule | None,
         execution_profile: HistoricalExecutionAssumptionProfile,
         market_session_policy: HistoricalSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
-        source_diagnostic_id: str | None = None,
+        raw_source: RawDiagnosticSource | None = None,
         measurement_start: datetime | None = None,
     ) -> HistoricalExecutionRunResult:
         raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
+        # Evidence and bars travel as one audited bundle, never as caller-paired IDs.
+        source_diagnostic_id = None if raw_source is None else raw_source.source_diagnostic_id
         if raw:
             if tick_schedule is not None:
                 raise ValueError("RAW_DIAGNOSTIC must not accept a historical tick schedule")
             if market_session_policy is not CONTINUOUS_HISTORICAL_SESSION_POLICY:
                 raise ValueError("RAW_DIAGNOSTIC requires continuous historical session policy")
-            if not source_diagnostic_id or not source_diagnostic_id.strip():
-                raise ValueError("RAW_DIAGNOSTIC requires a source diagnostic evidence identity")
+            if raw_source is None:
+                raise ValueError("RAW_DIAGNOSTIC requires a provenance-bound raw source")
+            if raw_source.dataset is not dataset:
+                raise ValueError("RAW_DIAGNOSTIC dataset must be the raw source dataset")
             if dataset.manifest.grid is None:
                 raise ValueError("RAW_DIAGNOSTIC requires explicit continuous grid")
             if dataset.manifest.price_basis is not HistoricalPriceBasis.TRADED:
@@ -530,7 +538,7 @@ class HistoricalBarExecutionRunner:
                 raise ValueError("TickSizeSchedule instrument must match historical dataset")
             if market_session_policy is not NSE_INTRADAY_MARKET_SESSION_POLICY:
                 raise ValueError("Execution-valid historical mode requires NSE session policy")
-            if source_diagnostic_id is not None or measurement_start is not None:
+            if raw_source is not None or measurement_start is not None:
                 raise ValueError("Raw research identity requires RAW_DIAGNOSTIC")
         strategy = self._registry.resolve(strategy_selection)
         if raw and (
@@ -1250,7 +1258,7 @@ def _result(
             else _tick_schedule_semantic_id(tick_schedule)
         ),
         outcomes=tuple(output),
-        summary=_summary(outcomes),
+        summary=_summary(outcomes, raw=raw),
         terminated_early=terminated,
         execution_valid=not raw,
         market_session_policy_identity=session.identity,
@@ -1280,18 +1288,25 @@ def _tick_schedule_semantic_id(schedule: TickSizeSchedule) -> str:
     )
 
 
-def _summary(outcomes: list[HistoricalExecutionOutcome]) -> HistoricalExecutionSummary:
-    total = len(outcomes)
+def _summary(
+    outcomes: list[HistoricalExecutionOutcome], *, raw: bool = False
+) -> HistoricalExecutionSummary:
+    # A qualifying signal during an OPEN/ARMED lifecycle is audit evidence,
+    # not another actionable opportunity. Preserve legacy NSE summary identity.
+    actionable = (
+        [o for o in outcomes if o.terminal_state is not HistoricalTerminalState.BLOCKED]
+        if raw else outcomes
+    )
+    total = len(actionable)
     determinate = [
-        o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.DETERMINATE
+        o for o in actionable if o.certainty is HistoricalOutcomeCertainty.DETERMINATE
     ]
     bounded = [
-        o
-        for o in outcomes
+        o for o in actionable
         if o.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
     ]
     unresolved = [
-        o for o in outcomes if o.certainty is HistoricalOutcomeCertainty.UNRESOLVED
+        o for o in actionable if o.certainty is HistoricalOutcomeCertainty.UNRESOLVED
     ]
     closed = [
         o
@@ -1324,4 +1339,5 @@ def _summary(outcomes: list[HistoricalExecutionOutcome]) -> HistoricalExecutionS
         expectancy,
         profit_factor,
         max_dd,
+        len(outcomes) - len(actionable) if raw else None,
     )
