@@ -8,7 +8,6 @@ anything to Google Drive.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -17,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from scripts.local_execution_evidence import (
-    HandoffError,
     REPOSITORY,
+    HandoffError,
     canonical_bytes,
     digest,
     validate_checkout,
@@ -161,7 +160,11 @@ def validate_report(report: dict[str, Any], task: dict[str, Any]) -> None:
     evidence before recording readiness.
     """
     validate_task(task)
-    if set(report) != REPORT_KEYS or type(report["version"]) is not int or report["version"] != VERSION:
+    if (
+        set(report) != REPORT_KEYS
+        or type(report["version"]) is not int
+        or report["version"] != VERSION
+    ):
         raise HandoffError("unsupported agent report contract")
     for key, source in (
         ("task_id", "task_id"), ("task_sha256", "task_sha256"),
@@ -176,7 +179,11 @@ def validate_report(report: dict[str, Any], task: dict[str, Any]) -> None:
     if report["observed_base_revision"] != task["base_revision"]:
         raise HandoffError("agent started at unexpected Git revision")
     changed = report["changed_files"]
-    if not isinstance(changed, list) or len(changed) > MAX_PATHS or len(set(changed)) != len(changed):
+    if (
+        not isinstance(changed, list)
+        or len(changed) > MAX_PATHS
+        or len(set(changed)) != len(changed)
+    ):
         raise HandoffError("invalid changed-file listing")
     if any(not _is_safe_path(p) or p not in task["allowed_paths"] for p in changed):
         raise HandoffError("agent claims out-of-scope changes")
@@ -193,7 +200,10 @@ def validate_report(report: dict[str, Any], task: dict[str, Any]) -> None:
             raise HandoffError("invalid test evidence")
         if entry["status"] == "PASS" and entry["exit_code"] != 0:
             raise HandoffError("contradictory PASS check")
-    if not _checked_strings(report["operator_approvals"], limit=12, length=120) and report["operator_approvals"] != []:
+    if (
+        not _checked_strings(report["operator_approvals"], limit=12, length=120)
+        and report["operator_approvals"] != []
+    ):
         raise HandoffError("invalid operator approval declarations")
     if not isinstance(report["findings"], list) or len(report["findings"]) > 12 or any(
         not isinstance(v, str) or len(v) > 200 for v in report["findings"]
@@ -206,7 +216,10 @@ def validate_report(report: dict[str, Any], task: dict[str, Any]) -> None:
         any(c["status"] != "PASS" for c in report["checks"])
     ):
         raise HandoffError("PASS without changed files and passing checks")
-    if not isinstance(report["report_sha256"], str) or not HASH_RE.fullmatch(report["report_sha256"]) or (
+    if (
+        not isinstance(report["report_sha256"], str)
+        or not HASH_RE.fullmatch(report["report_sha256"])
+        or (
         report["report_sha256"] != digest(report, "report_sha256")
     ):
         raise HandoffError("invalid agent report digest")
