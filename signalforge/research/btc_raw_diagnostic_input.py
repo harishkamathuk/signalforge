@@ -45,7 +45,12 @@ FROZEN_FIVE_MINUTE_CLOSE_SHA256 = (
 )
 
 
-_PROTECTED_AUDIT_PROOF = object()
+@dataclass(frozen=True, slots=True)
+class _ProtectedAuditProof:
+    """Bind one audited evidence generation to exact canonical diagnostic bars."""
+
+    dataset_content_hash: str
+    source_diagnostic_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +66,19 @@ class RawDiagnosticSource:
         # A production evidence ID is minted only after the protected source audit.
         # Public synthetic fixtures cannot impersonate the predeclared generation.
         if self.source_diagnostic_id == FROZEN_PROVISIONAL_REPORT_SHA256:
-            if self._audit_proof is not _PROTECTED_AUDIT_PROOF:
+            proof = self._audit_proof
+            if not isinstance(proof, _ProtectedAuditProof):
                 raise ValueError("Frozen source identity requires protected evidence audit")
+            # A copied/replaced bundle cannot carry the audit of different bars.
+            if (
+                proof.source_diagnostic_id != self.source_diagnostic_id
+                or proof.dataset_content_hash != self.dataset.content_hash
+            ):
+                raise ValueError("Frozen source evidence does not match diagnostic dataset")
         elif not self.source_diagnostic_id.startswith("synthetic-"):
             raise ValueError("Unaudited raw source must have synthetic-only identity")
+        elif self._audit_proof is not None:
+            raise ValueError("Synthetic raw source cannot carry protected audit proof")
         if self.execution_valid:
             raise ValueError("Protected raw diagnostic evidence is never execution-valid")
         if not self.source_diagnostic_id.strip():
@@ -184,5 +198,8 @@ def load_sf095_raw_diagnostic_source(generation_dir: Path) -> RawDiagnosticSourc
     )
     return RawDiagnosticSource(
         dataset=dataset, source_diagnostic_id=FROZEN_PROVISIONAL_REPORT_SHA256,
-        _audit_proof=_PROTECTED_AUDIT_PROOF,
+        _audit_proof=_ProtectedAuditProof(
+            dataset_content_hash=dataset.content_hash,
+            source_diagnostic_id=FROZEN_PROVISIONAL_REPORT_SHA256,
+        ),
     )
