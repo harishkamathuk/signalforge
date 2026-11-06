@@ -28,6 +28,7 @@ from signalforge.research.historical_bars import (
     HistoricalPriceBasis,
     load_historical_bar_fixture,
 )
+from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.historical_execution import (
     CONTINUOUS_HISTORICAL_SESSION_POLICY,
     HistoricalAmbiguityReason,
@@ -186,6 +187,7 @@ def _synthetic_continuous_dataset() -> HistoricalBarDataset:
         resolved_provider_instrument="BTCUSD",
         expected_session_dates=(),
         price_basis=HistoricalPriceBasis.TRADED,
+        limitations=("UNQUALIFIED_HISTORICAL_METADATA", "SYNTHETIC_TEST_ONLY"),
         grid=HistoricalBarGrid(
             "continuous-test", "1",
             (CandleInterval(start, start + timedelta(minutes=minutes)),),
@@ -235,7 +237,7 @@ def test_raw_diagnostic_cross_midnight_open_remains_unresolved():
         tick_schedule=None,
         execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
         market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
-        source_diagnostic_id="synthetic-only-test-source",
+        raw_source=RawDiagnosticSource(dataset, "synthetic-only-test-source"),
         measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
     )
     first = runner.run(dataset, **arguments)
@@ -274,7 +276,7 @@ def test_diagnostic_cannot_masquerade_as_execution_valid():
             dataset, strategy_selection=SELECTION,
             engine_calculation_version="engine-v1", tick_schedule=None,
             execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
-            source_diagnostic_id="test-evidence",
+            raw_source=RawDiagnosticSource(dataset, "test-evidence"),
             measurement_start=dataset.manifest.requested_start + timedelta(minutes=250 * 5),
         )
     with pytest.raises(ValueError, match="source diagnostic"):
@@ -327,7 +329,7 @@ def _raw_run(dataset, *, profile=None, runner=None, measurement_start=None):
         tick_schedule=None,
         execution_profile=profile or HistoricalExecutionAssumptionProfile.reference_raw(),
         market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
-        source_diagnostic_id="synthetic-only-test-source",
+        raw_source=RawDiagnosticSource(dataset, "synthetic-only-test-source"),
         measurement_start=measurement_start or (
             dataset.manifest.requested_start + timedelta(minutes=250 * 5)
         ),
@@ -446,3 +448,65 @@ def test_raw_diagnostic_rejects_unaligned_measurement_start_and_mutable_status()
             "REFERENCE_RAW", "1.0.0", Decimal("10"), Decimal("0"), Decimal("0"),
             Decimal("0"), "unresolved", HistoricalPriceMode.RAW_DIAGNOSTIC
         )
+
+def test_raw_rejects_cross_paired_source_and_dataset() -> None:
+    first = _synthetic_continuous_dataset()
+    altered_bars = list(first.bars)
+    altered_bars[0] = replace(altered_bars[0], high=Price(Decimal("101")))
+    second = HistoricalBarDataset(first.manifest, tuple(altered_bars))
+    verified = RawDiagnosticSource(first, "frozen-evidence-hash")
+    with pytest.raises(ValueError, match="raw source dataset"):
+        _synthetic_runner(251).run(
+            second,
+            strategy_selection=SELECTION,
+            engine_calculation_version="engine-v1",
+            tick_schedule=None,
+            execution_profile=HistoricalExecutionAssumptionProfile.reference_raw(),
+            market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+            raw_source=verified,
+            measurement_start=second.manifest.requested_start + timedelta(minutes=250 * 5),
+        )
+
+
+def test_blocked_btc_signals_are_not_actionable_opportunities() -> None:
+    dataset = _synthetic_continuous_dataset()
+
+    class _RepeatedSignals(_SyntheticTrigger):
+        def evaluate_completed_candle(
+            self, context: CompletedCandleStrategyContext
+        ) -> BtcMomentumBaselineDecision:
+            count = context.completed_regular_session_candles
+            active = count >= 251
+            return BtcMomentumBaselineDecision(
+                context.candle.instrument_id,
+                context.candle.interval,
+                active,
+                active,
+                ("synthetic_repeat",),
+                None,
+            )
+
+    runner = HistoricalBarExecutionRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            "btc_momentum_baseline_v0", "0.1.0-experimental",
+            lambda _: _RepeatedSignals(BtcMomentumBaselineV0Config()),
+        ),
+    )))
+    result = _raw_run(dataset, runner=runner)
+    assert result.summary.total_actionable_opportunities == 1
+    assert result.summary.blocked_non_actionable_signals == 4
+    assert result.summary.unresolved_opportunities == 1
+    assert result.summary.determinate_opportunities == 0
+    assert result.summary.determinate_coverage_rate == Decimal("0")
+    assert len(result.outcomes) == 5
+    assert result.semantic_mapping()["summary"]["blocked_non_actionable_signals"] == 4
+
+
+def test_btc_macd_values_retained_without_filtering() -> None:
+    decision = DEFAULT_STRATEGY_REGISTRY.resolve(SELECTION).evaluate_completed_candle(
+        _context()
+    )
+    assert decision.actionable
+    assert "macd_line=0" in decision.reasons
+    assert "macd_signal=-1" in decision.reasons
+    assert "macd_histogram=1" in decision.reasons
