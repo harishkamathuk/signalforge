@@ -193,5 +193,17 @@ In RAW_DIAGNOSTIC summaries, qualified candles blocked by an existing ARMED
 or OPEN lifecycle remain auditable in `outcomes` and are counted separately as
 `blocked_non_actionable_signals`; they do not inflate `total_actionable_opportunities`
 or determinate-coverage denominators. Legacy execution-valid NSE summary identity
-remains unchanged. Retained qualifying BTC signal decisions also carry raw Decimal
-MACD line, signal and histogram observations as non-filter diagnostics.
+remains unchanged. For RAW_DIAGNOSTIC, `raw_decision_evidence` now retains each measured completed
+five-minute candle's decision/rejection reasons, readiness, blocked-by-active
+status, and raw Decimal MACD line/signal/histogram. The trace is included in the
+raw result semantic identity; pre-roll is excluded and NSE result mappings are
+unchanged. MACD remains non-mandatory for strategy qualification.
+
+Audited source bundles additionally bind the frozen evidence identity to the
+exact diagnostic dataset content hash. Replacing the dataset while copying the
+audit proof is rejected before research execution. Synthetic-only source
+identities remain available for unit tests.
+
+Intrabar entry-versus-exit ambiguous branches use the selected RAW_DIAGNOSTIC
+sell-fill slippage before calculating possible R outcomes. Existing NSE
+execution-valid legacy ambiguity output remains unchanged.
