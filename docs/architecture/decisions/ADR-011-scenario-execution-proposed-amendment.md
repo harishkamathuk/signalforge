@@ -99,10 +99,10 @@ changes; and a generic strategy DSL.
 |---|---|---|
 | Research-only, typed scenario lane | Separate runner/request/result and explicit mode | Direction for specification only (#253) |
 | Single declared ordered OHLC path | Minimal candidate | **NOT APPROVED** |
-| Specific high/low order | Unselected | **NOT APPROVED** |
-| Ties and timed cutoffs | Explicit typed policy or fail closed | **NOT APPROVED** |
-| Gap/fill profiles | Preserve existing observed-gap semantics and declared raw profiles | Candidate, sibling validation review required |
-| Conditional output labels | `SCENARIO_CONDITIONED` and `SCENARIO_UNSUPPORTED` | Candidate, reconcile with #255 |
+| Specific high/low order | #255 proposes O-H-L-C under `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, monotone segment crossings | **NOT APPROVED** |
+| Ties and timed cutoffs | #255 proposes reject order-changing level ties; process final 1m Close before 5m validity expiry; unsupported in-minute cutoffs | **NOT APPROVED** |
+| Gap/fill profiles | #255 proposes observed Open base followed by one RAW profile application and fill-based target | **NOT APPROVED** |
+| Conditional output labels | `SCENARIO_CONDITIONED`/`SCENARIO_UNSUPPORTED`; separate `SCENARIO_METHOD_VALID/INVALID/INCONCLUSIVE` methodology labels | **NOT APPROVED** |
 | New result namespace/provenance | Required | Proposed architecture, approval pending |
 | Actual code/experiments | None | **NOT AUTHORIZED** |
 
@@ -110,3 +110,13 @@ changes; and a generic strategy DSL.
 [`execution-scenario-modelling-contract-proposal.md`](../execution-scenario-modelling-contract-proposal.md).
 **Cross-review:** #255 (04 validation); 01 (strategy semantic owner); #253
 (parent acceptance); accepted ADR-008/ADR-011 and SF-094 strategy/validation.
+
+**Sibling cross-contract review (non-operative):** PR #257's corrected
+`BTC_OHLC_PATH_V1 / 0.1.0-proposal` defines a candidate O-H-L-C monotone
+hypothetical path, strict equal-level tie rejection, observed-bar-open gap
+base, known end-of-5m expiry after final minute Close, and one-time raw
+profile fill composition. These are representable by the proposed typed
+boundary and are **not** accepted as market chronology, strategy rules or
+executable scenario defaults. The proposed zero-unsupported completeness
+criterion and methodology labels belong to #255; 01 semantic ownership
+and #253 Gate B remain required before this draft becomes normative.
