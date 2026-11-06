@@ -59,13 +59,22 @@ target is computed **after** the modeled entry fill from accepted strategy
 economics, and slippage uses the explicitly selected predeclared
 execution-assumption profile. An observed gap-through uses observed bar-open
 evidence rather than silently filling at the trigger. UTC midnight is not
-an exit. Unsupported crossing/tie/cutoff/gap cases, missing evidence,
+an exit. For the **frozen BTC five-minute validity** only, process the
+last constituent one-minute bar through its Close, expire a still-ARMED
+prior setup at that known boundary, evaluate the newly completed
+five-minute candle for a permitted fresh independent setup, then
+process the next one-minute Open. An OPEN position remains active and
+blocks new setups. A prior expired setup never observes the next Open;
+a fresh setup never retroactively observes the previous Close.
+This restates the accepted BTC strategy rule, does not fabricate
+within-minute time and does not modify the strict historical runner
+or its immutable evidence. Unsupported crossing/tie/cutoff/gap cases, missing evidence,
 non-positive risk, contradictory configuration, source corruption or
 resource-budget exhaustion fail explicitly rather than choosing a
 favorable/adverse outcome or resetting lifecycle state.
 
-A scenario result must retain and bind to a **versioned canonical
-execution manifest** before processing:
+A scenario run must **freeze a versioned canonical, pre-run input-only
+execution manifest before processing**. Its run-ID preimage contains:
 
 1. a `SCENARIO_RESEARCH` namespace/schema; audited dataset identity,
    provider/venue/instrument/traded-price basis, generation/audit ID,
@@ -82,12 +91,12 @@ execution manifest** before processing:
 4. finite, explicit resource limits for state/transition/event/evidence
    volume, a versioned **resource-budget policy ID/semantic hash**, and
    fail-closed exhaustion behavior; the actual repository/calculation
-   revision and canonical serializer version;
-5. distinct planned `scenario_run_id` and produced `scenario_result_id`,
-   scenario opportunity identities, assumption-vs-observation trace,
-   rejected/unsupported cases, conditioned modeled R and preserved
-   conditional OPEN/ARMED terminal state; protected, non-overwriting
-   output location and canonical evidence hash.
+   revision and canonical serializer version.
+
+**Only pre-run inputs are hashed into the run ID.** The run ID itself,
+produced scenario opportunities, observations, output/result identities,
+completion or terminal state, output location and evidence digest do
+**not** enter the pre-run manifest or its run-ID preimage.
 
 Define `scenario_run_id` as a domain-separated hash over the **complete
 canonical pre-run manifest**, explicitly including resource policy,
@@ -96,7 +105,12 @@ changed budget or model/version must change the run identity even if
 nothing else changes. The result ID is separately derived from the
 run ID, canonical output evidence digest, completion/termination state
 and failure boundary, with **no output digest included in the run-ID
-preimage**. At budget exhaustion the record must preserve input/run
+preimage**. Every **produced result, outside that manifest**, retains
+its planned `scenario_run_id`, derived `scenario_result_id`, scenario
+opportunity IDs, assumption-vs-observation causal trace,
+rejected/unsupported cases, modeled R, conditional OPEN/ARMED terminal
+state, canonical evidence hash and protected non-overwriting output
+location. At budget exhaustion the record must preserve input/run
 identity, all budget limits, attempted count, last complete/failing
 source boundary, pre-failure causal state IDs, reason and explicit
 unsupported/terminated status. It cannot quietly return or prune a
