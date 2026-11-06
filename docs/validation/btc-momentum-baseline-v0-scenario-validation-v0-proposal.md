@@ -115,11 +115,11 @@ The exact named/versioned `ScenarioAssumptionSet` must be accepted before result
 canonical semantic mapping must include:
 
 - scenario ID and version;
-- price-path rule ID/version;
-- event-tie policy ID/version;
-- gap policy ID/version;
-- time-boundary/cutoff policy ID/version;
-- fill-application policy ID/version;
+- explicit immutable `(id, version)` pair for the price-path rule;
+- explicit immutable `(id, version)` pair for the event-tie policy;
+- explicit immutable `(id, version)` pair for the gap policy;
+- explicit immutable `(id, version)` pair for the time-boundary/cutoff policy;
+- explicit immutable `(id, version)` pair for the fill-application policy;
 - all numeric parameters, if any;
 - canonical semantic hash.
 
@@ -135,8 +135,7 @@ This is a **proposal only**. It is not operative until #254/01/#253 Gate B accep
 
 Canonical proposed semantics:
 
-- `price_path_rule_id = OPEN_HIGH_LOW_CLOSE`
-- `price_path_rule_version = 1.0.0-proposal`
+- `price_path_rule = {id: OPEN_HIGH_LOW_CLOSE, version: 1.0.0-proposal}`
 - each valid observed one-minute candle is traversed hypothetically as
   **Open → High → Low → Close**;
 - each adjacent pair of those four observed values is treated as a continuous monotone
@@ -154,16 +153,16 @@ Canonical proposed semantics:
 - expiry occurs at the already-known end of the immediately following five-minute validity window,
   **after** processing the final constituent one-minute candle up to its observed Close; no
   fractional-minute expiry timestamp is invented;
-- `event_tie_policy_id = REJECT_SAME_LEVEL_TIE_V1`: if two lifecycle events are reached at the
+- `event_tie_policy = {id: REJECT_SAME_LEVEL_TIE_V1, version: 1.0.0-proposal}`: if two lifecycle events are reached at the
   same hypothetical level/location and ordering would change the lifecycle/economics, classify the
   opportunity `SCENARIO_UNSUPPORTED`; do not apply favourable/adverse precedence;
-- `gap_policy_id = OBSERVED_OPEN_FIRST_V1`: if the observed one-minute Open is already beyond a
+- `gap_policy = {id: OBSERVED_OPEN_FIRST_V1, version: 1.0.0-proposal}`: if the observed one-minute Open is already beyond a
   relevant entry/stop/target barrier, the observed Open is the modeled base price before profile
   slippage; do not improve the fill back to the barrier;
-- `time_boundary_policy_id = FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1`: only the strategy's known
+- `time_boundary_policy = {id: FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1, version: 1.0.0-proposal}`: only the strategy's known
   five-minute validity boundary is modeled; any future strategy/session rule requiring an unknown
   in-minute cutoff remains `SCENARIO_UNSUPPORTED`;
-- `fill_application_policy_id = RAW_PROFILE_AFTER_BASE_V1`: determine the modeled base fill from
+- `fill_application_policy = {id: RAW_PROFILE_AFTER_BASE_V1, version: 1.0.0-proposal}`: determine the modeled base fill from
   the declared path/gap rule first, then apply the selected frozen raw execution profile exactly once.
 
 This scenario is intentionally **not** claimed to be more likely than O-L-H-C or actual market
@@ -496,7 +495,7 @@ A future sanitized report must allow an independent reviewer to verify:
 - warm-up, IS and OOS bounds;
 - strategy ID/version/config hash;
 - execution profile IDs/versions;
-- scenario assumption ID/version/full canonical mapping/hash;
+- scenario assumption ID/version/full canonical mapping/hash, including all five explicit subpolicy `(id, version)` pairs;
 - simulator and indicator calculation versions;
 - market/session identity;
 - `execution_valid=false`.
@@ -558,19 +557,48 @@ This validation proposal does **not** approve SF-254's material model choices.
 
 The following remain Gate B decisions:
 
-1. exact first price path rule;
+1. whether parent Gate B accepts the proposed `OPEN_HIGH_LOW_CLOSE / 1.0.0-proposal` price-path rule;
 2. single scenario versus fixed preregistered scenario set;
-3. monotone interpolation meaning, if any;
-4. event-tie precedence;
-5. gap handling;
-6. cutoff/expiry ordering;
-7. scenario fill application interaction with raw profiles;
+3. whether parent accepts the proposed monotone level-traversal meaning;
+4. whether parent accepts `REJECT_SAME_LEVEL_TIE_V1 / 1.0.0-proposal`;
+5. whether parent accepts `OBSERVED_OPEN_FIRST_V1 / 1.0.0-proposal`;
+6. whether parent accepts `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1 / 1.0.0-proposal`;
+7. whether parent accepts `RAW_PROFILE_AFTER_BASE_V1 / 1.0.0-proposal` with the frozen raw profiles;
 8. whether parent Gate B accepts the proposed **full-grid + zero-unsupported** completeness rule;
 9. any economic interpretation thresholds;
 10. final accepted result/status names.
 
 If #254 changes the taxonomy or typed assumption boundary before acceptance, this document must be
 reconciled before Gate B.
+
+
+### 13.1 Reconciliation status with corrected SF-254 architecture
+
+The corrected SF-254 architecture proposal at PR #256 head
+`197aca316dfe7062924bef8cfc212b05b1e1e7aa` has reviewed this concrete
+scenario as **architecturally compatible, not approved**.
+
+This validation proposal adopts SF-254's corrected identity-format requirement:
+
+- every scenario subpolicy is represented by an explicit immutable `(id, version)` pair;
+- the `_V1` suffix in an ID is not treated as a semantic version;
+- the scenario semantic hash must bind the exact scenario ID/version, all five subpolicy pairs,
+  numeric parameters and registered rule meanings;
+- changing any subpolicy meaning or version creates a different scenario assumption identity.
+
+For `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, the canonical proposed mapping is:
+
+| Subpolicy | ID | Version |
+|---|---|---|
+| Price path | `OPEN_HIGH_LOW_CLOSE` | `1.0.0-proposal` |
+| Event ties | `REJECT_SAME_LEVEL_TIE_V1` | `1.0.0-proposal` |
+| Gap handling | `OBSERVED_OPEN_FIRST_V1` | `1.0.0-proposal` |
+| Time boundary | `FIVE_MINUTE_EXPIRY_AFTER_FINAL_CLOSE_V1` | `1.0.0-proposal` |
+| Fill application | `RAW_PROFILE_AFTER_BASE_V1` | `1.0.0-proposal` |
+
+This resolves the previously identified cross-contract identity-format mismatch.
+It does **not** approve any of those assumptions. Parent #253 Gate B and 01 strategy-owner review
+remain required before the mapping can become operative.
 
 ## 14. Explicit non-goals
 
