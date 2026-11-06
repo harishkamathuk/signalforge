@@ -1,10 +1,12 @@
 # ADR-011 — Proposed amendment: assumption-conditioned execution scenarios
 
-**Status: PROPOSED, NOT ACCEPTED.** This file is a review artifact for
+**Status: PROPOSED / NOT NORMATIVELY ACCEPTED OR OPERATIVE.** Parent #253 has approved the specific scenario assumption selection for **specification finalisation only** in [owner decision #6694636203](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6694636203). This file is a review artifact for
 SF-254 / #254 under parent #253, *not* a change to the Accepted status or
 requirements of [ADR-011](ADR-011-historical-execution-and-ambiguity-semantics.md).
-No scenario price path, simulator, experiment or trade interpretation is
-approved by creating, reviewing or merging a **draft** of this document.
+The selected hypothetical path and subpolicies have owner approval for
+**specification finalisation**, but creating or reviewing this draft does
+not grant normative status, historical chronology, implementation,
+experiment or trading authority.
 The text below is a candidate addendum to ADR-011, to be accepted only
 through parent Gate B and strategy/validation cross-contract approval.
 
@@ -42,7 +44,8 @@ No default/inferred version or rule is permitted. #255's corrected
 PR #257 at head `1ba45856bc4598d80c4e02bfe1776139bbe13713`
 now explicitly provides the five reconciled `(id, version)` pairs,
 including `1.0.0-proposal` for all four formerly suffix-only rules.
-These are **proposed identities, not approved assumptions**. No
+These are **owner-approved assumption identities for specification
+finalisation only**, not yet operative normative rules. No
 strategy-specific signal/entry/stop/target formulas, arbitrary
 executable expressions, unversioned default path or after-the-fact
 branch selection are permitted.
@@ -111,12 +114,16 @@ and protected evidence stay immutable. General evidence-based OPEN-state
 possible-worlds propagation remains separately deferred to #251;
 scenario modelling does not claim exhaustive historical possibilities.
 
-Before any implementation, the parent #253 must explicitly accept:
-the selected first path rule(s), tie/cutoff/gap semantics, permitted
-assumption combinations, strict separation and versioning contract,
-sibling #255 research/metric interpretation and 01 strategy-owner
-disposition. No behavior defaults may be inferred from a merely proposed
-field name. The present directional approval is **contracts only**.
+The parent #253 has expressly **approved the first specific assumed
+path, tie/expiry/gap/fill composition, frozen-grid/zero-unsupported
+method threshold and separate method labels for specification finalisation**
+(see owner decision #6694636203); conversation 01 recorded
+`STRATEGY_SEMANTICS_UNCHANGED`. **Final normative Gate B acceptance is
+not complete**: exact-head cross-contract and DoD/independent-review
+requirements, formal acceptance of this ADR amendment and the separate
+#255 validation contract, and eligible merges remain to be satisfied.
+No behavior defaults may be inferred from merely proposed fields; no
+implementation issue, experiment or execution is authorized.
 
 ### Explicit non-goals / rejection
 
@@ -132,12 +139,12 @@ changes; and a generic strategy DSL.
 | Decision | Proposed candidate | Current authority |
 |---|---|---|
 | Research-only, typed scenario lane | Separate runner/request/result and explicit mode | Direction for specification only (#253) |
-| Single declared ordered OHLC path | Minimal candidate | **NOT APPROVED** |
-| Specific high/low order | #255 proposes O-H-L-C under `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, monotone segment crossings | **NOT APPROVED** |
-| Ties and timed cutoffs | #255 proposes reject order-changing level ties; process final 1m Close before 5m validity expiry; unsupported in-minute cutoffs | **NOT APPROVED** |
-| Gap/fill profiles | #255 proposes observed Open base followed by one RAW profile application and fill-based target | **NOT APPROVED** |
-| Conditional output labels | `SCENARIO_CONDITIONED`/`SCENARIO_UNSUPPORTED`; separate `SCENARIO_METHOD_VALID/INVALID/INCONCLUSIVE` methodology labels | **NOT APPROVED** |
-| New result namespace/provenance | Required | Proposed architecture, approval pending |
+| Single declared ordered OHLC path | One hypothetical path | **OWNER-APPROVED FOR SPECIFICATION FINALISATION ONLY; NOT OPERATIVE** |
+| Specific high/low order | O-H-L-C under `BTC_OHLC_PATH_V1 / 0.1.0-proposal`, monotone segment crossings | **OWNER-APPROVED FOR SPECIFICATION FINALISATION ONLY; NOT OPERATIVE** |
+| Ties and timed cutoffs | Reject order-changing level ties; process final 1m Close before 5m validity expiry; unsupported in-minute cutoffs | **OWNER-APPROVED FOR SPECIFICATION FINALISATION ONLY; NOT OPERATIVE** |
+| Gap/fill profiles | Observed Open base followed by one RAW profile application and fill-based target | **OWNER-APPROVED FOR SPECIFICATION FINALISATION ONLY; NOT OPERATIVE** |
+| Conditional output labels | `SCENARIO_CONDITIONED`/`SCENARIO_UNSUPPORTED`; separate `SCENARIO_METHOD_VALID/INVALID/INCONCLUSIVE` methodology labels | **METHOD LABELS OWNER-APPROVED FOR SPECIFICATION FINALISATION ONLY; NOT OPERATIVE** |
+| New result namespace/provenance | Required; preserve strict and scenario isolation | **FINAL NORMATIVE CONTRACT ACCEPTANCE PENDING** |
 | Actual code/experiments | None | **NOT AUTHORIZED** |
 
 **Rationale and examples:** see
@@ -152,18 +159,20 @@ base, known end-of-5m expiry after final minute Close, and one-time raw
 profile fill composition. These are representable by the proposed typed
 boundary and are **not** accepted as market chronology, strategy rules or
 executable scenario defaults. The proposed zero-unsupported completeness
-criterion and methodology labels belong to #255; 01 semantic ownership
-and #253 Gate B remain required before this draft becomes normative.
+criterion and methodology labels belong to #255; owner #253 has selected
+them for specification finalisation, while final normative Gate B/DoD
+and merge remain required before this draft becomes operative.
 
 **COR #256 — review M1/M2 (non-operative):** The typed architecture now
 requires explicit `(id, version)` pairs for each of five scenario
 subpolicies. The four previously suffix-only policies are now
 explicitly reconciled in #255/PR #257 at head
-`1ba45856bc4598d80c4e02bfe1776139bbe13713`, without approving
-any of the candidate scenario rules. The
+`1ba45856bc4598d80c4e02bfe1776139bbe13713`, without implying historical truth or final normative acceptance
+of the owner-selected research-only scenario rules. The
 separate canonical pre-run manifest fully binds strategy/config,
 source/data, assumption/profile, session/window, simulator and finite
 resource-budget policy; result identity and exhaust provenance are
 separate. None of these identity-format corrections grants permission
-to run O-H-L-C or accept the scenario methodology. Parent #253 Gate B
-and the strategy-owner/sibling prerequisites remain authoritative.
+to run O-H-L-C or treat its methodology as operative. The project owner
+has approved this assumption selection for specification finalisation;
+final Gate B normative acceptance and DoD remain authoritative.
