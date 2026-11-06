@@ -54,6 +54,18 @@ class HistoricalPriceMode(StrEnum):
     RAW_DIAGNOSTIC = "raw_diagnostic"
 
 
+class HistoricalContinuationPolicy(StrEnum):
+    """Optional versioned diagnostic continuation, never the default runner."""
+
+    FAIL_CLOSED_V1 = "fail_closed_v1"
+    BOUNDED_FLAT_V1 = "bounded_flat_v1"
+
+
+# Bounded-flat inference changes modelled research outcomes; keep a distinct
+# calculation identity and never rewrite historical-bar-execution-v1 results.
+BOUNDED_FLAT_SIMULATOR_VERSION = "historical-bar-execution-v2-bounded-flat"
+
+
 class HistoricalSessionPolicy(Protocol):
     """Historical projection of the shared SF-089 market/session policy boundary."""
 
@@ -531,10 +543,15 @@ class HistoricalBarExecutionRunner:
         market_session_policy: HistoricalSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
         raw_source: RawDiagnosticSource | None = None,
         measurement_start: datetime | None = None,
+        continuation_policy: HistoricalContinuationPolicy = (
+            HistoricalContinuationPolicy.FAIL_CLOSED_V1
+        ),
     ) -> HistoricalExecutionRunResult:
         raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
         # Evidence and bars travel as one audited bundle, never as caller-paired IDs.
         source_diagnostic_id = None if raw_source is None else raw_source.source_diagnostic_id
+        if not raw and continuation_policy is not HistoricalContinuationPolicy.FAIL_CLOSED_V1:
+            raise ValueError("Bounded-flat continuation is RAW_DIAGNOSTIC research only")
         if raw:
             if tick_schedule is not None:
                 raise ValueError("RAW_DIAGNOSTIC must not accept a historical tick schedule")
@@ -629,6 +646,7 @@ class HistoricalBarExecutionRunner:
                         source_diagnostic_id,
                         measurement_start,
                         raw_decisions,
+                        continuation_policy,
                     )
                 candle = next(c for c in candles if c.interval.contains(start))
                 engine.break_continuity()
@@ -642,6 +660,7 @@ class HistoricalBarExecutionRunner:
                     tick_schedule,
                     execution_profile,
                     market_session_policy,
+                    continuation_policy,
                 )
                 if terminal is not None:
                     outcomes.append(terminal)
@@ -658,6 +677,7 @@ class HistoricalBarExecutionRunner:
                             source_diagnostic_id,
                             measurement_start,
                             raw_decisions,
+                            continuation_policy,
                         )
                     active = None
 
@@ -745,6 +765,7 @@ class HistoricalBarExecutionRunner:
             source_diagnostic_id,
             measurement_start,
             raw_decisions,
+            continuation_policy,
         )
 
 
@@ -806,12 +827,15 @@ def _process_bar(
     ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
     session: HistoricalSessionPolicy,
+    continuation_policy: HistoricalContinuationPolicy,
 ) -> HistoricalExecutionOutcome | None:
     active.reachability.append(_reachability(active, bar, session))
     return (
         _process_open_bar(active, bar, ticks, profile, session)
         if active.is_open
-        else _process_armed_bar(active, bar, strategy, ticks, profile, session)
+        else _process_armed_bar(
+            active, bar, strategy, ticks, profile, session, continuation_policy
+        )
     )
 
 
@@ -822,6 +846,7 @@ def _process_armed_bar(
     ticks: TickSizeSchedule | None,
     profile: HistoricalExecutionAssumptionProfile,
     session: HistoricalSessionPolicy,
+    continuation_policy: HistoricalContinuationPolicy,
 ) -> HistoricalExecutionOutcome | None:
     start, end = bar.interval.start, bar.interval.end
     forced = session.compulsory_exit_at(start)
@@ -853,6 +878,22 @@ def _process_armed_bar(
         if len(competing) > 1:
             competing.append(HistoricalAmbiguityReason.MULTIPLE_COMPETING_ACTIONS)
         if competing:
+            # Only this narrow condition proves that *all* possible lifecycles
+            # end FLAT. If invalidation precedes entry the setup expires. If
+            # entry precedes invalidation, invalidation <= stop proves the
+            # stop was crossed after entry (or a reachable target closed first).
+            # A higher pre-entry invalidation or any competing time cutoff
+            # cannot safely use this inference.
+            if (
+                continuation_policy is HistoricalContinuationPolicy.BOUNDED_FLAT_V1
+                and profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
+                and invalidation is not None
+                and invalidation.price.value <= active.view.stop_price.value
+                and competing == [HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION]
+            ):
+                return _bounded_flat_entry_invalidation(
+                    active, bar, strategy, profile
+                )
             return _bounded(
                 active,
                 tuple(competing),
@@ -945,6 +986,73 @@ def _process_armed_bar(
     if gap:
         return _resolve_open_reaches(active, bar, ticks, profile)
     return None
+
+
+def _bounded_flat_entry_invalidation(
+    active: _Active,
+    bar: HistoricalBar,
+    strategy: Strategy,
+    profile: HistoricalExecutionAssumptionProfile,
+) -> HistoricalExecutionOutcome:
+    """Return bounded histories only if their shared future is provably FLAT.
+
+    An intrabar entry still has modeled, not observed, execution prices. The
+    conditional STOP (and, where reachable, TARGET) paths are not selected as
+    historical truth. Only the common final lifecycle state is established.
+    """
+    entry = _buy_fill(
+        active.view.tradable_trigger,
+        bar,
+        HistoricalFillTiming.INTRABAR_UNKNOWN,
+        profile.entry_slippage_bps,
+        None,
+    )
+    economics = strategy.post_fill_economics(
+        StrategyEntryFillView(entry.fill_price), active.view
+    )
+    if (
+        entry.fill_price.value <= active.view.stop_price.value
+        or economics.stop_price != active.view.stop_price
+        or economics.raw_target_price is None
+    ):
+        return _unresolved(
+            active,
+            (HistoricalAmbiguityReason.UNSUPPORTED_STRATEGY_POLICY,),
+            "bounded-flat continuation cannot establish supported positive-risk economics",
+        )
+    active.entry_fill = entry
+    active.raw_target = economics.raw_target_price
+    active.tradable_target = economics.raw_target_price
+    stop_fill = _sell_fill(
+        active.view.stop_price, bar, HistoricalFillTiming.INTRABAR_UNKNOWN,
+        profile.stop_slippage_bps, None,
+    )
+    branches = [
+        HistoricalPossibleOutcome(HistoricalTerminalState.EXPIRED, None, None),
+        HistoricalPossibleOutcome(
+            HistoricalTerminalState.CLOSED,
+            HistoricalExitReason.STOP,
+            _r(active, stop_fill.fill_price),
+        ),
+    ]
+    if bar.high.value >= economics.raw_target_price.value:
+        target_fill = _sell_fill(
+            economics.raw_target_price, bar, HistoricalFillTiming.INTRABAR_UNKNOWN,
+            profile.target_slippage_bps, None,
+        )
+        branches.append(
+            HistoricalPossibleOutcome(
+                HistoricalTerminalState.CLOSED,
+                HistoricalExitReason.TARGET,
+                _r(active, target_fill.fill_price),
+            )
+        )
+    return _bounded(
+        active,
+        (HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,),
+        tuple(branches),
+        "all supported branches end flat; possible entry/exit R remains bounded",
+    )
 
 
 def _process_open_bar(
@@ -1307,6 +1415,7 @@ def _result(
     source_diagnostic_id: str | None,
     measurement_start: datetime | None,
     raw_decisions: list[HistoricalRawDecisionEvidence],
+    continuation_policy: HistoricalContinuationPolicy,
 ) -> HistoricalExecutionRunResult:
     raw = profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
     # Raw barriers must not be misreported as historically tradable tick prices.
@@ -1320,7 +1429,11 @@ def _result(
         strategy_version=strategy.identity.strategy_version,
         config_hash=strategy.config_identity.config_hash,
         engine_calculation_version=engine_version,
-        simulator_calculation_version=HISTORICAL_EXECUTION_CALCULATION_VERSION,
+        simulator_calculation_version=(
+            BOUNDED_FLAT_SIMULATOR_VERSION
+            if continuation_policy is HistoricalContinuationPolicy.BOUNDED_FLAT_V1
+            else HISTORICAL_EXECUTION_CALCULATION_VERSION
+        ),
         execution_profile_id=profile.profile_id,
         execution_profile_version=profile.version,
         execution_profile_semantic_id=profile.semantic_id,
