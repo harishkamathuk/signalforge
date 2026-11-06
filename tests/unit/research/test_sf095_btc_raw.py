@@ -35,6 +35,7 @@ from signalforge.research.historical_execution import (
     HistoricalBarExecutionRunner,
     HistoricalContinuationPolicy,
     HistoricalExecutionAssumptionProfile,
+    HistoricalExitReason,
     HistoricalOutcomeCertainty,
     HistoricalPriceMode,
     HistoricalTerminalState,
