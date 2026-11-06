@@ -45,6 +45,7 @@ from signalforge.runtime.btc_momentum_baseline_v0 import (
 )
 from signalforge.runtime.indicators import IndicatorContinuity
 from signalforge.runtime.strategy import (
+    ArmedPolicyIntent,
     ArmedSetupView,
     CompletedCandleStrategyContext,
     StrategyEntryFillView,
@@ -521,3 +522,69 @@ def test_frozen_evidence_label_cannot_be_forged_by_raw_bundle_constructor() -> N
             _synthetic_continuous_dataset(),
             FROZEN_PROVISIONAL_REPORT_SHA256,
         )
+
+
+@pytest.mark.parametrize(
+    ("exit_kind", "high", "low"),
+    [
+        ("stop", "100.25", "99"),
+        ("target", "100.80", "100"),
+    ],
+)
+def test_adverse_raw_entry_bar_ambiguous_exit_uses_modeled_sell_fill(
+    exit_kind: str, high: str, low: str,
+) -> None:
+    """Both possible post-entry exits apply frozen raw slippage consistently."""
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    entry_index = 251 * 5
+    bars[entry_index] = replace(
+        bars[entry_index],
+        open=Price(Decimal("100")),
+        high=Price(Decimal(high)),
+        low=Price(Decimal(low)),
+        close=Price(Decimal("100")),
+    )
+    altered = HistoricalBarDataset(dataset.manifest, tuple(bars))
+
+    class _UnambiguousInvalidationFixture(_SyntheticTrigger):
+        """Isolate post-fill ordering from pre-entry signal-low invalidation."""
+
+        def armed_policy(self, signal, setup) -> ArmedPolicyIntent:
+            return ArmedPolicyIntent()
+
+    runner = HistoricalBarExecutionRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            "btc_momentum_baseline_v0", "0.1.0-experimental",
+            lambda _: _UnambiguousInvalidationFixture(BtcMomentumBaselineV0Config()),
+        ),
+    )))
+    reference = _raw_run(altered, runner=runner)
+    adverse = _raw_run(
+        altered,
+        profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+        runner=runner,
+    )
+    for result, bps in ((reference, Decimal("0")), (adverse, Decimal("10"))):
+        outcome = result.outcomes[0]
+        assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+        assert outcome.entry_fill is not None
+        assert len(outcome.possible_outcomes) == 2
+        assert outcome.possible_outcomes[0].terminal_state is HistoricalTerminalState.OPEN_POSSIBLE
+        branch = outcome.possible_outcomes[1]
+        assert branch.exit_reason.value == exit_kind
+        assert branch.realised_r is not None
+        assert outcome.stop_price is not None
+        assert outcome.raw_target_price is not None
+        base = (
+            outcome.stop_price.value
+            if exit_kind == "stop"
+            else outcome.raw_target_price.value
+        )
+        modeled_exit = base * (Decimal("1") - bps / Decimal("10000"))
+        entry = outcome.entry_fill.fill_price.value
+        expected_r = (modeled_exit - entry) / (entry - outcome.stop_price.value)
+        assert branch.realised_r == expected_r
+    assert reference.outcomes[0].possible_outcomes[1].realised_r != (
+        adverse.outcomes[0].possible_outcomes[1].realised_r
+    )
