@@ -23,12 +23,12 @@ from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
+from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.historical_bars import (
     HistoricalBarDataset,
     HistoricalPriceBasis,
     load_historical_bar_fixture,
 )
-from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.historical_execution import (
     CONTINUOUS_HISTORICAL_SESSION_POLICY,
     HistoricalAmbiguityReason,
