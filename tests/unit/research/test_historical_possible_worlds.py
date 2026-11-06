@@ -12,8 +12,16 @@ from signalforge.research.historical_possible_worlds import (
     SupportedTransition,
     TransitionKind,
     World,
+    WorldProvenance,
     propagate,
 )
+
+
+def _provenance() -> WorldProvenance:
+    return WorldProvenance(
+        "synthetic-dataset", "test-strategy", "frozen-config",
+        "REFERENCE_RAW:1.0.0",
+    )
 
 
 def _setup() -> Position:
@@ -26,7 +34,7 @@ def _open() -> Position:
 
 def _arm_first() -> PropagationResult:
     return propagate(
-        PropagationResult((World(),), 0), "2025-11-24T02:25Z",
+        PropagationResult((World(_provenance()),), 0), "2025-11-24T02:25Z",
         lambda _: (SupportedTransition(TransitionKind.ARM, "qualified", _setup()),),
         PropagationPolicy(),
     )
@@ -157,4 +165,17 @@ def test_unknown_reordered_and_contradictory_state_rejected() -> None:
     with pytest.raises(ValueError, match="all supported"):
         propagate(_ambiguous(), "2025-11-24T02:36Z", lambda _: (), PropagationPolicy())
     with pytest.raises(ValueError, match="exactly one"):
-        World(Lifecycle.OPEN)
+        World(_provenance(), Lifecycle.OPEN)
+
+
+def test_causal_identity_includes_dataset_profile_strategy_and_simulator() -> None:
+    from dataclasses import replace
+
+    first = World(_provenance()).identity
+    assert first != World(replace(_provenance(), dataset_id="other")).identity
+    assert first != World(replace(_provenance(), profile_semantic_id="ADVERSE_RAW")).identity
+    assert first != World(replace(_provenance(), config_hash="different")).identity
+    assert first != World(replace(_provenance(), strategy_id="different")).identity
+    assert first != World(replace(
+        _provenance(), simulator_calculation_version="new-version"
+    )).identity
