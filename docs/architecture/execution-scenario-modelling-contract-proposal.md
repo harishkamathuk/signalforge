@@ -1,10 +1,10 @@
 # SF-254 — Historical execution scenario architecture (proposed contract)
 
-**Status:** PROPOSED / SPECIFICATION ONLY — no implementation or execution authority.  
-**Owner:** 02 — Strategy Framework & Architecture.  
-**Parent:** [#253](https://github.com/harishkamathuk/signalforge/issues/253).  
-**Validation counterpart:** [#255](https://github.com/harishkamathuk/signalforge/issues/255).  
-**Normative amendment candidate:** [ADR-011 scenario proposal](decisions/ADR-011-scenario-execution-proposed-amendment.md).  
+**Status:** PROPOSED / SPECIFICATION ONLY — no implementation or execution authority.
+**Owner:** 02 — Strategy Framework & Architecture.
+**Parent:** [#253](https://github.com/harishkamathuk/signalforge/issues/253).
+**Validation counterpart:** [#255](https://github.com/harishkamathuk/signalforge/issues/255).
+**Normative amendment candidate:** [ADR-011 scenario proposal](decisions/ADR-011-scenario-execution-proposed-amendment.md).
 **Decision gate:** Parent #253 Gate B after #255 methodology and strategy-owner 01 review.
 
 ## 1. Decision boundary
