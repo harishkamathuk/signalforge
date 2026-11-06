@@ -29,6 +29,15 @@ def request_for(revision: str) -> dict[str, object]:
         "repository": "harishkamathuk/signalforge",
         "revision": revision,
         "argv": ["python", "-V"],
+        "preflight": [
+            "exact_git_head", "trusted_origin", "clean_tracked_worktree",
+            "gitignored_report_path",
+        ],
+        "expected_exit_code": 0,
+        "expected_output": "Python 3.12.x",
+        "stop_conditions": [
+            "preflight_failure", "request_mismatch", "unsafe_output",
+        ],
         "classification": "SANITIZED_SMOKE_ONLY",
     }
     request["request_sha256"] = digest(request, "request_sha256")
