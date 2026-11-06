@@ -547,6 +547,8 @@ class HistoricalBarExecutionRunner:
             HistoricalContinuationPolicy.FAIL_CLOSED_V1
         ),
     ) -> HistoricalExecutionRunResult:
+        if not isinstance(continuation_policy, HistoricalContinuationPolicy):
+            raise TypeError("Historical continuation policy must be explicitly versioned")
         raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
         # Evidence and bars travel as one audited bundle, never as caller-paired IDs.
         source_diagnostic_id = None if raw_source is None else raw_source.source_diagnostic_id
