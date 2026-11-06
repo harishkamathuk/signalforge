@@ -665,6 +665,9 @@ def test_sf097_bounded_flat_continuation_preserves_possible_expiry_or_stop(
     assert result == repeat
     assert result.result_id == repeat.result_id
     assert result.result_id != original.result_id
+    assert result.outcomes[0].opportunity_id != original.outcomes[0].opportunity_id
+    # The causally equivalent signal interval is still comparable across models.
+    assert result.outcomes[0].signal_interval == original.outcomes[0].signal_interval
     assert result.simulator_calculation_version == (
         "historical-bar-execution-v2-bounded-flat"
     )
