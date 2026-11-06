@@ -17,7 +17,7 @@ from signalforge.config.strategy_registry import (
     StrategyRegistry,
     StrategySelection,
 )
-from signalforge.domain.armed import ArmedSetupState
+from signalforge.domain.armed import ArmedSetupState, ExpiryReason
 from signalforge.domain.ids import InstrumentId, SignalId
 from signalforge.domain.indicators import IndicatorSnapshot
 from signalforge.domain.market import CandleQuality, CompletedCandle
@@ -33,7 +33,9 @@ from signalforge.research.historical_execution import (
     CONTINUOUS_HISTORICAL_SESSION_POLICY,
     HistoricalAmbiguityReason,
     HistoricalBarExecutionRunner,
+    HistoricalContinuationPolicy,
     HistoricalExecutionAssumptionProfile,
+    HistoricalExitReason,
     HistoricalOutcomeCertainty,
     HistoricalPriceMode,
     HistoricalTerminalState,
@@ -48,6 +50,8 @@ from signalforge.runtime.strategy import (
     ArmedPolicyIntent,
     ArmedSetupView,
     CompletedCandleStrategyContext,
+    PriceBarrierDirection,
+    PriceBarrierIntent,
     StrategyEntryFillView,
 )
 
@@ -322,7 +326,10 @@ def _synthetic_runner(signal_count: int) -> HistoricalBarExecutionRunner:
     )
 
 
-def _raw_run(dataset, *, profile=None, runner=None, measurement_start=None):
+def _raw_run(
+    dataset, *, profile=None, runner=None, measurement_start=None,
+    continuation_policy=HistoricalContinuationPolicy.FAIL_CLOSED_V1,
+):
     return (runner or _synthetic_runner(251)).run(
         dataset,
         strategy_selection=SELECTION,
@@ -331,6 +338,7 @@ def _raw_run(dataset, *, profile=None, runner=None, measurement_start=None):
         execution_profile=profile or HistoricalExecutionAssumptionProfile.reference_raw(),
         market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
         raw_source=RawDiagnosticSource(dataset, "synthetic-only-test-source"),
+        continuation_policy=continuation_policy,
         measurement_start=measurement_start or (
             dataset.manifest.requested_start + timedelta(minutes=250 * 5)
         ),
@@ -618,3 +626,206 @@ def test_raw_trace_identifies_blocked_actionable_decisions() -> None:
     assert all(
         not row.actionable for row in result.raw_decision_evidence[1:]
     )
+
+
+def _sf097_same_bar_both_reachable(*, high: str = "100.20") -> HistoricalBarDataset:
+    """Synthetic signal-low invalidation and stop are exactly the same barrier."""
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    index = 251 * 5
+    bars[index] = replace(
+        bars[index],
+        open=Price(Decimal("100")),
+        high=Price(Decimal(high)),
+        low=Price(Decimal("99.90")),
+        close=Price(Decimal("100.10")),
+    )
+    return HistoricalBarDataset(dataset.manifest, tuple(bars))
+
+
+@pytest.mark.parametrize(
+    "profile",
+    (
+        HistoricalExecutionAssumptionProfile.reference_raw(),
+        HistoricalExecutionAssumptionProfile.adverse_raw(),
+    ),
+)
+def test_sf097_bounded_flat_continuation_preserves_possible_expiry_or_stop(
+    profile: HistoricalExecutionAssumptionProfile,
+) -> None:
+    dataset = _sf097_same_bar_both_reachable()
+    original = _raw_run(dataset, profile=profile)
+    assert original.terminated_early
+    assert HistoricalTerminalState.OPEN_POSSIBLE in {
+        item.terminal_state for item in original.outcomes[0].possible_outcomes
+    }
+    policy = HistoricalContinuationPolicy.BOUNDED_FLAT_V1
+    result = _raw_run(dataset, profile=profile, continuation_policy=policy)
+    repeat = _raw_run(dataset, profile=profile, continuation_policy=policy)
+    assert result == repeat
+    assert result.result_id == repeat.result_id
+    assert result.result_id != original.result_id
+    assert result.outcomes[0].opportunity_id != original.outcomes[0].opportunity_id
+    # The causally equivalent signal interval is still comparable across models.
+    assert result.outcomes[0].signal_interval == original.outcomes[0].signal_interval
+    assert result.simulator_calculation_version == (
+        "historical-bar-execution-v2-bounded-flat"
+    )
+    assert original.simulator_calculation_version == "historical-bar-execution-v1"
+    assert not result.terminated_early
+    assert len(result.raw_decision_evidence) == 5
+    outcome = result.outcomes[0]
+    assert outcome.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert outcome.ambiguity_reasons == (
+        HistoricalAmbiguityReason.ENTRY_VS_INVALIDATION,
+    )
+    assert {item.terminal_state for item in outcome.possible_outcomes} == {
+        HistoricalTerminalState.EXPIRED, HistoricalTerminalState.CLOSED,
+    }
+    assert {item.exit_reason for item in outcome.possible_outcomes} == {
+        None, HistoricalExitReason.STOP,
+    }
+    assert outcome.entry_fill is not None
+    assert outcome.stop_price is not None
+    assert outcome.entry_fill.fill_price.value > outcome.stop_price.value
+    assert outcome.possible_outcomes[1].realised_r is not None
+    entry_price = outcome.entry_fill.fill_price.value
+    stop_price = outcome.stop_price.value
+    expected_stop_fill = stop_price * (
+        Decimal("1") - profile.stop_slippage_bps / Decimal("10000")
+    )
+    assert outcome.possible_outcomes[1].realised_r == (
+        (expected_stop_fill - entry_price) / (entry_price - stop_price)
+    )
+    assert result.summary.total_actionable_opportunities == 1
+    assert result.summary.bounded_ambiguous_opportunities == 1
+    assert result.summary.determinate_coverage_rate == Decimal("0")
+    assert result.execution_valid is False
+
+
+def test_sf097_reachable_target_remains_a_conditional_closed_branch() -> None:
+    dataset = _sf097_same_bar_both_reachable(high="100.40")
+    result = _raw_run(
+        dataset, continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert not result.terminated_early
+    outcomes = result.outcomes[0].possible_outcomes
+    assert len(outcomes) == 3
+    assert {o.exit_reason for o in outcomes} == {
+        None, HistoricalExitReason.STOP, HistoricalExitReason.TARGET,
+    }
+    assert all(o.terminal_state is not HistoricalTerminalState.OPEN_POSSIBLE
+               for o in outcomes)
+
+
+def test_sf097_invalidating_above_stop_cannot_claim_flat_convergence() -> None:
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    index = 251 * 5
+    bars[index] = replace(
+        bars[index],
+        open=Price(Decimal("100.05")), high=Price(Decimal("100.20")),
+        low=Price(Decimal("100.00")), close=Price(Decimal("100.10")),
+    )
+    changed = HistoricalBarDataset(dataset.manifest, tuple(bars))
+
+    class _InvalidationAboveStop(_SyntheticTrigger):
+        def armed_policy(self, signal, setup) -> ArmedPolicyIntent:
+            return ArmedPolicyIntent(
+                pre_entry_invalidation=PriceBarrierIntent(
+                    price=Price(Decimal("100.01")),
+                    direction=PriceBarrierDirection.AT_OR_BELOW,
+                    expiry_reason=ExpiryReason.SIGNAL_LOW_BREACH,
+                )
+            )
+
+    runner = HistoricalBarExecutionRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            "btc_momentum_baseline_v0", "0.1.0-experimental",
+            lambda _: _InvalidationAboveStop(BtcMomentumBaselineV0Config()),
+        ),
+    )))
+    result = _raw_run(
+        changed, runner=runner,
+        continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert result.terminated_early
+    assert HistoricalTerminalState.OPEN_POSSIBLE in {
+        o.terminal_state for o in result.outcomes[0].possible_outcomes
+    }
+
+
+def test_sf097_continuation_rejects_unversioned_policy() -> None:
+    dataset = _synthetic_continuous_dataset()
+    with pytest.raises(TypeError, match="explicitly versioned"):
+        _raw_run(dataset, continuation_policy="bounded_flat_v1")
+
+
+def test_sf097_later_signal_is_processed_after_proven_flat_convergence() -> None:
+    dataset = _sf097_same_bar_both_reachable()
+
+    class _TwoSignals(_SyntheticTrigger):
+        def evaluate_completed_candle(
+            self, context: CompletedCandleStrategyContext
+        ) -> BtcMomentumBaselineDecision:
+            qualifies = context.completed_regular_session_candles in (251, 253)
+            return BtcMomentumBaselineDecision(
+                context.candle.instrument_id, context.candle.interval,
+                qualifies, qualifies, ("synthetic_two_signals",), None,
+            )
+
+    runner = HistoricalBarExecutionRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            "btc_momentum_baseline_v0", "0.1.0-experimental",
+            lambda _: _TwoSignals(BtcMomentumBaselineV0Config()),
+        ),
+    )))
+    original = _raw_run(dataset, runner=runner)
+    assert original.terminated_early
+    assert len(original.outcomes) == 1
+    continued = _raw_run(
+        dataset, runner=runner,
+        continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert not continued.terminated_early
+    assert len(continued.outcomes) == 2
+    assert continued.outcomes[0].certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+    assert continued.outcomes[1].signal_interval != continued.outcomes[0].signal_interval
+    assert continued.summary.total_actionable_opportunities == 2
+    assert continued.summary.bounded_ambiguous_opportunities == 1
+    assert continued.summary.determinate_opportunities == 1
+    assert continued.summary.unresolved_opportunities == 0
+    assert continued.outcomes[1].terminal_state is HistoricalTerminalState.EXPIRED
+
+
+def test_sf097_bounded_flat_opt_in_not_supported_for_execution_valid_mode() -> None:
+    dataset = _synthetic_continuous_dataset()
+    with pytest.raises(ValueError, match="RAW_DIAGNOSTIC research only"):
+        HistoricalBarExecutionRunner().run(
+            dataset,
+            strategy_selection=SELECTION,
+            engine_calculation_version="engine-v1",
+            tick_schedule=None,
+            execution_profile=HistoricalExecutionAssumptionProfile.zero(),
+            continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+        )
+
+
+def test_sf097_invalidation_observed_at_bar_open_is_determinate_expiry() -> None:
+    dataset = _synthetic_continuous_dataset()
+    bars = list(dataset.bars)
+    index = 251 * 5
+    bars[index] = replace(
+        bars[index],
+        open=Price(Decimal("99.95")), high=Price(Decimal("100.20")),
+        low=Price(Decimal("99.90")), close=Price(Decimal("100.10")),
+    )
+    changed = HistoricalBarDataset(dataset.manifest, tuple(bars))
+    result = _raw_run(
+        changed, continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1,
+    )
+    assert not result.terminated_early
+    assert result.outcomes[0].certainty is HistoricalOutcomeCertainty.DETERMINATE
+    assert result.outcomes[0].terminal_state is HistoricalTerminalState.EXPIRED
+    assert result.outcomes[0].entry_fill is None
+    assert result.outcomes[0].detail == "pre_entry_invalidation_at_bar_open"

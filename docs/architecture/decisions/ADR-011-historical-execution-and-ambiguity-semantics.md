@@ -761,3 +761,99 @@ a strategy.
 
 This ADR changes no existing strategy rule. It defines how future historical simulation may represent
 those rules honestly.
+
+## Proposed extension — bounded possible-worlds continuation (SF-097 / #249)
+
+**Status:** Proposed; **not operative until reviewed and merged**. The accepted
+single-lifecycle, fail-closed SF-078/SF-095 historical runner remains the
+default. This extension is not a change to strategy or execution authority.
+
+### Decision and rationale
+
+A valid one-minute bar can support both an expired entry and a potentially
+open position. Historical truth is then not unique. The initial runner correctly
+stops if any supported outcome includes `OPEN_POSSIBLE`: it cannot safely
+declare the subsequent single-position state. SF-096 / #246 reproducibly
+encountered this case on 2025-11-24. The original experiment remains
+`INCONCLUSIVE_DIAGNOSTIC` and its protected evidence remains unchanged.
+
+A separate, opt-in **research-only** simulator may follow *all supported causal
+lifecycle branches* without selecting one as actual history. Deterministic
+computation of possible worlds does **not** establish a determinate historical
+trade. No conditional result may be promoted to a point estimate or
+execution-valid evidence.
+
+### First accepted feasibility shape: provable FLAT convergence
+
+For a long intrabar trigger with simultaneous pre-entry invalidation, if the
+invalidation barrier is **at or below the actual post-entry stop**, then
+entry-before-invalidation implies the stop must also have been crossed after
+entry (unless an already-reachable target closed the trade first).
+Invalidation-before-entry implies no entry. Provided no competing expiry,
+cutoff or session boundary has unknown ordering, every causally supported
+history is therefore **FLAT at the bar end**. This is a narrower invariant
+than following an unknown OPEN position; the trade history itself remains
+ambiguous: `EXPIRED` versus conditional `CLOSED/STOP` (and conditional
+`CLOSED/TARGET` when reachable). No selected branch is historical truth.
+
+An **opt-in RAW_DIAGNOSTIC-only** `BOUNDED_FLAT_V1` policy may use this
+inference to continue later independent observations, with a *new historical
+simulator calculation identity*. It must leave the ordinary v1/NSE runner
+unchanged and fail closed whenever an OPEN branch remains possible.
+This policy does not implement general branch-history propagation, so
+subsequent metrics remain explicitly determinate-subset diagnostics.
+
+### Non-negotiable continuation semantics
+
+1. Each path has its own immutable causal lineage, strategy-agnostic
+   `FLAT / ARMED / OPEN` state, source interval, modeled fills, barriers and
+   lifecycle history. A possible outcome label alone is not a resumable state.
+2. Apply each subsequent one-minute observed bar and completed-candle decision
+   to each path independently through the existing strategy-owned typed policy.
+   A qualifying signal can arm **only a path that is flat**; an ARMED/OPEN path
+   blocks that same signal. Never exceed one active ARMED/OPEN lifecycle per path.
+3. Retain all causally supported alternatives at each intra-bar ambiguity.
+   Do not synthesize intra-bar ticks, order events or OHLC traversal paths.
+   Never choose a favorable, adverse or arbitrary branch as observed history.
+4. Canonicalize path/state ordering and IDs from input dataset, strategy and
+   configuration, assumption profile, simulator policy/version, causal events
+   and ambiguity lineage. Repeated runs must produce byte-identical evidence.
+5. Equivalent **future lifecycle states** may be computationally deduplicated
+   only without erasing different opportunity sets, realized trade histories
+   or branch origins. An equal FLAT state after different trades is not
+   equivalent historical performance.
+6. Explicit finite budgets constrain active states, branch generation and
+   total evidence. If exhaustion prevents exhaustive continuation, record
+   `UNRESOLVED`, its cause and boundary; halt the affected research scope
+   rather than prune, reweight, invent or silently skip paths.
+7. Keep ambiguity counts, branch-conditioned opportunities/outcomes,
+   invariant events and budget-unresolved events distinct. No single
+   all-strategy trade count, win rate, average R, profit factor, drawdown,
+   frequency or PASS/FAIL may be inferred from incompatible branches.
+   Research sensitivity bounds require a separately explicit aggregation
+   rule and provenance, not hidden selection.
+8. A new immutable **simulator calculation/version** identifies this optional
+   mode. The accepted existing runner and NSE execution-valid result hashes,
+   lifecycle, risk/session behaviour and replay/paper/live contracts remain
+   unchanged. Historical tick/contract gaps stay unresolved.
+
+### Authorization and implementation gate
+
+SF-097's executive authorization is to **attempt a bounded synthetic proof**,
+not to promise full SF-096 completion. Before general integration, tests must
+demonstrate the reported `EXPIRED` / `OPEN_POSSIBLE` bifurcation, independent
+future signals, branch-specific stop/target and ambiguous outcomes, convergence
+with divergent economic history, deterministic budget exhaustion and replay
+identity. If the proof cannot preserve these invariants within an agreed
+resource budget, retain fail-closed termination and prefer better-resolution
+source evidence.
+
+Only after an independently reviewed successful proof may the opt-in historical
+research mode be integrated with shared typed strategy policy. The approved
+BTC strategy, frozen SF-094 windows/profiles, `execution_valid=false`,
+historical tick restrictions, SF-088 evidence and accepted NSE behaviour are
+unchanged. A later SF-096 rerun must start from the beginning, use a distinct
+simulator identity and preserve the original incomplete result.
+
+**Authority and trace:** SF-097 / #249; SF-096 / #246; ADR-011 existing
+historical-ambiguity constraints; repository engineering Definition of Done.
