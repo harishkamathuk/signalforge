@@ -1,5 +1,6 @@
 """SF-095 offline raw-input protections; no real provider data or network."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
@@ -8,7 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from signalforge.domain.money import Price
 from signalforge.research import btc_raw_diagnostic_input as source
+from signalforge.research.historical_bars import HistoricalBarDataset
 from signalforge.research.delta_historical_qualification import DeltaCandle, DeltaRawCapture
 
 
@@ -100,3 +103,17 @@ def test_offline_diagnostic_bridge_preserves_unrounded_raw_prices(
     assert evidence.dataset.bars[0].open.value == Decimal("100.03")
     assert "UNQUALIFIED_HISTORICAL_METADATA" in evidence.dataset.manifest.limitations
     assert not (protected / "canonical-dataset.json").exists()
+    # Standard dataclasses.replace carries init fields, including an audit proof.
+    # That copied proof must not authenticate modified OHLCV or a new dataset.
+    original = evidence.dataset
+    changed_bars = list(original.bars)
+    changed_bars[0] = replace(changed_bars[0], high=Price(Decimal("100.05")))
+    changed_dataset = HistoricalBarDataset(original.manifest, tuple(changed_bars))
+    assert changed_dataset.content_hash != original.content_hash
+    with pytest.raises(ValueError, match="does not match diagnostic dataset"):
+        replace(evidence, dataset=changed_dataset)
+    # An identical-content reconstruction is allowed: provenance is semantic,
+    # not dependent on object address.
+    identical = HistoricalBarDataset(original.manifest, tuple(original.bars))
+    assert replace(evidence, dataset=identical).dataset.content_hash == original.content_hash
+
