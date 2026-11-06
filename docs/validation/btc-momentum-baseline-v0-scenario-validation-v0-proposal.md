@@ -172,7 +172,7 @@ chronology. It is selected as the smallest deterministic thought experiment for 
 Changing to another path is a different scenario identity and requires a new preregistered study.
 
 The prior generic statement that O-H-L-C/O-L-H-C were merely examples is therefore superseded by
-this concrete proposal. Parent #253 may accept, reject or replace it before implementation.
+this concrete proposal. Parent #253 has selected this exact assumption set for specification finalisation; final normative-contract acceptance and implementation authority remain separately gated.
 
 ### 3.2 Calculation identity
 
@@ -326,10 +326,33 @@ Only if the scenario/window passes the declared completeness gate may the report
 - scenario-conditioned cumulative-R maximum drawdown;
 - scenario-conditioned trade frequency;
 - scenario-conditioned realised-R distribution;
-- scenario-conditioned holding-time distribution;
+- scenario-conditioned holding-span distribution in **observed one-minute source buckets**;
 - scenario-conditioned exit distribution.
 
 Each metric must be named or grouped so that the scenario dependency is visible.
+
+#### Holding-span basis
+
+The scenario does **not** assign elapsed sub-minute timestamps to hypothetical crossings, so it must
+not report a precise elapsed holding-time distribution.
+
+For every scenario-conditioned closed trade, define the deterministic
+`holding_span_1m_buckets` as the count of distinct canonical one-minute source buckets from the
+bucket containing the modeled entry through the bucket containing the modeled exit, **inclusive**.
+
+Examples:
+
+- modeled entry and exit in the same one-minute bucket → `holding_span_1m_buckets = 1`;
+- entry in one bucket and exit in the immediately following bucket → `2`;
+- an exit three source buckets after the entry bucket → `4`.
+
+This is a bucket-span measure, **not elapsed wall-clock duration**. Do not infer seconds, fractional
+minutes, average execution latency or exact holding time from the assumed intraminute path.
+Reports must label the metric exactly as **scenario-conditioned holding span (1m buckets)** or an
+equivalent wording that preserves this distinction.
+
+A conditional position still OPEN at dataset end has no closed-trade holding span; report its
+observed open-state source-bucket age separately if useful, without fabricating an exit.
 
 Do not combine scenario-conditioned trades with strict determinate trades into a single
 "unconditional" performance denominator.
@@ -576,7 +599,7 @@ reconciled before Gate B.
 ### 13.1 Reconciliation status with corrected SF-254 architecture
 
 The corrected SF-254 architecture proposal at PR #256 head
-`1b6cfa27b7e368ecfcbe78bda2d9848072fe5cf6` has reviewed this concrete
+`c21e0f61cc80e835b53cab2ac5b2d1bec8ea0878` has reviewed this concrete
 scenario as **architecturally compatible**. Parent #253 subsequently approved the exact assumption selection for specification finalisation; neither fact makes the model operative before final Gate B normative acceptance.
 
 This validation proposal adopts SF-254's corrected identity-format requirement:
