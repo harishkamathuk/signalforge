@@ -8,7 +8,7 @@ observation remains unchanged at Decimal precision.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -45,6 +45,9 @@ FROZEN_FIVE_MINUTE_CLOSE_SHA256 = (
 )
 
 
+_PROTECTED_AUDIT_PROOF = object()
+
+
 @dataclass(frozen=True, slots=True)
 class RawDiagnosticSource:
     """Transient, provenance-bound bars explicitly lacking historical tick evidence."""
@@ -52,8 +55,16 @@ class RawDiagnosticSource:
     dataset: HistoricalBarDataset
     source_diagnostic_id: str
     execution_valid: bool = False
+    _audit_proof: object | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        # A production evidence ID is minted only after the protected source audit.
+        # Public synthetic fixtures cannot impersonate the predeclared generation.
+        if self.source_diagnostic_id == FROZEN_PROVISIONAL_REPORT_SHA256:
+            if self._audit_proof is not _PROTECTED_AUDIT_PROOF:
+                raise ValueError("Frozen source identity requires protected evidence audit")
+        elif not self.source_diagnostic_id.startswith("synthetic-"):
+            raise ValueError("Unaudited raw source must have synthetic-only identity")
         if self.execution_valid:
             raise ValueError("Protected raw diagnostic evidence is never execution-valid")
         if not self.source_diagnostic_id.strip():
@@ -172,5 +183,6 @@ def load_sf095_raw_diagnostic_source(generation_dir: Path) -> RawDiagnosticSourc
         bars=tuple(bars),
     )
     return RawDiagnosticSource(
-        dataset=dataset, source_diagnostic_id=FROZEN_PROVISIONAL_REPORT_SHA256
+        dataset=dataset, source_diagnostic_id=FROZEN_PROVISIONAL_REPORT_SHA256,
+        _audit_proof=_PROTECTED_AUDIT_PROOF,
     )
