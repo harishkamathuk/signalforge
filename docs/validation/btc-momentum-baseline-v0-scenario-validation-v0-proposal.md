@@ -287,7 +287,7 @@ unless separate historically authoritative execution evidence establishes that c
 
 These labels are **proposed for Gate B review** and are deliberately separate from SF-096.
 
-### `SCENARIO_STUDY_PASS`
+### `SCENARIO_METHOD_VALID`
 
 Use only when all of the following are satisfied:
 
@@ -303,7 +303,7 @@ Use only when all of the following are satisfied:
 This label means **the scenario study methodology executed successfully**. It does not mean the
 strategy is profitable, execution-valid or suitable for PAPER/live use.
 
-### `SCENARIO_STUDY_FAIL`
+### `SCENARIO_METHOD_INVALID`
 
 Use when a declared methodological or reproducibility gate is violated, including:
 
@@ -316,15 +316,15 @@ Use when a declared methodological or reproducibility gate is violated, includin
 
 This label is a **research-process failure**, not a statement that the strategy loses money.
 
-### `SCENARIO_STUDY_INCONCLUSIVE`
+### `SCENARIO_METHOD_INCONCLUSIVE`
 
 Use when the study remains methodologically valid but cannot answer its conditional research
 question because of insufficient coverage, unsupported lifecycle cases, unresolved model
 semantics, source gaps, or another predeclared stop condition.
 
-### Performance interpretation is separate
+### Strategy-performance interpretation is separate
 
-Do not encode positive/negative conditional performance into the three methodology labels above.
+These three labels classify whether the **study method/evidence is valid enough to interpret**, not whether the strategy passed or failed. Do not encode positive/negative conditional performance into them.
 
 If the parent later wants an economic interpretation label, that must be separately preregistered
 with explicit numeric/economic criteria and must remain scenario-conditioned. No such threshold is
@@ -439,8 +439,8 @@ After any future experiment:
 - an independent/adversarial review must inspect preregistration compliance, source identity,
   repeatability, coverage, metric labelling and OOS discipline;
 - review must distinguish observed facts from scenario-conditioned claims;
-- unresolved findings must be corrected or the study remain `SCENARIO_STUDY_INCONCLUSIVE` /
-  `SCENARIO_STUDY_FAIL` as applicable.
+- unresolved findings must be corrected or the study remain `SCENARIO_METHOD_INCONCLUSIVE` /
+  `SCENARIO_METHOD_INVALID` as applicable.
 
 Author-performed checks alone are not independent approval.
 
