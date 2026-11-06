@@ -116,4 +116,3 @@ def test_offline_diagnostic_bridge_preserves_unrounded_raw_prices(
     # not dependent on object address.
     identical = HistoricalBarDataset(original.manifest, tuple(original.bars))
     assert replace(evidence, dataset=identical).dataset.content_hash == original.content_hash
-
