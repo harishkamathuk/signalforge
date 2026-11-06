@@ -219,8 +219,7 @@ def validate_report(report: dict[str, Any], task: dict[str, Any]) -> None:
     if (
         not isinstance(report["report_sha256"], str)
         or not HASH_RE.fullmatch(report["report_sha256"])
-        or (
-        report["report_sha256"] != digest(report, "report_sha256")
+        or report["report_sha256"] != digest(report, "report_sha256")
     ):
         raise HandoffError("invalid agent report digest")
 
