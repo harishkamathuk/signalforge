@@ -77,7 +77,25 @@ version; do not invent CLI flags or make the task package directly executable.
 The operator checks actual Git status/diff and test results before accepting
 the agent's summary.
 
-A matching report may be verified with:
+Once the operator and agent have prepared a **sanitized candidate JSON report**
+conforming to the versioned report fields, validate and seal it using the
+source-controlled helper. The candidate belongs in an ignored local staging
+area, not GitHub or Drive. The seal step refuses an existing destination:
+
+```bash
+python -m scripts.local_agent_task_handoff seal-report \
+  --repo . \
+  --task .signalforge-data/handoff/agent-tasks/sf247-supervised-pilot-001.json \
+  --candidate .signalforge-data/handoff/agent-staging/sf247-supervised-pilot-001.json
+```
+
+This writes an exclusive copy under
+`.signalforge-data/handoff/agent-reports/`. The operator must independently
+inspect the real Git diff and focused test output; the candidate's declared
+status is **not itself proof** that a sandbox, approval or test was honoured.
+A new task ID is required for a legitimate repeat.
+
+A matching sealed report may be verified with:
 
 ```bash
 python -m scripts.local_agent_task_handoff verify \
