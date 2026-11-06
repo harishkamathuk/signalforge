@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from scripts.local_agent_task_handoff import (
@@ -11,6 +13,7 @@ from scripts.local_agent_task_handoff import (
     digest,
     load_json,
     make_task,
+    seal_report,
     validate_report,
     validate_task,
 )
@@ -148,3 +151,21 @@ def test_symlinked_package_rejected(tmp_path) -> None:
     alias.symlink_to(target)
     with pytest.raises(HandoffError, match="linked"):
         load_json(alias)
+
+
+def test_seal_report_write_once_and_ignored(tmp_path) -> None:
+    """Sealed evidence stays private and can never overwrite its first result."""
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    (repo / ".gitignore").write_text(".signalforge-data/\\n", encoding="utf-8")
+    t = task()
+    task_path = tmp_path / "task.json"
+    task_path.write_bytes(canonical_bytes(t) + b"\\n")
+    report_path = tmp_path / "candidate.json"
+    report_path.write_bytes(canonical_bytes(report_for(t)) + b"\\n")
+    sealed = seal_report(repo=repo, task_path=task_path, candidate_path=report_path)
+    assert sealed.is_file()
+    assert sealed.read_bytes() == report_path.read_bytes()
+    with pytest.raises(FileExistsError):
+        seal_report(repo=repo, task_path=task_path, candidate_path=report_path)
