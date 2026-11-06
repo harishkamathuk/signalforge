@@ -27,10 +27,13 @@ The v1 **request** contains exactly these fields:
 - `repository: "harishkamathuk/signalforge"`
 - `revision`: exact 40-character lowercase Git commit SHA
 - `argv: ["python", "-V"]`
+- `preflight`: fixed Git HEAD, trusted origin, clean tracked tree, ignored output
+- `expected_exit_code: 0` and `expected_output: "Python 3.12.x"`
+- `stop_conditions`: preflight failure, request mismatch, unsafe output
 - `classification: "SANITIZED_SMOKE_ONLY"`
 - `request_sha256`: canonical JSON SHA-256 excluding this field
 
-The v1 **report** records the same request identity, local revision, UTC start/end,
+The v1 **report** records the same request identity and execution contract, local revision, UTC start/end,
 exit/termination, allowlisted version output and output digest, local PASS/FAIL,
 `transport_status: "NOT_ATTEMPTED"`, classification and report SHA-256.
 
