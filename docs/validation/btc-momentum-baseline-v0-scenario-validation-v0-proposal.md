@@ -19,8 +19,9 @@
 - PAPER / Demo / Testnet / live authority: **No**
 
 This document defines a proposed research methodology for a future **scenario-conditioned**
-historical study. It does not select an intraminute path, implement a scenario simulator, run
-protected evidence, inspect performance, replace SF-096, or authorize any future experiment.
+historical study. It proposes one concrete intraminute path assumption for Gate B review, but does
+not approve or execute that assumption, implement a scenario simulator, run protected evidence,
+inspect performance, replace SF-096, or authorize any future experiment.
 
 The original SF-096 strict and `BOUNDED_FLAT_V1` evidence remains immutable and
 `INCONCLUSIVE_DIAGNOSTIC`.
