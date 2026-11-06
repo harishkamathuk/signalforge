@@ -207,3 +207,30 @@ identities remain available for unit tests.
 Intrabar entry-versus-exit ambiguous branches use the selected RAW_DIAGNOSTIC
 sell-fill slippage before calculating possible R outcomes. Existing NSE
 execution-valid legacy ambiguity output remains unchanged.
+
+### SF-097 opt-in bounded-flat continuation (experimental)
+
+The existing historical runner remains `FAIL_CLOSED_V1` by default. A separate
+`HistoricalContinuationPolicy.BOUNDED_FLAT_V1` is available only with
+`RAW_DIAGNOSTIC`, using simulator calculation identity
+`historical-bar-execution-v2-bounded-flat`. It is not a general branch-state
+simulator or an execution-valid model.
+
+When the *only* competing intrabar event is entry versus pre-entry invalidation,
+and the invalidation threshold is **at or below the post-fill stop**, every
+supported history ends **flat**: either the unfilled setup expires or a modeled
+entry is followed by a STOP (and potentially a TARGET if reachable first).
+Possible closed-trade R values use the chosen raw slippage profile, remain
+conditional, and never enter determinate point estimates. The default v1
+runner still returns its original `OPEN_POSSIBLE` termination result.
+
+If an unknown OPEN state remains possible, the new policy also terminates
+rather than pretending a later trade is independent. Future branching work
+would require separately reviewed lifecycle-history propagation; this optional
+policy does not discard possible open states.
+
+Select it explicitly with
+`continuation_policy=HistoricalContinuationPolicy.BOUNDED_FLAT_V1` when
+calling `HistoricalBarExecutionRunner.run(...)`. Research provenance must
+retain both this calculation version and the existing source/profile identities.
+The frozen SF-096 prefix evidence must not be overwritten by any rerun.
