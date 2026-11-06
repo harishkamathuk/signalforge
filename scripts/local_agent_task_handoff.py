@@ -123,6 +123,8 @@ def load_json(path: Path, expected_size: int = MAX_BYTES) -> dict[str, Any]:
         return result
     try:
         data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=pairs)
+    except HandoffError:
+        raise
     except (ValueError, UnicodeError) as exc:
         raise HandoffError("invalid JSON package") from exc
     if not isinstance(data, dict):
