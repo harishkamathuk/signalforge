@@ -790,7 +790,9 @@ def test_sf097_later_signal_is_processed_after_proven_flat_convergence() -> None
     assert continued.outcomes[1].signal_interval != continued.outcomes[0].signal_interval
     assert continued.summary.total_actionable_opportunities == 2
     assert continued.summary.bounded_ambiguous_opportunities == 1
-    assert continued.summary.unresolved_opportunities == 1
+    assert continued.summary.determinate_opportunities == 1
+    assert continued.summary.unresolved_opportunities == 0
+    assert continued.outcomes[1].terminal_state is HistoricalTerminalState.EXPIRED
 
 
 def test_sf097_bounded_flat_opt_in_not_supported_for_execution_valid_mode() -> None:
