@@ -13,7 +13,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +62,7 @@ def digest(payload: dict[str, Any], hash_field: str) -> str:
 
 def utc_now() -> str:
     """Return an unambiguous UTC timestamp with explicit UTC offset."""
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _read_request(path: Path) -> dict[str, Any]:
