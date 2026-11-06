@@ -783,6 +783,26 @@ computation of possible worlds does **not** establish a determinate historical
 trade. No conditional result may be promoted to a point estimate or
 execution-valid evidence.
 
+### First accepted feasibility shape: provable FLAT convergence
+
+For a long intrabar trigger with simultaneous pre-entry invalidation, if the
+invalidation barrier is **at or below the actual post-entry stop**, then
+entry-before-invalidation implies the stop must also have been crossed after
+entry (unless an already-reachable target closed the trade first).
+Invalidation-before-entry implies no entry. Provided no competing expiry,
+cutoff or session boundary has unknown ordering, every causally supported
+history is therefore **FLAT at the bar end**. This is a narrower invariant
+than following an unknown OPEN position; the trade history itself remains
+ambiguous: `EXPIRED` versus conditional `CLOSED/STOP` (and conditional
+`CLOSED/TARGET` when reachable). No selected branch is historical truth.
+
+An **opt-in RAW_DIAGNOSTIC-only** `BOUNDED_FLAT_V1` policy may use this
+inference to continue later independent observations, with a *new historical
+simulator calculation identity*. It must leave the ordinary v1/NSE runner
+unchanged and fail closed whenever an OPEN branch remains possible.
+This policy does not implement general branch-history propagation, so
+subsequent metrics remain explicitly determinate-subset diagnostics.
+
 ### Non-negotiable continuation semantics
 
 1. Each path has its own immutable causal lineage, strategy-agnostic
