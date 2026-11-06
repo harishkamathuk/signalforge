@@ -45,9 +45,39 @@ The minimal Python 3.12 standard-library helper only creates/verifies a SHA-256 
 
 Codex is the chosen upload operator, **not a new permanent Drive integration**. Availability of Drive access from Codex has not yet been proven.
 
+## Zero-link ChatGPT pickup (single active task)
+
+The operator does **not** need to copy Drive file links or IDs into ChatGPT.
+When asked to **"process the latest SignalForge handoff"** (or equivalent),
+ChatGPT will use the connected private Drive account to inspect the existing
+`ChatGPT / SignalForge / 02 Execution Reports` folder (ID
+`1HaPGxwf6zTEgaJ8tFtGZnOxaKBWX9cMw`), identify the most recently
+uploaded **complete** report/manifest handoff, fetch the actual raw bytes,
+verify the manifest identity and each file SHA-256, and review the report
+against GitHub before responding.
+
+For the single-task operator workflow, choose the **newest complete and
+unprocessed handoff**, rather than simply the newest individual Drive file:
+the final uploaded file might be a manifest, report or attachment. A manifest
+must identify its report and their bytes must match. If several uploads reuse
+generic filenames (`report.md`, `sha256-manifest.json`), select a matching
+pair using upload metadata, task ID/report contents and hashes; do not
+silently combine unrelated runs. If a reliable match cannot be established,
+**STOP and describe the ambiguity**, instead of choosing files based only on
+their sort order. Record the processed task ID and Drive IDs in the GitHub
+issue/PR to avoid silently reprocessing previous evidence.
+
+This is **on-demand**, only when the user requests processing in ChatGPT.
+There is no background watcher, automatic trigger, queue or claim that
+ChatGPT can see unuploaded local `/tmp` files. Each session checks Drive
+afresh, so no assumption about previous chat memory is necessary.
+The first verified pair is the SF-247 pilot (`signalforge-sf247-pilot-001`);
+subsequent handoffs should use a new unique task ID. No new folder or
+Drive upload integration is required.
+
 ## ChatGPT review and acceptance
 
-Share the real Drive file links/IDs here. ChatGPT retrieves actual remote files through connected Drive, compares uploaded files to their remote SHA-256 manifest and checks the uploaded manifest identity against the locally recorded hash. If remote bytes cannot be fetched, report **PARTIAL**; do not invent a successful round trip. Independently verify code/test assertions against actual GitHub revisions, diffs and CI.
+Ask ChatGPT to process the latest handoff; it identifies the appropriate report/manifest pair in the connected Drive folder. ChatGPT retrieves actual remote files through connected Drive, compares uploaded files to their remote SHA-256 manifest and checks the uploaded manifest identity against the locally recorded hash. If remote bytes cannot be fetched, report **PARTIAL**; do not invent a successful round trip. Independently verify code/test assertions against actual GitHub revisions, diffs and CI.
 
 **First real acceptance:** Run one harmless real prompt in OpenCode or Freebuff (for example, summarize the SignalForge development workflow without editing code), obtain its sanitized `report.md` under a fresh `/tmp/signalforge-.../` directory, inspect and hash it, have Codex upload to Drive, and review/read back here.
 
