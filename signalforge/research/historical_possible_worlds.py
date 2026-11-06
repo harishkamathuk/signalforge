@@ -161,6 +161,20 @@ class PropagationResult:
     total_transitions: int
     unresolved_at: str | None = None
     unresolved_reason: str | None = None
+    failing_world_ids: tuple[str, ...] = ()
+    exhausted_budget: PropagationPolicy | None = None
+
+    def __post_init__(self) -> None:
+        if self.unresolved_at is None:
+            if self.unresolved_reason is not None or self.failing_world_ids or (
+                self.exhausted_budget is not None
+            ):
+                raise ValueError("complete result cannot claim exhausted evidence")
+        elif (
+            not self.unresolved_reason or not self.failing_world_ids
+            or self.exhausted_budget is None or self.worlds
+        ):
+            raise ValueError("unresolved result requires full failure provenance")
 
     @property
     def complete(self) -> bool:
@@ -229,6 +243,9 @@ def propagate(
     ):
         raise ValueError("minute keys must increase strictly")
     proposed: list[World] = []
+    # The before-step set is authoritative. Never keep a partial post-step
+    # state set when budget constraints prevent complete enumeration.
+    failing_world_ids = tuple(sorted(world.identity for world in prior.worlds))
     count = prior.total_transitions
     for world in sorted(prior.worlds, key=lambda item: item.identity):
         alternatives = resolver(world)
@@ -237,10 +254,16 @@ def propagate(
         for alternative in alternatives:
             count += 1
             if count > policy.max_total_transitions:
-                return PropagationResult((), count, minute_key, "transition_budget_exhausted")
+                return PropagationResult(
+                    (), count, minute_key, "transition_budget_exhausted",
+                    failing_world_ids, policy,
+                )
             proposed.append(_apply(world, minute_key, alternative))
             if len(proposed) > policy.max_worlds:
-                return PropagationResult((), count, minute_key, "world_budget_exhausted")
+                return PropagationResult(
+                    (), count, minute_key, "world_budget_exhausted",
+                    failing_world_ids, policy,
+                )
     identities = [world.identity for world in proposed]
     if len(identities) != len(set(identities)):
         raise ValueError("duplicate causal alternatives require evidence deduplication")
