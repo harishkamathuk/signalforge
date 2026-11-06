@@ -5,7 +5,7 @@
 **Parent:** [#253](https://github.com/harishkamathuk/signalforge/issues/253).
 **Validation counterpart:** [#255](https://github.com/harishkamathuk/signalforge/issues/255).
 **Normative amendment candidate:** [ADR-011 scenario proposal](decisions/ADR-011-scenario-execution-proposed-amendment.md).
-**Decision gate:** Parent #253 Gate B after #255 methodology and strategy-owner 01 review.
+**Decision gate:** Parent #253 has approved the specific scenario-assumption selection for specification finalisation (owner decision [#6694636203](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6694636203)); final normative Gate B acceptance, independent review and PR merge remain pending.
 
 ## 1. Decision boundary
 
@@ -13,9 +13,11 @@ The approved decision is to **specify** a separate research-only deterministic
 execution-scenario model. It is **not** an approval of a price traversal rule,
 fill, implementation, simulation, strategy-performance interpretation, or a
 change to existing accepted historical evidence. #253 identifies a first
-increment consisting of one declared deterministic OHLC path as a **candidate**
-only. This document recommends that candidate for review, subject to the
-material approval and research preregistration gates below.
+increment consisting of one declared deterministic OHLC path as a **candidate**.
+The owner has since approved the concrete #255 assumption set for
+**specification finalisation only**, not as operative chronology or final
+normative Gate B acceptance. The remaining review/merge and research
+preregistration gates below still apply.
 
 ### Source-grounded constraints
 
@@ -68,7 +70,7 @@ implicit scenario fallback after strict termination. Existing NSE
 `EXECUTION_VALID`, paper/live, RunIdentity, signal/result hashes and
 ambiguity reports must remain byte-identical for the same inputs.
 
-### Proposed scenario lane — candidate, **not approved**
+### Proposed scenario lane — assumption selection approved for specification finalisation, **not operative**
 
 `ScenarioResearchRunner.run(ScenarioResearchRequest)` (conceptual name only)
 accepts a **prevalidated** dataset + audit proof, the existing
@@ -104,7 +106,7 @@ gap, cutoff, fill composition or numeric parameter requires a new
 version and semantic hash. Unknown or duplicate/conflicting
 registrations are invalid, not a reason to select a default.
 
-For cross-contract alignment, the **still-unapproved** #255 first candidate
+For cross-contract alignment, the **owner-selected, still non-operative** #255 first scenario
 `BTC_OHLC_PATH_V1 / 0.1.0-proposal` maps to:
 
 | Subpolicy | Proposed ID | Proposed explicit version |
@@ -118,9 +120,11 @@ For cross-contract alignment, the **still-unapproved** #255 first candidate
 These five explicit `(id, version)` mappings are now **reconciled** with
 #255's corrected PR #257 at head
 `1ba45856bc4598d80c4e02bfe1776139bbe13713`.
-They remain **proposed, not approved** assumption identities; `_V1`
-never substitutes for an explicit version. This reconciliation does not
-accept O→H→L→C as observed chronology or authorize its execution.
+The parent #253 owner has **approved these exact assumption identities for
+specification finalisation only**. The resulting contract is still
+**PROPOSED / NOT OPERATIVE**; `_V1` never substitutes for an explicit
+version. This reconciliation and selection do not establish O→H→L→C as
+observed chronology or authorize scenario execution.
 
 The modeling layer consumes the **same strategy-owned** `ArmIntent`,
 `ArmedPolicyIntent`, `StrategyEntryFillView` and
@@ -168,14 +172,15 @@ allowlisted, versioned set of known assumptions, **not a strategy DSL**.
    event tie or budget exhaustion, **reject or terminate** with an explicit
    reason; never recover by choosing a favorable/adverse path.
 
-### Sibling #255 concrete candidate — reviewed, NOT approved
+### Sibling #255 concrete scenario — reviewed; owner-selected for specification finalisation, NOT operative
 
 The corrected sibling validation draft in [PR #257](https://github.com/harishkamathuk/signalforge/pull/257),
 head `1ba45856bc4598d80c4e02bfe1776139bbe13713`, proposes the
 **single** assumption set `BTC_OHLC_PATH_V1 / 0.1.0-proposal`.
-It is an architecturally representable candidate within the typed,
-allowlisted scenario lane, **not a selected historical path or an approved
-scenario configuration**:
+It is architecturally representable within the typed, allowlisted
+scenario lane. Its material assumptions are **approved for specification
+finalisation** by #253, but it is **not observed history, a finally
+accepted normative contract or an operative scenario configuration**:
 
 | Boundary | #255 proposed rule | #254 architecture disposition |
 |---|---|---|
@@ -188,13 +193,15 @@ scenario configuration**:
 | Sample and methodology | 288 warm-up; 69,984 IS + 34,848 OOS decision candles; zero measured `SCENARIO_UNSUPPORTED` for point estimates | No architectural conflict; research methodology/interpretation owned by #255 |
 | Result labels | `SCENARIO_METHOD_VALID / INVALID / INCONCLUSIVE` | Distinct from strict SF-096 labels; methodology disposition must remain separate from economic performance |
 
-**Outstanding explicit parent #253 Gate B choices:** approve/reject the named
-hypothetical path and monotone crossing interpretation, tie/expiry/gap/fill
-assumptions as one coherent versioned set, permissible coverage gate, and
-the study's separate outcome labels. Strategy owner 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED`
-on parent #253 for the unchanged proposed scenario semantics; this is not
-model approval. A scenario reaching a strictly ambiguous outcome does
-not change its strict evidence label.
+**Owner decision recorded:** parent #253 [#6694636203](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6694636203)
+**approved the specific path, monotone ordering, tie/expiry/gap/fill
+assumptions, full-grid/zero-unsupported threshold and distinct method
+labels for specification finalisation**. Strategy owner 01 recorded
+`STRATEGY_SEMANTICS_UNCHANGED`. **Final normative Gate B acceptance,
+required independent review or documented DoD disposition, and merge
+remain pending**; neither selected assumptions nor the strategy-owner
+review authorize implementation or experiments. Strict ambiguity stays
+unchanged by any scenario outcome.
 
 **Research method clarification:** zero `SCENARIO_UNSUPPORTED` is the
 validation sibling's predeclared completeness threshold; the architecture
@@ -342,7 +349,7 @@ They require their own accepted rule before implementation.
 | Retain strict-only fail-closed | Highest historical integrity | Cannot explore conditional performance past OPEN ambiguity | Keep as default and strict baseline |
 | Audited exhaustive possible-worlds (#251) | Retains all compatible paths | Large branch/state growth; high correctness/audit cost | Distinct deferred research direction |
 | Higher-resolution market trades (SF-098) | Can establish actual order if qualified | Historical coverage/contract proof unknown | Pursue independently |
-| **One registered deterministic assumed path** | Small, predictable, reproducible scenario sensitivity | Model-dependent trade sets; path choice material | **Preferred candidate for Stage 2**, not approved path |
+| **One registered deterministic assumed path** | Small, predictable, reproducible scenario sensitivity | Model-dependent trade sets; path choice material | **Owner-selected for specification finalisation** under #253; not operative or normative until final Gate B |
 | A basket of optimistic/adverse/random paths | Potential sensitivity envelope | Easy post-hoc cherry-picking; semantics/multiplicity unclear | Reject as first increment |
 | Reuse strict runner with `force_close`/implicit choose | Minimal code | Mixes evidence and fiction; breaks frozen identities | Reject |
 
@@ -407,19 +414,22 @@ thresholds, IS/OOS discipline, metrics, conclusions and reporting format.
 **02 owns** the typed machinery and audit boundary. Neither can
 unilaterally approve strategy-rule changes.
 
-**Material decisions requiring explicit approval at #253 Gate B:**
+**Parent #253 decision and remaining final Gate B requirements:**
 
-1. First allowlisted path rule and direction (e.g. hypothetical O-H-L-C
-   versus O-L-H-C), possible monotone interpolation, and whether a *single*
-   path or a preregistered fixed pair is permitted.
-2. Event ties, exact cutoff/expiry intersection and time interpolation
-   treatment, plus gap/stop/target fill ordering; reject incomplete models.
-3. New scenario identity, sensitivity/metric interpretation, safe
-   unsupported/coverage criteria and any effect on normative strategy intent.
-4. Strategy-owner 01 disposition
-   (`STRATEGY_SEMANTICS_UNCHANGED`, clarification, or version change).
-5. Acceptance of the companion ADR-011 amendment and #255 predeclared
-   scenario-validation document **before** an implementation ticket.
+1. **Selection approved for specification finalisation:** the single
+   hypothetical O→H→L→C monotone first-crossing path and all five
+   explicit versioned subpolicies, including tie rejection, observed
+   Open gap base, last-close-before-5m-expiry and once-only profile
+   composition; see owner decision #6694636203.
+2. **Research interpretation selected for specification finalisation:**
+   complete frozen IS/OOS grid, zero measured `SCENARIO_UNSUPPORTED`
+   before point metrics and separate methodology sufficiency labels.
+3. **Strategy-owner disposition recorded:**
+   `STRATEGY_SEMANTICS_UNCHANGED` on #253; no strategy rule change.
+4. **Still pending final Gate B:** exact-head cross-contract/DoD review,
+   independent review or an explicit approved disposition, and formal
+   acceptance of the normative ADR-011 amendment and #255 validation
+   contract before merging or creating any later implementation issue.
 
 **Current coordination status:** #255 remains open; its corrected draft
 PR #257 at head `1ba45856bc4598d80c4e02bfe1776139bbe13713`
@@ -427,5 +437,6 @@ explicitly reconciles all five subpolicy `(id, version)` pairs, proposed
 ordering, economics and evidence labels with this architecture. Strategy
 owner 01 has recorded `STRATEGY_SEMANTICS_UNCHANGED` for the unchanged
 scenario semantics. This is **contract compatibility, not approval**:
-#253 Gate B must still accept or reject the material assumptions and
-methodology before either proposal becomes normative.
+#253 has approved the material assumption selection for specification
+finalisation only. Final normative Gate B acceptance and required review/
+merge evidence remain pending before either proposal becomes operative.
