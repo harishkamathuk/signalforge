@@ -54,7 +54,7 @@ source .venv/bin/activate
 git status --short
 git rev-parse HEAD
 
-python scripts/local_agent_task_handoff.py prepare \
+python -m scripts.local_agent_task_handoff prepare \
   --repo . \
   --task-id sf247-supervised-pilot-001 \
   --issue 247 \
@@ -80,7 +80,7 @@ the agent's summary.
 A matching report may be verified with:
 
 ```bash
-python scripts/local_agent_task_handoff.py verify \
+python -m scripts.local_agent_task_handoff verify \
   --task .signalforge-data/handoff/agent-tasks/sf247-supervised-pilot-001.json \
   --report .signalforge-data/handoff/agent-reports/sf247-supervised-pilot-001.json
 ```
