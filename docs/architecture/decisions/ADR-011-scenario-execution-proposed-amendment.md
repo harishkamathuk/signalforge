@@ -38,13 +38,14 @@ calculation version. The `_V1` suffix of an ID is not a version.
 The canonical assumption semantic hash must bind all five full pairs,
 all numeric settings and the approved registry mappings; changing
 semantics requires a new version and cannot retain the old hash.
-No default/inferred version or rule is permitted. #255's current
-O-H-L-C candidate supplies the price rule/version but has not yet
-registered explicit versions for its four other `_V1` subpolicy IDs;
-the architecture proposes `1.0.0-proposal` for each **subject to sibling
-reconciliation**, not as accepted assumptions. No strategy-specific signal/entry/stop/
-target formulas, arbitrary executable expressions, unversioned default
-path or after-the-fact branch selection are permitted.
+No default/inferred version or rule is permitted. #255's corrected
+PR #257 at head `1ba45856bc4598d80c4e02bfe1776139bbe13713`
+now explicitly provides the five reconciled `(id, version)` pairs,
+including `1.0.0-proposal` for all four formerly suffix-only rules.
+These are **proposed identities, not approved assumptions**. No
+strategy-specific signal/entry/stop/target formulas, arbitrary
+executable expressions, unversioned default path or after-the-fact
+branch selection are permitted.
 
 The scenario engine consumes existing strategy-owned completed-candle
 decisions, `ArmIntent`, `ArmedPolicyIntent`,
@@ -156,8 +157,10 @@ and #253 Gate B remain required before this draft becomes normative.
 
 **COR #256 — review M1/M2 (non-operative):** The typed architecture now
 requires explicit `(id, version)` pairs for each of five scenario
-subpolicies and proposes `1.0.0-proposal` for the four suffix-only
-rules in #255, subject to that sibling's written reconciliation. The
+subpolicies. The four previously suffix-only policies are now
+explicitly reconciled in #255/PR #257 at head
+`1ba45856bc4598d80c4e02bfe1776139bbe13713`, without approving
+any of the candidate scenario rules. The
 separate canonical pre-run manifest fully binds strategy/config,
 source/data, assumption/profile, session/window, simulator and finite
 resource-budget policy; result identity and exhaust provenance are
