@@ -118,7 +118,8 @@ def _source(*, overrides: dict[int, tuple[str, str, str, str]] | None = None
 
 def _request(source: RawDiagnosticSource, *,
              profile: HistoricalExecutionAssumptionProfile | None = None,
-             budgets: ScenarioResourcePolicy | None = None) -> ScenarioResearchRequest:
+             budgets: ScenarioResourcePolicy | None = None,
+             fixture_identity: str = "synthetic-default-shape") -> ScenarioResearchRequest:
     return ScenarioResearchRequest(
         mode=ScenarioMode.SCENARIO_RESEARCH, source=source,
         strategy_selection=SEL, engine_calculation_version="synthetic-engine-v1",
@@ -131,6 +132,7 @@ def _request(source: RawDiagnosticSource, *,
         oos_start=START + timedelta(minutes=1255),
         measured_end=START + timedelta(minutes=MINUTES),
         repository_revision="synthetic-test-code",
+        synthetic_fixture_identity=fixture_identity,
     )
 
 
@@ -291,20 +293,28 @@ def test_three_distinct_strategy_shapes_reuse_scenario_contract():
     """ADR-008: BTC, cutoff and independent economics share generic state mechanics."""
     source = _source(overrides={1255: ("100", "100.4", "99.9", "100")})
     request = _request(source)
-    baseline = _runner(251).run(request)
+    baseline = _runner(251).run(replace(
+        request, synthetic_fixture_identity="synthetic-btc-baseline-251",
+    ))
     early = ScenarioResearchRunner(registry=StrategyRegistry((
         StrategyRegistration(
             SEL.strategy_id, SEL.strategy_version,
             lambda params: _EarlyCutoff((251,)),
         ),
-    ))).run(request)
+    ))).run(replace(
+        request, synthetic_fixture_identity="synthetic-early-cutoff-251",
+    ))
     extended = ScenarioResearchRunner(registry=StrategyRegistry((
         StrategyRegistration(
             SEL.strategy_id, SEL.strategy_version,
             lambda params: _ExtendedTarget((251,)),
         ),
-    ))).run(request)
-    assert baseline.manifest.run_id == early.manifest.run_id == extended.manifest.run_id
+    ))).run(replace(
+        request, synthetic_fixture_identity="synthetic-extended-target-251",
+    ))
+    assert len({
+        baseline.manifest.run_id, early.manifest.run_id, extended.manifest.run_id,
+    }) == 3
     assert any(o.reason == "TARGET" for o in baseline.outcomes)
     assert any(o.reason == "TARGET" for o in extended.outcomes) is False
     assert early.execution_valid is False
@@ -333,7 +343,7 @@ def test_terminal_resource_budget_never_exposes_partial_economics():
     request = _request(source, budgets=ScenarioResourcePolicy(
         "FINITE_FAIL_CLOSED", "1.0.0", 100, 1000, 1, 1000, 1,
     ))
-    first = _runner(251, 252).run(request)
+    first = _runner(259, 260).run(request)
     assert first.failure is not None and first.failure.startswith("BUDGET_EXHAUSTED")
     assert first.outcomes == ()
     assert first.trace == ()
