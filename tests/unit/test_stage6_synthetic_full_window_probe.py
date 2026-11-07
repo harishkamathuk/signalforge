@@ -156,6 +156,11 @@ def test_actual_scenario_runner_small_synthetic_smoke(mode: str):
     assert result["measured_is_candles"] == 1
     assert result["measured_oos_candles"] == 9
     assert result["peak_rss_bytes"] > 0
+    assert len(result["runner_checkout_git_sha"]) == 40
+    assert len(result["loaded_runner_sha256"]) == 64
+    assert result["loaded_runner_file"].endswith(
+        "/signalforge/research/scenario_execution.py"
+    )
     assert result["execution_valid"] is False
     assert result["failure_category"] is None
     # This is only an interface/capacity diagnostic, not a synthetic trade study.
