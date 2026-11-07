@@ -318,7 +318,9 @@ def seal(*, root: Path, source_file: Path, profile: str, attempt: int, synthetic
             "result_sha256": sha, "source_kind": receipt["source_kind"]}
 
 
-def _verified_seal(root: Path, profile: str, attempt: int) -> tuple[dict[str, object], dict[str, object]]:
+def _verified_seal(
+    root: Path, profile: str, attempt: int
+) -> tuple[dict[str, object], dict[str, object], bytes]:
     _check(profile in RUNS and attempt in (1, 2), "unknown profile/attempt")
     stem = f"{profile.lower()}-attempt-{attempt}"
     receipt = _json_file(root / "receipts" / f"{stem}.json")
@@ -340,13 +342,13 @@ def _verified_seal(root: Path, profile: str, attempt: int) -> tuple[dict[str, ob
         _check(type(receipt.get("gate_d_record_sha256")) is str and
                len(receipt["gate_d_record_sha256"]) == 64,
                "missing Gate D acceptance fingerprint")
-    return receipt, result
+    return receipt, result, raw
 
 
 def is_qa(*, root: Path, profile: str, attempt: int) -> dict[str, object]:
     """Publish an IS-only *methodological count*, never OOS or trade economics."""
     root = _private_directory(root)
-    receipt, result = _verified_seal(root, profile, attempt)
+    receipt, result, _ = _verified_seal(root, profile, attempt)
     report: dict[str, object] = {
         "schema": "stage6-is-qa-v1", "profile": profile, "attempt": attempt,
         "source_kind": receipt["source_kind"],
@@ -366,7 +368,7 @@ def release_oos(*, root: Path, profile: str, attempt: int, oos_record: Path | No
     """Copy previously sealed full result after a separate operator-attested OOS decision."""
     root = _private_directory(root)
     _check(oos_record is not None, "explicit OOS owner decision required")
-    receipt, _ = _verified_seal(root, profile, attempt)
+    receipt, _, verified_bytes = _verified_seal(root, profile, attempt)
     stem = f"{profile.lower()}-attempt-{attempt}"
     is_path = root / "is-qa" / f"{stem}.json"
     is_report = _json_file(is_path)
@@ -384,7 +386,9 @@ def release_oos(*, root: Path, profile: str, attempt: int, oos_record: Path | No
     destination = _subdir(root, "released") / f"{stem}.json"
     _check(not destination.exists(), "OOS release collision")
     # Never print the released content; operator controls the only full-result copy.
-    _write_once(destination, _private_file(root / "sealed" / f"{stem}.json"))
+    # Release the *same* bytes whose digest and identity were checked above:
+    # reopening the owner-writable seal would create a TOCTOU mutation window.
+    _write_once(destination, verified_bytes)
     return {"status": "OOS_RELEASED_BY_OPERATOR_RECORD", "profile": profile,
             "attempt": attempt, "released_sha256": receipt["result_sha256"],
             "record_sha256": _digest(_private_file(oos_record)),
