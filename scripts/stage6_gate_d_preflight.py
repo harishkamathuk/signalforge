@@ -101,6 +101,34 @@ def verify_revision(root: Path) -> str:
     return head
 
 
+def bind_checked_checkout(root: Path) -> None:
+    """Bind all SignalForge imports to the exact checked script checkout.
+
+    Args:
+        root: Repository already verified as a clean Gate C descendant.
+
+    Raises:
+        PreflightError: If executing a copied script or a preloaded package
+            would use code from a different checkout or installed distribution.
+    """
+    expected_script = root / "scripts" / "stage6_gate_d_preflight.py"
+    _require(Path(__file__).resolve() == expected_script.resolve(strict=True),
+             "preflight script does not belong to the checked repository")
+    # The Python path of a script run as 'python scripts/foo.py' starts in
+    # scripts/, and a stale editable install may otherwise override Git evidence.
+    # Binding the checked root first is necessary but not sufficient: previously
+    # loaded modules retain their old identity and must be rejected explicitly.
+    sys.path.insert(0, str(root))
+    for name, module in tuple(sys.modules.items()):
+        if name != "signalforge" and not name.startswith("signalforge."):
+            continue
+        module_path = getattr(module, "__file__", None)
+        _require(isinstance(module_path, str),
+                 "loaded SignalForge module lacks a verifiable file origin")
+        _require(Path(module_path).resolve(strict=True).is_relative_to(root / "signalforge"),
+                 "preloaded SignalForge module originates outside the checked repository")
+
+
 def _protected_root(path: Path) -> Path:
     _require(not path.is_symlink(), "protected generation path must not be a symlink")
     resolved = path.resolve(strict=True)
@@ -406,6 +434,7 @@ def execute(repo: Path, generation: Path, destination: Path) -> str:
     output = _output_dir(destination, repo)
     root = _protected_root(generation)
     head = verify_revision(repo)
+    bind_checked_checkout(repo)
     before = inventory(root)
     _equal(before["file_count"], EXPECTED_FILE_COUNT, "protected file inventory count")
     _equal(before["total_bytes"], EXPECTED_SOURCE_BYTES, "protected archive byte size")
