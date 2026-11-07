@@ -199,7 +199,8 @@ def test_expiry_before_new_signal_and_no_retroactive_bar_reuse():
     # First setup stays unfilled through all five following minutes.
     # Fresh signal at completed 5m boundary arms after old expiry; only
     # minute 1260 (not 1259) can trigger the new setup.
-    prices = {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)}\n    prices[1260] = ("100.2", "100.4", "100.1", "100.2")
+    prices = {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)}
+    prices[1260] = ("100.2", "100.4", "100.1", "100.2")
     result = _runner(251, 252).run(_request(_source(overrides=prices)))
     assert any(x.state == "EXPIRED" and x.reason == "VALIDITY_WINDOW_END"
                for x in result.outcomes)
@@ -210,7 +211,8 @@ def test_expiry_before_new_signal_and_no_retroactive_bar_reuse():
 
 
 def test_open_blocks_next_signal_and_persists_at_dataset_end():
-    prices = {i: ("100.2", "100.21", "100.1", "100.2")\n              for i in range(1255, MINUTES)}
+    prices = {i: ("100.2", "100.21", "100.1", "100.2")
+              for i in range(1255, MINUTES)}
     result = _runner(251, 252).run(_request(_source(overrides=prices)))
     assert len(result.outcomes) == 1
     assert result.outcomes[0].state == "OPEN"
