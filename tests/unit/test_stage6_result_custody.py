@@ -203,3 +203,17 @@ def test_resources_are_snapshot_only(tmp_path: Path) -> None:
     assert result["meets_thresholds"] is False
     assert result["available_ram_bytes"] > 0
     assert "does not bound" in result["limits"]
+
+
+def test_protected_seal_never_reads_result_before_gate_d_accept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, source, _ = fixture(tmp_path)
+
+    def no_read(_path: Path) -> None:
+        raise AssertionError("protected performance was read before Gate D")
+
+    monkeypatch.setattr(custody, "_parse_result", no_read)
+    with pytest.raises(custody.CustodyBlocked, match="requires approved Gate D"):
+        custody.seal(root=root, source_file=source, profile="REFERENCE_RAW", attempt=1,
+                     synthetic=False)
