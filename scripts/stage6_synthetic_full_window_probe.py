@@ -272,6 +272,7 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
         }
     command = [sys.executable, str(Path(__file__).resolve()),
                "--child", "--minutes", str(minutes), "--mode", mode,
+               "--max-rss-gib", str(max_rss_gib),
                "--vm-limit-gib", str(vm_limit_gib),
                "--timeout-seconds", str(timeout_seconds)]
     start = time.monotonic()
