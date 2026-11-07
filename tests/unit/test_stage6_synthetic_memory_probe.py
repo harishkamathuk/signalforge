@@ -74,20 +74,60 @@ def test_projection_rejects_bad_inputs() -> None:
         probe.extrapolate(_result(5, 100, 10), _result(10, 200, 8))
 
 
+ALLOWED_PROJECT_SYMBOLS = {
+    "signalforge.domain.ids": {"InstrumentId"},
+    "signalforge.domain.market": {"CandleQuality", "CompletedCandle"},
+    "signalforge.domain.money": {"Price"},
+    "signalforge.domain.time": {"CandleInterval"},
+    "signalforge.research.historical_bars": {"HistoricalBar"},
+    "signalforge.research.scenario_execution": {
+        "ScenarioBlockedDecision", "ScenarioExecutionManifest", "ScenarioMethodStatus",
+        "ScenarioOutcome", "ScenarioResearchResult", "ScenarioTrace",
+    },
+}
+
+
+def assert_synthetic_only_ast(tree: ast.AST) -> None:
+    """Reject non-allowlisted project imports and runner dispatch, including aliases."""
+    actual: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            assert all(not entry.name.startswith("signalforge") for entry in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").startswith("signalforge"):
+                assert node.module in ALLOWED_PROJECT_SYMBOLS
+                actual.setdefault(node.module, set()).update(item.name for item in node.names)
+                assert all(item.asname is None for item in node.names)
+                assert all(item.name in ALLOWED_PROJECT_SYMBOLS[node.module]
+                           for item in node.names)
+        elif isinstance(node, ast.Call):
+            called = node.func
+            if isinstance(called, ast.Attribute) and called.attr in {"run", "run_verified"}:
+                # Only the fixed subprocess launcher is allowed. Never a
+                # ScenarioResearchRunner instance nor imported runner alias.
+                assert (called.attr == "run" and isinstance(called.value, ast.Name)
+                        and called.value.id == "subprocess")
+            if isinstance(called, ast.Name):
+                assert called.id not in {"ScenarioResearchRunner", "run_verified"}
+    assert actual == ALLOWED_PROJECT_SYMBOLS
+
+
 def test_only_allowlisted_domain_types_and_never_call_runner() -> None:
-    """Defend against imports and method calls that could run protected scenarios."""
-    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    imports = [node for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-    assert all(
-        not any(fragment in (node.module or "") for fragment in (
-            "btc_raw_diagnostic_input", "strategy_registry", "market_data", "provider",
-        )) for node in imports
-    )
-    invoked = [node.func.attr for node in ast.walk(tree)
-               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
-    assert "run_verified" not in invoked
-    assert "load_sf095_raw_diagnostic_source" not in invoked
-    assert "execute" not in invoked
+    """Guard exact domain symbols and stop direct scenario runner invocation."""
+    assert_synthetic_only_ast(ast.parse(SCRIPT.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize("snippet", [
+    "from signalforge.research.scenario_execution import ScenarioResearchRunner",
+    "import signalforge.research.scenario_execution as engine",
+    "runner.run(request)",
+    "runner.run_verified(request)",
+    "ScenarioResearchRunner().run(request)",
+])
+def test_synthetic_only_guard_rejects_runner_dispatch(snippet: str) -> None:
+    """Prove guard fails closed for attempted runner import and invocation."""
+    with pytest.raises(AssertionError):
+        assert_synthetic_only_ast(ast.parse(snippet))
 
 
 def test_rejects_large_unbounded_worker_configuration() -> None:
