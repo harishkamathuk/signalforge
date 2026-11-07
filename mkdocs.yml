@@ -11,6 +11,7 @@ nav:
       - Persistence Development: persistence-development.md
       - Replay CLI: replay-cli.md
       - Research CLI: research-cli.md
+      - Scenario Research Runner: engineering/scenario-research-runner.md
       - OpenAlgo Integration: openalgo-integration.md
       - Live PAPER Operator: live-paper-operations.md
   - Strategies:
@@ -46,6 +47,7 @@ nav:
       - Research Identity Contracts: api/research-contracts.md
       - Historical Bar Research Boundary: api/historical-bar-research.md
       - Historical Bar Execution: api/historical-execution.md
+      - Scenario Research Execution: api/scenario-research.md
       - Historical Source Qualification: api/source-qualification.md
       - Per-Instrument Backtest Runner: api/backtest-runner.md
       - Research Orchestration & Analytics: api/research-orchestration.md
