@@ -152,9 +152,13 @@ Canonical proposed semantics:
 - after a modeled entry fill, stop/target economics are computed from that modeled fill using the
   frozen strategy rule, then subsequent stop/target crossings are evaluated in declared segment order;
 - one ARMED or one OPEN lifecycle is carried continuously across bars and across UTC midnight;
-- expiry occurs at the already-known end of the immediately following five-minute validity window,
-  **after** processing the final constituent one-minute candle up to its observed Close; no
-  fractional-minute expiry timestamp is invented;
+- expiry occurs at the already-known end of the immediately following five-minute validity window.
+  The boundary order is explicit: process the final constituent one-minute candle through its observed
+  Close → expire the prior still-unfilled ARMED setup → evaluate the newly completed five-minute
+  strategy decision if no OPEN/conflicting actionable state remains, allowing a fresh independent
+  opportunity when the frozen strategy qualifies → process the next one-minute Open. No
+  fractional-minute expiry timestamp is invented and no strategy-owned validity or one-position rule
+  is changed;
 - `event_tie_policy = {id: REJECT_SAME_LEVEL_TIE_V1, version: 1.0.0-proposal}`: if two lifecycle events are reached at the
   same hypothetical level/location and ordering would change the lifecycle/economics, classify the
   opportunity `SCENARIO_UNSUPPORTED`; do not apply favourable/adverse precedence;
