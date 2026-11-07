@@ -238,6 +238,23 @@ class ScenarioResearchRequest:
                 or not self.synthetic_fixture_identity.startswith("synthetic-")
             ):
                 raise ValueError("Synthetic strategy fixture identity must be explicit")
+            # A caller-supplied diagnostic ID alone does not establish fixture
+            # provenance. In particular, relabelling the audited Delta dataset
+            # cannot convert that source into permitted synthetic test evidence.
+            # This is a defensive consistency check, not a cryptographic proof
+            # against a caller deliberately replacing all provider observations.
+            manifest = dataset.manifest
+            if (
+                manifest.provider != "fixture"
+                or manifest.acquisition_adapter != "repository-fixture"
+                or manifest.grid.grid_id != "scenario-synthetic"
+                or "SYNTHETIC_TEST_ONLY" not in manifest.limitations
+                or manifest.acquisition_evidence
+                or any(bar.source_provider != "fixture" for bar in dataset.bars)
+            ):
+                raise ValueError(
+                    "Synthetic scenario requires test-only fixture source provenance"
+                )
         else:
             if self.synthetic_fixture_identity is not None:
                 raise ValueError("Protected runs may not claim synthetic strategy fixtures")
@@ -439,7 +456,7 @@ class ScenarioResearchResult:
         if destination.suffix != ".json" or not destination.parent.is_dir():
             raise ValueError("Scenario destination must be a JSON path in an existing directory")
         parent = destination.parent.resolve(strict=True)
-        if any(part in ("sf088", "sf096") for part in parent.parts):
+        if any(part in (".signalforge-data", "sf088", "sf096") for part in parent.parts):
             raise ValueError("Scenario output may not be written into protected evidence trees")
         # The exclusive create is the collision barrier; never replace evidence.
         with destination.open("x", encoding="utf-8") as stream:
