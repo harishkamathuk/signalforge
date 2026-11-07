@@ -536,10 +536,10 @@ def _walk_bar(
         return
     levels = (bar.open.value, bar.high.value, bar.low.value, bar.close.value)
     _step(work, strategy, profile, bar, levels[0], levels[0], opening=True)
-    for start, end in zip(levels, levels[1:], strict=True):
+    for start, end in zip(levels[:-1], levels[1:], strict=True):
         if work.failure is not None or work.active is None:
             return
-        _step(work, strategy, profile, bar, start, end, opening=False)
+        work.trace.append(ScenarioTrace(\n            bar.interval.start, start, end, "ASSUMED_SEGMENT", True,\n        ))\n        _step(work, strategy, profile, bar, start, end, opening=False)
 
 
 def _arm(
