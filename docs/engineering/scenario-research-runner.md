@@ -25,9 +25,18 @@ indicator engine version, a provenance revision, UTC frozen research
 boundaries, and a finite `ScenarioResourcePolicy`. Synthetic-only strategy
 fixture variants also require an explicit identity-bearing
 `synthetic_fixture_identity` beginning with `synthetic-`; protected
-requests prohibit this test-only field. It rejects unavailable
-source evidence, mismatched instruments, strict-mode profile combinations
-and unregistered rule or budget variants.
+requests prohibit this test-only field. Synthetic scenario requests also
+require independent **fixture metadata consistency**: a `fixture` provider,
+`repository-fixture` acquisition adapter, `scenario-synthetic` source grid,
+`SYNTHETIC_TEST_ONLY` limitation, no acquisition-evidence references and
+matching fixture bar-provider identities. Changing only the diagnostic ID
+cannot reclassify a Delta/provider evidence dataset as a synthetic fixture.
+These defensive checks do **not** cryptographically authenticate the origin
+of arbitrarily forged input data; a caller must not copy historical market
+bars into a synthetic fixture. Protected source loading retains its separate
+existing audit proof and fixed research-window/registry restrictions.
+The request rejects unavailable source evidence, mismatched instruments,
+strict-mode profile combinations and unregistered rule or budget variants.
 
 The five registered, **explicitly versioned** subpolicy IDs are:
 
@@ -64,14 +73,24 @@ The critical BTC completed-candle boundary is ordered:
    and no OPEN state conflicts.
 4. Process the *next* one-minute candle beginning at its observed Open.
 
-This differs from a possible strict-runner boundary ordering; strict code
-and original SF-096 evidence **must not be edited or reinterpreted** under
-this work item. The scenario carries OPEN state across UTC midnight and
+The strict historical runner can evaluate a completed-five-minute decision
+before expiring an unfilled ARMED setup at the next minute's Open. A synthetic
+cross-run regression proves this known ordering difference: a strict blocked
+decision can correspond to a fresh scenario ARMED opportunity at the exact
+accepted validity boundary. This is **not** a claim that the strict runner
+has been corrected; strict code and original SF-096 evidence **must not be
+edited or reinterpreted** under this work item. The scenario carries OPEN state across UTC midnight and
 preserves OPEN/ARMED at dataset end without inventing an exit.
 
 A true order-changing same-level tie, in-minute cutoff without defined
 precedence, malformed input, unsupported economics, or exhausted resource
 budget fails closed. No other OHLC traversal is automatically substituted.
+The accepted long-entry policy requires pre-entry invalidation strictly below
+the trigger, and valid post-fill targets above entry, so order-changing
+equal-level action ties cannot arise through valid frozen BTC policy. The
+first-crossing helper still explicitly rejects a contrived same-level tie
+with `SCENARIO_UNSUPPORTED` if a malformed private state bypasses policy
+validation; a synthetic defensive negative test exercises this branch.
 The maximum-outcomes budget is inclusive: exactly the permitted number of
 outcomes is valid, and only an attempted excess fails the run. An already
 full budget does not itself terminate otherwise valid later source candles.
@@ -104,7 +123,9 @@ outcome/trace counts, and the blocked-decision count. These fields are
 diagnostic provenance, not historical execution claims or point metrics.
 
 `ScenarioResearchResult.write_new(path)` exclusively creates a new JSON
-file, refusing an existing destination. No default write occurs during
+file, refusing an existing destination. Resolved parent directories under
+`.signalforge-data`, `sf088` or `sf096` are prohibited, including paths
+reached through directory symlinks. No default write occurs during
 `run()`, and the protected source generation is never modified.
 
 Each outcome carries `SCENARIO_CONDITIONED`; every result carries
@@ -124,7 +145,9 @@ single active position, BTC five-minute expiry/new-signal boundary,
 profile sensitivity, budget exhaustion (including exact-capacity success),
 failed active-state identity/last-complete-bucket preservation, bounded
 blocked-signal reporting, deterministic run/result bytes, non-overwriting
-output, and strict namespace isolation. It uses generated
+output, protected-directory and synthetic-provenance negative guards,
+cross-run strict/scenario expiry-order isolation, defensive same-level
+tie rejection, and strict namespace isolation. It uses generated
 one-minute bars and synthetic strategy decisions only; it never opens
 SF-088 or SF-096 protected market archives.
 
