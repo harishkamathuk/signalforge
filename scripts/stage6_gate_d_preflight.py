@@ -337,8 +337,6 @@ def write_packet(
     manifests: list[tuple[str, str, str, str]], prereg_id: str, head: str,
 ) -> None:
     """Write three exclusively-created private non-performance artifacts."""
-    from signalforge.config.identity import canonical_config_json
-
     names = {
         "REFERENCE_RAW": "reference_raw-input-manifest.json",
         "ADVERSE_RAW": "adverse_raw-input-manifest.json",
