@@ -388,7 +388,8 @@ class ScenarioResearchResult:
         """Write canonical result exclusively; never overwrite protected or prior output."""
         if destination.suffix != ".json" or not destination.parent.is_dir():
             raise ValueError("Scenario destination must be a JSON path in an existing directory")
-        if any(part in ("sf088", "sf096") for part in destination.parts):
+        parent = destination.parent.resolve(strict=True)
+        if any(part in ("sf088", "sf096") for part in parent.parts):
             raise ValueError("Scenario output may not be written into protected evidence trees")
         # The exclusive create is the collision barrier; never replace evidence.
         with destination.open("x", encoding="utf-8") as stream:
@@ -698,6 +699,11 @@ class ScenarioResearchRunner:
         if not isinstance(request, ScenarioResearchRequest):
             raise TypeError("Typed scenario research request required")
         dataset = request.source.dataset
+        if (
+            not request.source.source_diagnostic_id.startswith("synthetic-")
+            and self._registry is not DEFAULT_STRATEGY_REGISTRY
+        ):
+            raise ValueError("Protected runs require the approved strategy registry")
         strategy = self._registry.resolve(request.strategy_selection)
         candles = aggregate_one_minute_to_five_minute(dataset)
         manifest = _manifest(request, strategy, candles)
@@ -710,22 +716,21 @@ class ScenarioResearchRunner:
         is_count = oos_count = 0
 
         def finish() -> ScenarioResearchResult:
-            # Failed runs are diagnostics, not selectively published economic subsets.
-            if work.failure is not None:
-                kept_outcomes: tuple[ScenarioOutcome, ...] = ()
-                kept_trace: tuple[ScenarioTrace, ...] = ()
-            else:
-                kept_outcomes = tuple(work.outcomes)
-                kept_trace = tuple(work.trace)
-            if (
-                work.failure is None and (
-                    work.events > request.resources.max_events
-                    or len(work.outcomes) > request.resources.max_outcomes
-                    or len(work.trace) > request.resources.max_trace_records
-                )
+            # Budget exhaustion is evaluated *before* selecting return evidence:
+            # never leak partial economics after a late terminal-state append.
+            if work.failure is None and (
+                work.events > request.resources.max_events
+                or len(work.outcomes) > request.resources.max_outcomes
+                or len(work.trace) > request.resources.max_trace_records
             ):
                 work.failure = "BUDGET_EXHAUSTED: terminal event/trace/outcome count"
                 work.failure_bucket = request.measured_end
+            kept_outcomes: tuple[ScenarioOutcome, ...] = (
+                () if work.failure is not None else tuple(work.outcomes)
+            )
+            kept_trace: tuple[ScenarioTrace, ...] = (
+                () if work.failure is not None else tuple(work.trace)
+            )
             return ScenarioResearchResult(
                 manifest, kept_outcomes, kept_trace, is_count, oos_count,
                 work.unsupported, work.failure, work.failure_bucket, work.events,
