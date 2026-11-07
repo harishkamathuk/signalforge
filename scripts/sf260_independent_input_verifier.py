@@ -41,6 +41,11 @@ FROZEN_RULES = {
     "fill_application_policy": "RAW_PROFILE_AFTER_BASE_V1",
 }
 MAX_BARS = 524160
+SOURCE_MINUTES = 525600
+CHUNK_MINUTES = 2000
+EXPECTED_5M_CLOSES = 105120
+SOURCE_FILE_COUNT = 1057
+SOURCE_BYTES = 101674328
 START = int(datetime(2025, 10, 30, tzinfo=UTC).timestamp())
 END = int(datetime(2026, 10, 30, tzinfo=UTC).timestamp())
 
@@ -293,13 +298,13 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
             "wrong protected SF-088 archive path")
     require(root.absolute() == root.resolve(strict=True), "symlink in source ancestors")
     before = inventory(root)
-    require(before == {"file_count": 1057, "total_bytes": 101674328,
+    require(before == {"file_count": SOURCE_FILE_COUNT, "total_bytes": SOURCE_BYTES,
                        "inventory_sha256_v1": INVENTORY}, "source inventory differs from frozen")
     report = as_map(read_json(root / "evidence-only-report.json"), "source report invalid")
     report_identity = hashlib.sha256(json.dumps({k: v for k, v in report.items() if k != "report_sha256"},
                    sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
     require(report.get("report_sha256") == report_identity, "source acquisition report self-hash mismatch")
-    chunk_count = (525600 + 1999) // 2000
+    chunk_count = (SOURCE_MINUTES + CHUNK_MINUTES - 1) // CHUNK_MINUTES
     five_minute_closes: list[Decimal] = []
     old_sha = hashlib.sha256()
     pass_semantics: list[list[str]] = []
@@ -326,7 +331,7 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
             require(payload.get("success") is True and isinstance(payload.get("result"), list),
                     "raw candle payload shape changed")
             rows = payload["result"]
-            expected_count = min(2000, 525600 - i * 2000)
+            expected_count = min(CHUNK_MINUTES, SOURCE_MINUTES - i * CHUNK_MINUTES)
             require(len(rows) == expected_count, "chunk row-count mismatch")
             parsed: list[tuple[int, Decimal, Decimal, Decimal, Decimal, Decimal]] = []
             for item in rows:
@@ -346,7 +351,7 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
                         "candle OHLC/volume invalid")
                 parsed.append((t, o, high, low, close, volume))
             parsed.sort(key=lambda r: r[0])
-            expected_time = START + (i * 2000) * 60
+            expected_time = START + (i * CHUNK_MINUTES) * 60
             for t, _, _, _, close, _ in parsed:
                 require(t == expected_time, "source minute missing/duplicated/misaligned")
                 if pass_no == 1 and seen % 5 == 4:
@@ -363,10 +368,10 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
                     sem == report[("first" if pass_no == 1 else "second")+"_pass_semantic_sha256"][i],
                     "raw semantic digest mismatch")
             chunk_sha.append(sem)
-        require(seen == 525600 and expected_time == END, "incomplete frozen UTC grid")
+        require(seen == SOURCE_MINUTES and expected_time == END, "incomplete frozen UTC grid")
         pass_semantics.append(chunk_sha)
     require(pass_semantics[0] == pass_semantics[1], "two-pass semantic mismatch")
-    require(len(five_minute_closes) == 105120 and old_sha.hexdigest() == OLD_5M,
+    require(len(five_minute_closes) == EXPECTED_5M_CLOSES and old_sha.hexdigest() == OLD_5M,
             "original independent 5m-close evidence SHA mismatch")
     computed = config_hash({"close": five_minute_closes})
     require(computed == expected_close_digest, "source-dependent scenario close digest mismatch")
@@ -375,7 +380,7 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
             "source_acquisition_report_sha256": report_identity,
             "first_pass_first_chunk_acquired_at": first_acquired_at,
             "acquired_at_identity_note": "operational provenance, excluded from current source semantic_mapping and run ID",
-            "one_minute_candles": 525600, "five_minute_closes": 105120,
+            "one_minute_candles": SOURCE_MINUTES, "five_minute_closes": EXPECTED_5M_CLOSES,
             "original_five_minute_close_sha256": OLD_5M,
             "scenario_five_minute_close_digest": computed}
 
