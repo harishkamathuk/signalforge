@@ -44,19 +44,10 @@ RESOURCE_LIMITS = {
     "max_states": 1,
 }
 FROZEN_CODE_PATHS = (
-    "signalforge/config/btc_momentum_baseline_v0.py",
-    "signalforge/config/identity.py",
-    "signalforge/config/strategy_registry.py",
-    "signalforge/research/btc_raw_diagnostic_input.py",
-    "signalforge/research/delta_historical_dataset_acquisition.py",
-    "signalforge/research/delta_historical_evidence_audit.py",
-    "signalforge/research/delta_historical_qualification.py",
-    "signalforge/research/delta_provisional_research.py",
-    "signalforge/research/historical_bars.py",
-    "signalforge/research/historical_execution.py",
-    "signalforge/research/scenario_execution.py",
-    "signalforge/runtime/btc_momentum_baseline_v0.py",
-    "signalforge/runtime/indicators.py",
+    # Pin the complete implementation dependency closure, not merely the
+    # manifest entry point: transitive domain/indicator changes can silently
+    # change the meaning of the registered calculation without changing it.
+    "signalforge",
     "docs/architecture/decisions/ADR-011-scenario-execution-proposed-amendment.md",
     "docs/architecture/execution-scenario-modelling-contract-proposal.md",
     "docs/strategies/btc-momentum-baseline-v0.md",
