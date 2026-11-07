@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config\nfrom signalforge.config.strategy_registry import (
+from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
+from signalforge.config.strategy_registry import (
     StrategyRegistration,
     StrategyRegistry,
     StrategySelection,
