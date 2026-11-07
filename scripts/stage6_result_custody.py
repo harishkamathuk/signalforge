@@ -275,22 +275,26 @@ def seal(*, root: Path, source_file: Path, profile: str, attempt: int, synthetic
     """
     _check(profile in RUNS and attempt in (1, 2), "unknown profile or attempt")
     root = _private_directory(root)
+    # Check external Gate D authority BEFORE reading any protected full-result
+    # bytes. Merely parsing outcomes would breach the pre-execution boundary.
+    if not synthetic:
+        _check(private_manifest is not None and gate_d_record is not None,
+               "protected sealing requires approved Gate D and frozen private manifest")
+        _check_approval(gate_d_record, decision="GATE_D_ACCEPT",
+                        extra={"preregistration_id": PREREG,
+                               "execution_revision": BASELINE})
     data, manifest, result = _parse_result(source_file)
     _validate_source(manifest, synthetic=synthetic)
     fills = _mapping(manifest.get("fills"), "manifest fills")
     _check(fills.get("profile_id") == profile, "wrong profile in scenario result")
     run_id = result["scenario_run_id"]
     if not synthetic:
-        _check(private_manifest is not None and gate_d_record is not None,
-               "protected sealing requires approved Gate D and frozen private manifest")
+        assert private_manifest is not None and gate_d_record is not None
         expected_run, expected_file_sha = RUNS[profile]
         _check(run_id == expected_run and _digest(_private_file(private_manifest)) == expected_file_sha,
                "frozen manifest/run identity differs")
         mapping, verified_id = _manifest_record(private_manifest)
         _check(mapping == manifest and verified_id == run_id, "full frozen input manifest mismatch")
-        _check_approval(gate_d_record, decision="GATE_D_ACCEPT",
-                        extra={"preregistration_id": PREREG,
-                               "execution_revision": BASELINE})
     _check(result["is_observed"] <= 69984 and result["oos_observed"] <= 34848,
            "invalid scenario grid count")
     stem = f"{profile.lower()}-attempt-{attempt}"
