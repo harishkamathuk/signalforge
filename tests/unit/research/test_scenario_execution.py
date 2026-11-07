@@ -455,3 +455,77 @@ def test_dataset_end_armed_and_cross_midnight_open_are_conditional():
     assert [o.state for o in armed_result.outcomes] == ["ARMED"]
     assert armed_result.outcomes[0].entry_bucket is None
     assert armed_result.point_metrics_allowed is False
+
+
+def test_outcome_limit_accepts_exact_capacity_and_rejects_next_outcome():
+    """A full capacity is allowed; only an additional outcome exhausts the run."""
+    prices = {
+        1255: ("100", "105", "98", "100"),
+        1260: ("100", "105", "98", "100"),
+    }
+    source = _source(overrides=prices)
+    request = _request(source, budgets=ScenarioResourcePolicy(
+        "FINITE_FAIL_CLOSED", "1.0.0", 100, 1000, 1, 1000, 1,
+    ))
+    at_capacity = _runner(251).run(request)
+    assert at_capacity.failure is None
+    assert len(at_capacity.outcomes) == 1
+    assert at_capacity.outcomes[0].state == "CLOSED"
+    assert at_capacity.attempted_outcome_count == 1
+    assert at_capacity.point_metrics_allowed is False
+
+    overflow = _runner(251, 252).run(request)
+    assert overflow.failure is not None
+    assert overflow.failure.startswith("BUDGET_EXHAUSTED")
+    assert overflow.outcomes == ()
+    assert overflow.trace == ()
+    assert overflow.attempted_outcome_count == 2
+    assert overflow.failure_bucket == START + timedelta(minutes=1260)
+
+
+@pytest.mark.parametrize("entered", [False, True])
+def test_failure_retains_active_opportunity_and_last_complete_source(entered):
+    """No partial economics, but a failed active state remains reproducible."""
+    prices = ({
+        i: ("100.2", "100.21", "100.1", "100.2")
+        for i in range(1255, MINUTES)
+    } if entered else {})
+    source = _source(overrides=prices)
+    request = _request(source, budgets=ScenarioResourcePolicy(
+        "FINITE_FAIL_CLOSED", "1.0.0", 8, 1000, 1000, 1000, 1,
+    ))
+    first = _runner(251).run(request)
+    second = _runner(251).run(request)
+    assert first.failure is not None and first.failure.startswith("BUDGET_EXHAUSTED")
+    assert first.outcomes == ()
+    assert first.trace == ()
+    assert first.blocked_decisions == ()
+    assert first.failure_opportunity_id
+    assert first.failure_signal_interval_start == START + timedelta(minutes=1250)
+    assert first.last_complete_bucket == START + timedelta(minutes=1257)
+    assert first.failure_bucket == START + timedelta(minutes=1258)
+    assert first.terminal_active_state == ("OPEN" if entered else "ARMED")
+    assert first.mapping() == second.mapping()
+    assert first.result_id == second.result_id
+
+
+def test_blocked_completed_candle_decisions_are_separately_auditable():
+    """A blocked signal neither disappears nor arms a competing setup."""
+    prices = {
+        i: ("100.2", "100.21", "100.1", "100.2")
+        for i in range(1255, MINUTES)
+    }
+    result = _runner(251, 252).run(_request(_source(overrides=prices)))
+    assert result.failure is None
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].state == "OPEN"
+    assert result.blocked_actionable_count == 1
+    assert len(result.blocked_decisions) == 1
+    blocked = result.blocked_decisions[0]
+    assert blocked.interval_start == START + timedelta(minutes=1255)
+    assert blocked.interval_end == START + timedelta(minutes=1260)
+    assert blocked.blocking_state == "OPEN"
+    assert blocked.blocking_opportunity_id == result.outcomes[0].opportunity_id
+    assert result.mapping()["blocked_decisions"] == [blocked.mapping()]
+    assert result.execution_valid is False
+
