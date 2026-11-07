@@ -655,4 +655,3 @@ def test_order_changing_equal_level_tie_fails_closed_defensively():
     assert work.failure_bucket == bar.interval.start
     assert work.outcomes == []
     assert work.trace == []
-
