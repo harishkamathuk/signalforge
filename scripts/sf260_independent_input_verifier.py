@@ -250,7 +250,8 @@ def verify_manifests(directory: Path) -> tuple[dict[str, object], str]:
         require(impl == {"revision": BASELINE, "canonical_serializer": "canonical-config-json-v1",
                          "scenario_calculation_version": "btc-ohlc-path-scenario-v1"},
                 "implementation identity drift")
-        prereg_runs.append([profile, run_id]); prereg_sha.append([profile, file_sha])
+        prereg_runs.append([profile, run_id])
+        prereg_sha.append([profile, file_sha])
         details[profile] = {"run_id": run_id, "manifest_sha256": file_sha,
                             "profile_semantic_sha256": expected_profile_sha}
     require(len(source_dependent_digests) == 1, "source-dependent digest differs between profiles")
@@ -280,7 +281,8 @@ def inventory(root: Path) -> dict[str, object]:
         n = file.stat().st_size
         row = [file.relative_to(root).as_posix(), n, hash_file(file)]
         h.update(json.dumps(row, separators=(",", ":"), ensure_ascii=True).encode() + b"\n")
-        count += 1; size += n
+        count += 1
+        size += n
     return {"file_count": count, "total_bytes": size, "inventory_sha256_v1": h.hexdigest()}
 
 
@@ -353,8 +355,8 @@ def verify_raw_source(root: Path, expected_close_digest: str) -> dict[str, objec
                 seen += 1
                 expected_time += 60
             digest_map = [{"time": t, "open": decimal_text(o), "high": decimal_text(h),
-                           "low": decimal_text(l), "close": decimal_text(c), "volume": decimal_text(v)}
-                          for t, o, h, l, c, v in parsed]
+                           "low": decimal_text(low), "close": decimal_text(c), "volume": decimal_text(v)}
+                          for t, o, h, low, c, v in parsed]
             sem = hashlib.sha256(json.dumps(digest_map, sort_keys=True, separators=(",", ":"),
                                  ensure_ascii=True).encode("ascii")).hexdigest()
             require(sem == meta.get("semantic_sha256") and
@@ -398,7 +400,9 @@ def verify_checkout(path: Path) -> str:
                               check=False)
     require(ancestry.returncode == 0, "frozen Gate C baseline not an ancestor")
     diff = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", BASELINE, "HEAD", "--",
-                           "signalforge", "docs/strategies/btc-momentum-baseline-v0.md",
+                           "signalforge",
+                           "docs/architecture/execution-scenario-modelling-contract-proposal.md",
+                           "docs/strategies/btc-momentum-baseline-v0.md",
                            "docs/validation/btc-momentum-baseline-v0-validation-v0.md",
                            "docs/validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md",
                            "docs/architecture/decisions/ADR-011-historical-execution-and-ambiguity-semantics.md",
