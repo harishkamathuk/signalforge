@@ -36,6 +36,10 @@ For both, the frozen `FINITE_FAIL_CLOSED` caps remain unchanged. A source period
 beginning **2027-01-01 UTC** ensures these are not the protected historical dates.
 The child source provider is `fixture` and all values are invented in memory.
 No provider requests, on-disk result files or protected archive accesses occur.
+The child pins imports to the same Git checkout containing the probe and verifies
+the loaded `scenario_execution.py` path. Its sanitized report includes the actual
+checkout commit SHA and runner-module file SHA-256. This prevents an unrelated
+editable/site-packages installation from silently supplying the measured runner.
 
 `quiet` uses the real, frozen BTC strategy and actual indicator calculations
 on artificial low-volatility candles. `scheduled` uses a conspicuously named
