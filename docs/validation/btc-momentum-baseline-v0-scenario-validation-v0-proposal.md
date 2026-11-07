@@ -221,8 +221,9 @@ Scenario selection may not depend on:
 
 ## 4. Execution profiles and economics
 
-The proposed first scenario study reuses the existing frozen raw diagnostic execution profiles,
-subject to Gate B acceptance of this exact composition:
+The proposed first scenario study reuses the existing frozen raw diagnostic execution profiles.
+This exact composition is approved for specification finalisation and remains subject to final Gate B
+normative-contract acceptance:
 
 1. `REFERENCE_RAW / 1.0.0`
    - modeled entry base fill: declared path/gap base price;
@@ -410,7 +411,8 @@ unless separate historically authoritative execution evidence establishes that c
 
 ## 7. Proposed future-study decision labels
 
-These labels are **proposed for Gate B review** and are deliberately separate from SF-096.
+These labels are **approved for specification finalisation** and remain subject to final Gate B
+normative-contract acceptance; they are deliberately separate from SF-096.
 
 ### `SCENARIO_METHOD_VALID`
 
