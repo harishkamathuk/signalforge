@@ -156,6 +156,11 @@ class ScenarioResourcePolicy:
             value = getattr(self, field)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{field} must be a finite positive integer")
+        # The approved deterministic path has exactly one concurrent ARMED/OPEN
+        # slot. This is a concurrency limit, not a count of state transitions;
+        # the independent event/trace/bar budgets bound cumulative work.
+        if self.max_states != 1:
+            raise ValueError("Single-path scenario requires max_states=1")
 
     def mapping(self) -> dict[str, object]:
         """Return version, exhaustion behaviour and every configured bound."""
