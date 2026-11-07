@@ -45,7 +45,6 @@ from signalforge.runtime.btc_momentum_baseline_v0 import (
 )
 from signalforge.runtime.strategy import CompletedCandleStrategyContext
 
-
 BTC = InstrumentId("DELTA:BTCUSD")
 SEL = StrategySelection("btc_momentum_baseline_v0", "0.1.0-experimental", {})
 EXAMPLE = Path(__file__).resolve().parents[3] / (
