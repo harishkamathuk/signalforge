@@ -112,6 +112,7 @@ def bind_checked_checkout(root: Path) -> None:
             would use code from a different checkout or installed distribution.
     """
     expected_script = root / "scripts" / "stage6_gate_d_preflight.py"
+    _require(expected_script.is_file(), "preflight script does not belong to checked repository")
     _require(Path(__file__).resolve() == expected_script.resolve(strict=True),
              "preflight script does not belong to the checked repository")
     # The Python path of a script run as 'python scripts/foo.py' starts in
