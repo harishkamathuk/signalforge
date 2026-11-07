@@ -6,8 +6,8 @@ import ast
 import json
 import stat
 import sys
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
