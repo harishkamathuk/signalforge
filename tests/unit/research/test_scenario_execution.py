@@ -43,7 +43,13 @@ from signalforge.runtime.btc_momentum_baseline_v0 import (
     BtcMomentumBaselineDecision,
     BtcMomentumBaselineV0Strategy,
 )
-from signalforge.runtime.strategy import CompletedCandleStrategyContext
+from signalforge.runtime.strategy import (
+    ArmedPolicyIntent,
+    ArmedSetupView,
+    CompletedCandleStrategyContext,
+    PositionEconomics,
+    StrategyEntryFillView,
+)
 
 BTC = InstrumentId("DELTA:BTCUSD")
 SEL = StrategySelection("btc_momentum_baseline_v0", "0.1.0-experimental", {})
@@ -255,3 +261,100 @@ def test_strict_runner_namespace_and_default_unchanged():
         scenario.manifest.mapping()["mode_and_schema"]["simulator"]
     )
     assert strict.result_id != scenario.result_id
+
+class _EarlyCutoff(_SignalAt):
+    """Test-only strategy shape with a known early entry cutoff."""
+
+    def armed_policy(self, signal, setup: ArmedSetupView) -> ArmedPolicyIntent:
+        del signal
+        return ArmedPolicyIntent(
+            strategy_entry_cutoff_at=setup.armed_at + timedelta(minutes=2),
+        )
+
+
+class _ExtendedTarget(_SignalAt):
+    """Test-only alternative post-fill economics, never a BTC production rule."""
+
+    def post_fill_economics(
+        self, fill: StrategyEntryFillView, setup: ArmedSetupView
+    ) -> PositionEconomics:
+        return PositionEconomics(
+            stop_price=setup.stop_price,
+            raw_target_price=Price(
+                fill.fill_price.value
+                + Decimal("3") * (fill.fill_price.value - setup.stop_price.value)
+            ),
+        )
+
+
+def test_three_distinct_strategy_shapes_reuse_scenario_contract():
+    """ADR-008: BTC, cutoff and independent economics share generic state mechanics."""
+    source = _source(overrides={1255: ("100", "103", "99", "100")})
+    request = _request(source)
+    baseline = _runner(251).run(request)
+    early = ScenarioResearchRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _EarlyCutoff((251,)),
+        ),
+    ))).run(request)
+    extended = ScenarioResearchRunner(registry=StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _ExtendedTarget((251,)),
+        ),
+    ))).run(request)
+    assert baseline.manifest.run_id == early.manifest.run_id == extended.manifest.run_id
+    assert any(o.reason == "TARGET" for o in baseline.outcomes)
+    assert any(o.reason == "TARGET" for o in extended.outcomes) is False
+    assert early.execution_valid is False
+    assert all(o.mapping()["certainty"] == "SCENARIO_CONDITIONED"
+               for o in baseline.outcomes + extended.outcomes)
+
+
+def test_armed_time_cutoff_at_minute_boundary_is_determinate():
+    source = _source(overrides={
+        1255: ("100", "100", "100", "100"),
+        1256: ("100", "100", "100", "100"),
+        1257: ("100", "101", "99.5", "100"),
+    })
+    registry = StrategyRegistry((
+        StrategyRegistration(SEL.strategy_id, SEL.strategy_version,
+                             lambda params: _EarlyCutoff((251,))),
+    ))
+    result = ScenarioResearchRunner(registry=registry).run(_request(source))
+    assert any(x.reason == "STRATEGY_CUTOFF" for x in result.outcomes)
+    assert all(x.entry_price is None for x in result.outcomes)
+
+
+def test_terminal_resource_budget_never_exposes_partial_economics():
+    # Exactly one completed expiry at dataset end must be counted before publication.
+    source = _source()
+    request = _request(source, budgets=ScenarioResourcePolicy(
+        "FINITE_FAIL_CLOSED", "1.0.0", 100, 1000, 1, 1000, 1,
+    ))
+    first = _runner(251, 252).run(request)
+    assert first.failure is not None and first.failure.startswith("BUDGET_EXHAUSTED")
+    assert first.outcomes == ()
+    assert first.trace == ()
+    assert first.failure_bucket is not None
+
+
+def test_source_and_mode_negative_gates():
+    source = _source()
+    request = _request(source)
+    with pytest.raises(ValueError, match="frozen BTC baseline"):
+        replace(request, strategy_selection=StrategySelection(
+            "intraday_momentum_v1", "1.0.0", {},
+        ))
+    with pytest.raises(ValueError, match="RAW"):
+        replace(request, profile=HistoricalExecutionAssumptionProfile.zero())
+    with pytest.raises(ValueError, match="frozen SF-094"):
+        replace(source, source_diagnostic_id="synthetic-not-audit")
+
+
+def test_verified_replay_keeps_synthetic_study_inconclusive():
+    result = _runner(251).run_verified(_request(_source()))
+    assert result.replay_verified is True
+    assert result.method_status is ScenarioMethodStatus.INCONCLUSIVE
+    assert result.point_metrics_allowed is False
