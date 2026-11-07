@@ -10,7 +10,6 @@ import argparse
 import json
 import os
 import resource
-import signal
 import subprocess
 import sys
 import time
@@ -78,6 +77,7 @@ def _source(minutes: int, *, mode: str) -> Any:
     from signalforge.domain.market import CandleQuality
     from signalforge.domain.money import Price
     from signalforge.domain.time import CandleInterval
+    from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
     from signalforge.research.historical_bars import (
         CorporateActionPolicy,
         HistoricalBar,
@@ -86,7 +86,6 @@ def _source(minutes: int, *, mode: str) -> Any:
         HistoricalPriceBasis,
     )
     from signalforge.research.historical_grid import HistoricalBarGrid
-    from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 
     instrument = InstrumentId("DELTA:BTCUSD")  # Required synthetic request instrument shape.
     minute = timedelta(minutes=1)
