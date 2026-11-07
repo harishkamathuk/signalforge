@@ -431,6 +431,7 @@ def _outcome(active: _Active, state: str, reason: str, bar: HistoricalBar | None
     r = None
     if exit_price is not None:
         assert active.entry_bucket is not None and active.entry_price is not None
+        assert bar is not None
         span = 1 + int((bar.interval.start - active.entry_bucket) / timedelta(minutes=1))
         risk = active.entry_price.value - active.view.stop_price.value
         r = (exit_price.value - active.entry_price.value) / risk
