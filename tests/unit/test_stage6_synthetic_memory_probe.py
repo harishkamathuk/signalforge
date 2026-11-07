@@ -126,8 +126,9 @@ def test_only_allowlisted_domain_types_and_never_call_runner() -> None:
 ])
 def test_synthetic_only_guard_rejects_runner_dispatch(snippet: str) -> None:
     """Prove guard fails closed for attempted runner import and invocation."""
+    original = SCRIPT.read_text(encoding="utf-8")
     with pytest.raises(AssertionError):
-        assert_synthetic_only_ast(ast.parse(snippet))
+        assert_synthetic_only_ast(ast.parse(original + "\n" + snippet))
 
 
 def test_rejects_large_unbounded_worker_configuration() -> None:
