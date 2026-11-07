@@ -42,8 +42,8 @@ from signalforge.research.scenario_execution import (
     ScenarioResearchRunner,
     ScenarioResourcePolicy,
     VersionedRule,
-    _Work,
     _step,
+    _Work,
 )
 from signalforge.runtime.btc_momentum_baseline_v0 import (
     BtcMomentumBaselineDecision,
