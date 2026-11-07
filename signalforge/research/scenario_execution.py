@@ -7,11 +7,13 @@ Open -> High -> Low -> Close first-crossing order.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 
 from signalforge.config.identity import canonical_config_json, config_hash
 from signalforge.config.strategy_registry import (
@@ -145,11 +147,12 @@ class ScenarioResourcePolicy:
     max_events: int
     max_outcomes: int
     max_trace_records: int
+    max_states: int
 
     def __post_init__(self) -> None:
         if (self.policy_id, self.version) != ("FINITE_FAIL_CLOSED", "1.0.0"):
             raise ValueError("Unknown scenario resource/exhaustion policy")
-        for field in ("max_bars", "max_events", "max_outcomes", "max_trace_records"):
+        for field in ("max_bars", "max_events", "max_outcomes", "max_trace_records", "max_states"):
             value = getattr(self, field)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{field} must be a finite positive integer")
@@ -160,6 +163,7 @@ class ScenarioResourcePolicy:
             "policy_id": self.policy_id, "version": self.version,
             "max_bars": self.max_bars, "max_events": self.max_events,
             "max_outcomes": self.max_outcomes, "max_trace_records": self.max_trace_records,
+            "max_states": self.max_states,
             "exhaustion": "FAIL_CLOSED_UNRESOLVED",
         }
 
@@ -235,11 +239,32 @@ class ScenarioResearchRequest:
                 raise ValueError("Protected scenario requests require an actual commit SHA")
 
 
+def _seal(value: object) -> object:
+    """Detach nested input dictionaries from their caller and make them immutable."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(k): _seal(v) for k, v in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_seal(v) for v in value)
+    return value
+
+
+def _unseal(value: object) -> object:
+    """Expose a copy, never the frozen canonical input mapping."""
+    if isinstance(value, Mapping):
+        return {str(k): _unseal(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_unseal(v) for v in value]
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ScenarioExecutionManifest:
     """Frozen *input-only* identity; outputs must not enter the run-ID preimage."""
 
-    input_mapping: dict[str, object]
+    input_mapping: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "input_mapping", _seal(self.input_mapping))
 
     @property
     def run_id(self) -> str:
@@ -248,7 +273,9 @@ class ScenarioExecutionManifest:
 
     def mapping(self) -> dict[str, object]:
         """Return the complete pre-run manifest without produced evidence."""
-        return dict(self.input_mapping)
+        copied = _unseal(self.input_mapping)
+        assert isinstance(copied, dict)
+        return copied
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +341,13 @@ class ScenarioResearchResult:
     event_count: int
     method_status: ScenarioMethodStatus
     execution_valid: bool = False
+    replay_verified: bool = False
+
+    def __post_init__(self) -> None:
+        if self.execution_valid:
+            raise ValueError("Scenario results may never be execution-valid")
+        if self.method_status is ScenarioMethodStatus.VALID and not self.replay_verified:
+            raise ValueError("Valid scenario methodology requires verified independent replay")
 
     @property
     def result_id(self) -> str:
@@ -331,6 +365,7 @@ class ScenarioResearchResult:
             "mode": "SCENARIO_RESEARCH", "schema_version": "scenario-result-v1",
             "scenario_run_id": self.manifest.run_id,
             "execution_valid": False, "certainty": "SCENARIO_CONDITIONED",
+            "replay_verified": self.replay_verified,
             "is_observed": self.is_observed, "oos_observed": self.oos_observed,
             "unsupported": self.unsupported, "failure": self.failure,
             "failure_bucket": None if self.failure_bucket is None
@@ -345,6 +380,8 @@ class ScenarioResearchResult:
         """Write canonical result exclusively; never overwrite protected or prior output."""
         if destination.suffix != ".json" or not destination.parent.is_dir():
             raise ValueError("Scenario destination must be a JSON path in an existing directory")
+        if any(part in ("sf088", "sf096") for part in destination.parts):
+            raise ValueError("Scenario output may not be written into protected evidence trees")
         # The exclusive create is the collision barrier; never replace evidence.
         with destination.open("x", encoding="utf-8") as stream:
             stream.write(canonical_config_json({
@@ -627,6 +664,24 @@ class ScenarioResearchRunner:
     def __init__(self, *, registry: StrategyRegistry = DEFAULT_STRATEGY_REGISTRY) -> None:
         self._registry = registry
 
+    def run_verified(self, request: ScenarioResearchRequest) -> ScenarioResearchResult:
+        """Verify a second independent run before allowing full-study method validity."""
+        first = self.run(request)
+        second = self.run(request)
+        if first.result_id != second.result_id or first.mapping() != second.mapping():
+            raise ValueError("Scenario deterministic replay mismatch")
+        ds = request.source.dataset
+        complete = (
+            first.failure is None and first.unsupported == 0
+            and first.is_observed == 69984 and first.oos_observed == 34848
+            and request.measured_end == ds.manifest.effective_grid.coverage[-1].end
+            and not request.source.source_diagnostic_id.startswith("synthetic-")
+        )
+        return replace(
+            first, replay_verified=True,
+            method_status=ScenarioMethodStatus.VALID if complete else first.method_status,
+        )
+
     def run(self, request: ScenarioResearchRequest) -> ScenarioResearchResult:
         """Simulate assumed events, preserving method-inconclusive failure evidence."""
         if not isinstance(request, ScenarioResearchRequest):
@@ -651,15 +706,18 @@ class ScenarioResearchRunner:
             else:
                 kept_outcomes = tuple(work.outcomes)
                 kept_trace = tuple(work.trace)
-            full = (
-                work.failure is None and work.unsupported == 0
-                and is_count == 69984 and oos_count == 34848
-                and request.measured_end == dataset.manifest.effective_grid.coverage[-1].end
-            )
+            if (
+                work.failure is None and (
+                    work.events > request.resources.max_events
+                    or len(work.outcomes) > request.resources.max_outcomes
+                    or len(work.trace) > request.resources.max_trace_records
+                )
+            ):
+                work.failure = "BUDGET_EXHAUSTED: terminal event/trace/outcome count"
+                work.failure_bucket = request.measured_end
             return ScenarioResearchResult(
                 manifest, kept_outcomes, kept_trace, is_count, oos_count,
                 work.unsupported, work.failure, work.failure_bucket, work.events,
-                ScenarioMethodStatus.VALID if full else
                 ScenarioMethodStatus.INVALID if work.failure is not None and
                 work.failure.startswith("SOURCE_INVALID") else
                 ScenarioMethodStatus.INCONCLUSIVE,
