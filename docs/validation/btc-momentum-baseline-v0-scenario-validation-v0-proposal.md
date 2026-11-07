@@ -2,7 +2,7 @@
 
 ## Status
 
-**PROPOSED NORMATIVE CONTRACT — ASSUMPTION SET SELECTED — NOT YET ACCEPTED FOR EXECUTION**
+**PROPOSED NORMATIVE CONTRACT — ASSUMPTION SET APPROVED FOR SPECIFICATION FINALISATION — FINAL GATE B ACCEPTANCE PENDING**
 
 - Contract ID: `btc_momentum_baseline_v0_scenario_validation_v0`
 - Contract version: `0.1.0-proposal`
@@ -21,9 +21,10 @@
 - PAPER / Demo / Testnet / live authority: **No**
 
 This document defines a proposed research methodology for a future **scenario-conditioned**
-historical study. It proposes one concrete intraminute path assumption for Gate B review, but does
-not approve or execute that assumption, implement a scenario simulator, run protected evidence,
-inspect performance, replace SF-096, or authorize any future experiment.
+historical study. It records the exact intraminute assumption set already approved by parent #253
+**for specification finalisation only**. It does **not** grant final Gate B normative/operative
+acceptance, implement a scenario simulator, execute a protected scenario study, inspect performance,
+replace SF-096, or authorize any future experiment.
 
 The original SF-096 strict and `BOUNDED_FLAT_V1` evidence remains immutable and
 `INCONCLUSIVE_DIAGNOSTIC`.
@@ -172,7 +173,8 @@ Canonical proposed semantics:
   the declared path/gap rule first, then apply the selected frozen raw execution profile exactly once.
 
 This scenario is intentionally **not** claimed to be more likely than O-L-H-C or actual market
-chronology. It is selected as the smallest deterministic thought experiment for Gate B review.
+chronology. It is the parent-approved specification-finalisation assumption set and remains the
+smallest deterministic thought experiment submitted for final Gate B normative-contract review.
 Changing to another path is a different scenario identity and requires a new preregistered study.
 
 The prior generic statement that O-H-L-C/O-L-H-C were merely examples is therefore superseded by
@@ -201,9 +203,11 @@ Any change to one of these items creates a different experiment identity.
 
 The first future experiment should use the **smallest explicitly approved assumption set**.
 
-A single deterministic scenario is preferred for the first increment if Gate B approves it.
+A single deterministic scenario is preferred for the first increment if final Gate B accepts the
+normative contract.
 
-If Gate B instead approves multiple fixed scenarios, all scenarios must be registered **before**
+If a future final Gate B decision accepts multiple fixed scenarios instead under a separately
+versioned contract, all scenarios must be registered **before**
 any performance output is inspected. No additional path may be added after seeing IS or OOS merely
 because the result is attractive or disappointing.
 
@@ -552,7 +556,7 @@ Before any future experiment is authorized:
 
 - architecture and validation contracts must be cross-reviewed for terminology and provenance consistency;
 - strategy owner 01 must return one of the parent-defined semantic dispositions;
-- parent #253 must explicitly approve Gate B;
+- parent #253 must record final Gate B normative-contract acceptance;
 - no material model choice may remain implied.
 
 After any future experiment:
@@ -580,7 +584,9 @@ This proposal accepts the following **candidate shared vocabulary** from SF-254 
 - no scenario fallback in strict execution;
 - `execution_valid=false`.
 
-This validation proposal does **not** approve SF-254's material model choices.
+This validation proposal does **not independently grant final normative or operative authority**
+to SF-254's material model choices; parent #253's specification-finalisation approval of the selected
+assumption set is recorded below.
 
 Parent #253 has now **approved the selected first assumption set for specification finalisation**:
 
