@@ -247,6 +247,7 @@ class ScenarioResearchRequest:
             if (
                 manifest.provider != "fixture"
                 or manifest.acquisition_adapter != "repository-fixture"
+                or manifest.grid is None
                 or manifest.grid.grid_id != "scenario-synthetic"
                 or "SYNTHETIC_TEST_ONLY" not in manifest.limitations
                 or manifest.acquisition_evidence
