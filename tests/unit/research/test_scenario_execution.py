@@ -289,7 +289,7 @@ class _ExtendedTarget(_SignalAt):
 
 def test_three_distinct_strategy_shapes_reuse_scenario_contract():
     """ADR-008: BTC, cutoff and independent economics share generic state mechanics."""
-    source = _source(overrides={1255: ("100", "103", "99", "100")})
+    source = _source(overrides={1255: ("100", "100.4", "99.9", "100")})
     request = _request(source)
     baseline = _runner(251).run(request)
     early = ScenarioResearchRunner(registry=StrategyRegistry((
@@ -349,8 +349,8 @@ def test_source_and_mode_negative_gates():
         ))
     with pytest.raises(ValueError, match="RAW"):
         replace(request, profile=HistoricalExecutionAssumptionProfile.zero())
-    with pytest.raises(ValueError, match="frozen SF-094"):
-        replace(source, source_diagnostic_id="synthetic-not-audit")
+    with pytest.raises(ValueError, match="Unaudited raw source"):
+        replace(source, source_diagnostic_id="unverified")
 
 
 def test_verified_replay_keeps_synthetic_study_inconclusive():
