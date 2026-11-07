@@ -368,3 +368,90 @@ def test_verified_replay_keeps_synthetic_study_inconclusive():
     assert result.replay_verified is True
     assert result.method_status is ScenarioMethodStatus.INCONCLUSIVE
     assert result.point_metrics_allowed is False
+
+class _MidMinuteCutoff(_SignalAt):
+    """Synthetic policy shape with intentionally unorderable minute cutoff."""
+
+    def armed_policy(self, signal, setup: ArmedSetupView) -> ArmedPolicyIntent:
+        del signal
+        return ArmedPolicyIntent(
+            strategy_entry_cutoff_at=setup.armed_at + timedelta(seconds=90),
+        )
+
+
+def test_post_fill_stop_and_observed_open_gap_stop_use_selected_sell_profile():
+    entry_and_stop = _source(overrides={
+        1255: ("100", "100.2", "99.9", "100"),
+    })
+    ordinary = _runner(251).run(_request(entry_and_stop))
+    stops = [out for out in ordinary.outcomes if out.reason == "STOP"]
+    assert len(stops) == 1
+    assert stops[0].holding_span_1m_buckets == 1
+    assert stops[0].r is not None and stops[0].r < 0
+
+    entry_then_gap = _source(overrides={
+        1255: ("100.2", "100.21", "100.1", "100.2"),
+        1256: ("99.8", "100.3", "99.7", "100"),
+    })
+    adverse = _runner(251).run(_request(
+        entry_then_gap, profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    ))
+    gap_stop = [out for out in adverse.outcomes if out.reason == "STOP"]
+    assert len(gap_stop) == 1
+    assert gap_stop[0].exit_price == Decimal("99.7002")
+    assert gap_stop[0].holding_span_1m_buckets == 2
+    assert all(out.mapping()["certainty"] == "SCENARIO_CONDITIONED"
+               for out in gap_stop)
+
+
+def test_unorderable_inminute_cutoff_fails_closed_without_point_economics():
+    source = _source()
+    registry = StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _MidMinuteCutoff((251,)),
+        ),
+    ))
+    result = ScenarioResearchRunner(registry=registry).run(_request(source))
+    assert result.failure is not None
+    assert result.failure.startswith("SCENARIO_UNSUPPORTED")
+    assert result.unsupported == 1
+    assert result.outcomes == ()
+    assert result.trace == ()
+    assert result.failure_bucket == START + timedelta(minutes=1256)
+
+
+def test_missing_source_and_invalid_ohlc_fail_closed():
+    source = _source()
+    with pytest.raises(ValueError, match="high must be at least"):
+        replace(source.dataset.bars[0], high=Price(Decimal("90")))
+    bars = source.dataset.bars[:1255] + source.dataset.bars[1256:]
+    manifest = replace(
+        source.dataset.manifest, raw_row_count=MINUTES - 1,
+        canonical_row_count=MINUTES - 1, missing_interval_count=1,
+    )
+    corrupt = RawDiagnosticSource(
+        HistoricalBarDataset(manifest, bars), "synthetic-sf258-missing",
+    )
+    result = _runner(251).run(_request(corrupt))
+    assert result.failure is not None and result.failure.startswith("SOURCE_INVALID")
+    assert result.method_status is ScenarioMethodStatus.INVALID
+    assert not result.point_metrics_allowed
+
+
+def test_dataset_end_armed_and_cross_midnight_open_are_conditional():
+    source = _source(overrides={
+        i: ("100.2", "100.21", "100.1", "100.2")
+        for i in range(1255, MINUTES)
+    })
+    open_result = _runner(251).run(_request(source))
+    final_open = [o for o in open_result.outcomes if o.state == "OPEN"]
+    assert len(final_open) == 1
+    assert final_open[0].entry_bucket is not None
+    assert final_open[0].entry_bucket.date() != source.dataset.bars[-1].interval.start.date()
+    assert final_open[0].exit_bucket is None
+
+    armed_result = _runner(260).run(_request(_source()))
+    assert [o.state for o in armed_result.outcomes] == ["ARMED"]
+    assert armed_result.outcomes[0].entry_bucket is None
+    assert armed_result.point_metrics_allowed is False
