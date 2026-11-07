@@ -13,6 +13,7 @@ nav:
       - Research CLI: research-cli.md
       - Scenario Research Runner: engineering/scenario-research-runner.md
       - Stage 6 Gate D Preflight: engineering/stage6-gate-d-preflight.md
+      - Stage 6 Result Custody: engineering/stage6-result-custody.md
       - OpenAlgo Integration: openalgo-integration.md
       - Live PAPER Operator: live-paper-operations.md
   - Strategies:
