@@ -633,7 +633,7 @@ This proposal does not authorize:
 - a real historical scenario run;
 - any simulator or CLI implementation;
 - an implementation issue;
-- an **approved/operative** OHLC path (this proposal names one candidate for Gate B review only);
+- an **operative or finally normative** OHLC path or execution authority; the exact assumption set is approved only for specification finalisation pending final Gate B acceptance;
 - OOS performance inspection;
 - strategy tuning;
 - execution-valid historical fills;
