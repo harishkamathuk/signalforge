@@ -304,11 +304,23 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
                 "observed_rss_mib": round(peak_observed / (1024 * 1024), 1),
                 "elapsed_seconds": duration, "exit_code": proc.returncode}
     if proc.returncode != 0:
-        return {"mode": mode, "status": "WORKER_FAILED_OR_CAP_REACHED",
-                "exit_code": proc.returncode,
-                "observed_rss_mib": round(peak_observed / (1024 * 1024), 1),
-                "elapsed_seconds": duration,
-                "stderr_tail": stderr.decode("utf-8", errors="replace")[-500:]}
+        blocked: dict[str, object] = {
+            "mode": mode, "status": "WORKER_FAILED_OR_CAP_REACHED",
+            "exit_code": proc.returncode,
+            "observed_rss_mib": round(peak_observed / (1024 * 1024), 1),
+            "elapsed_seconds": duration,
+            "stderr_tail": stderr.decode("utf-8", errors="replace")[-500:],
+        }
+        # An early-terminated synthetic runner emits its bounded diagnostic
+        # before exiting 2; preserve it instead of losing the failure category.
+        try:
+            child = json.loads(stdout.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            pass
+        else:
+            if isinstance(child, dict) and child.get("synthetic_only") is True:
+                blocked["child_report"] = child
+        return blocked
     try:
         payload = json.loads(stdout.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
