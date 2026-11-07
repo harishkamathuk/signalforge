@@ -344,6 +344,25 @@ class ScenarioOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class ScenarioBlockedDecision:
+    """Completed-candle actionable decision excluded by the one-active-state rule."""
+
+    interval_start: datetime
+    interval_end: datetime
+    blocking_opportunity_id: str
+    blocking_state: str
+
+    def mapping(self) -> dict[str, object]:
+        """Preserve the source interval and causal blocker without creating a trade."""
+        return {
+            "interval_start": self.interval_start.isoformat(),
+            "interval_end": self.interval_end.isoformat(),
+            "blocking_opportunity_id": self.blocking_opportunity_id,
+            "blocking_state": self.blocking_state,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ScenarioResearchResult:
     """Separate, non-execution-valid output with method-level completeness gates."""
 
@@ -362,6 +381,11 @@ class ScenarioResearchResult:
     terminal_active_state: str | None = None
     attempted_outcome_count: int = 0
     attempted_trace_count: int = 0
+    blocked_decisions: tuple[ScenarioBlockedDecision, ...] = ()
+    blocked_actionable_count: int = 0
+    failure_opportunity_id: str | None = None
+    failure_signal_interval_start: datetime | None = None
+    last_complete_bucket: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.execution_valid:
@@ -394,9 +418,20 @@ class ScenarioResearchResult:
             "terminal_active_state": self.terminal_active_state,
             "attempted_outcome_count": self.attempted_outcome_count,
             "attempted_trace_count": self.attempted_trace_count,
+            "blocked_actionable_count": self.blocked_actionable_count,
+            "failure_opportunity_id": self.failure_opportunity_id,
+            "failure_signal_interval_start": (
+                None if self.failure_signal_interval_start is None
+                else self.failure_signal_interval_start.isoformat()
+            ),
+            "last_complete_bucket": (
+                None if self.last_complete_bucket is None
+                else self.last_complete_bucket.isoformat()
+            ),
             "method_status": self.method_status.value,
             "outcomes": [item.mapping() for item in self.outcomes],
             "trace": [item.mapping() for item in self.trace],
+            "blocked_decisions": [item.mapping() for item in self.blocked_decisions],
         }
 
     def write_new(self, destination: Path) -> None:
@@ -432,10 +467,12 @@ class _Work:
     active: _Active | None
     outcomes: list[ScenarioOutcome]
     trace: list[ScenarioTrace]
+    blocked_decisions: list[ScenarioBlockedDecision]
     events: int = 0
     unsupported: int = 0
     failure: str | None = None
     failure_bucket: datetime | None = None
+    last_complete_bucket: datetime | None = None
 
 
 def _outcome(active: _Active, state: str, reason: str, bar: HistoricalBar | None = None,
@@ -728,8 +765,13 @@ class ScenarioResearchRunner:
             strategy.config_identity.config_hash, request.engine_calculation_version,
             CONTINUOUS_HISTORICAL_SESSION_POLICY.identity,
         )
-        work = _Work(None, [], [])
+        work = _Work(None, [], [], [])
         is_count = oos_count = 0
+
+        def evidence_count() -> int:
+            # Blocked decisions are independently reportable, but share the
+            # bounded trace/evidence budget so no unlimited side log appears.
+            return len(work.trace) + len(work.blocked_decisions)
 
         def finish() -> ScenarioResearchResult:
             # Budget exhaustion is evaluated *before* selecting return evidence:
@@ -737,7 +779,7 @@ class ScenarioResearchRunner:
             if work.failure is None and (
                 work.events > request.resources.max_events
                 or len(work.outcomes) > request.resources.max_outcomes
-                or len(work.trace) > request.resources.max_trace_records
+                or evidence_count() > request.resources.max_trace_records
             ):
                 work.failure = "BUDGET_EXHAUSTED: terminal event/trace/outcome count"
                 work.failure_bucket = request.measured_end
@@ -747,6 +789,17 @@ class ScenarioResearchRunner:
             kept_trace: tuple[ScenarioTrace, ...] = (
                 () if work.failure is not None else tuple(work.trace)
             )
+            kept_blocked: tuple[ScenarioBlockedDecision, ...] = (
+                () if work.failure is not None else tuple(work.blocked_decisions)
+            )
+            # Diagnostic IDs survive failure even when partial economic and
+            # per-signal histories are withheld as required by the ADR.
+            failure_opportunity_id = None
+            if work.failure is not None:
+                if work.active is not None:
+                    failure_opportunity_id = work.active.opportunity_id
+                elif work.outcomes:
+                    failure_opportunity_id = work.outcomes[-1].opportunity_id
             return ScenarioResearchResult(
                 manifest, kept_outcomes, kept_trace, is_count, oos_count,
                 work.unsupported, work.failure, work.failure_bucket, work.events,
@@ -759,6 +812,16 @@ class ScenarioResearchRunner:
                 ),
                 attempted_outcome_count=len(work.outcomes),
                 attempted_trace_count=len(work.trace),
+                blocked_decisions=kept_blocked,
+                blocked_actionable_count=len(work.blocked_decisions),
+                failure_opportunity_id=failure_opportunity_id,
+                failure_signal_interval_start=(
+                    work.active.signal.interval.start
+                    if work.failure is not None and work.active is not None else None
+                ),
+                last_complete_bucket=(
+                    work.last_complete_bucket if work.failure is not None else None
+                ),
             )
 
         if (
@@ -780,16 +843,9 @@ class ScenarioResearchRunner:
             if bar.interval.start < request.is_start:
                 # Warm-up only; complete-candle indicator updates still occur below.
                 pass
-            if len(work.trace) > request.resources.max_trace_records:
+            if evidence_count() > request.resources.max_trace_records:
                 work.failure = "BUDGET_EXHAUSTED: trace records"
             if work.failure is not None:
-                work.failure_bucket = bar.interval.start
-                return finish()
-            if (
-                bar.interval.start >= request.is_start
-                and len(work.outcomes) >= request.resources.max_outcomes
-            ):
-                work.failure = "BUDGET_EXHAUSTED: outcomes"
                 work.failure_bucket = bar.interval.start
                 return finish()
             if bar.interval.start >= request.is_start:
@@ -805,7 +861,7 @@ class ScenarioResearchRunner:
                     return finish()
             if (
                 work.events > request.resources.max_events
-                or len(work.trace) > request.resources.max_trace_records
+                or evidence_count() > request.resources.max_trace_records
                 or len(work.outcomes) > request.resources.max_outcomes
             ):
                 work.failure = "BUDGET_EXHAUSTED: event/trace/outcome count"
@@ -813,6 +869,7 @@ class ScenarioResearchRunner:
                 return finish()
             completed_candle = candles_by_end.get(bar.interval.end)
             if completed_candle is None:
+                work.last_complete_bucket = bar.interval.start
                 continue
             # Lifecycle boundary: finish final minute, expire old ARMED,
             # evaluate newly completed 5m strategy, then next minute Open.
@@ -825,6 +882,10 @@ class ScenarioResearchRunner:
                     _outcome(work.active, "EXPIRED", "VALIDITY_WINDOW_END")
                 )
                 work.active = None
+                if len(work.outcomes) > request.resources.max_outcomes:
+                    work.failure = "BUDGET_EXHAUSTED: outcomes"
+                    work.failure_bucket = bar.interval.start
+                    return finish()
             snapshot = engine.update(completed_candle)
             completed += 1
             decision = strategy.evaluate_completed_candle(CompletedCandleStrategyContext(
@@ -837,10 +898,24 @@ class ScenarioResearchRunner:
             elif request.oos_start < completed_candle.interval.end <= request.measured_end:
                 oos_count += 1
             if completed_candle.interval.end <= request.is_start or not decision.actionable:
+                work.last_complete_bucket = bar.interval.start
                 continue
             if work.active is not None:
-                continue  # One active setup/position; blocked decision is not armed.
+                # A fresh completed-candle decision is blocked, not lost or
+                # retroactively armed. Preserve its source interval separately.
+                work.blocked_decisions.append(ScenarioBlockedDecision(
+                    completed_candle.interval.start, completed_candle.interval.end,
+                    work.active.opportunity_id,
+                    "OPEN" if work.active.entry_price is not None else "ARMED",
+                ))
+                if evidence_count() > request.resources.max_trace_records:
+                    work.failure = "BUDGET_EXHAUSTED: trace/blocked evidence"
+                    work.failure_bucket = bar.interval.start
+                    return finish()
+                work.last_complete_bucket = bar.interval.start
+                continue
             work.active = _arm(strategy, run, completed_candle, decision)
+            work.last_complete_bucket = bar.interval.start
         if work.active is not None:
             work.outcomes.append(_outcome(
                 work.active, "OPEN" if work.active.entry_price is not None else "ARMED",
