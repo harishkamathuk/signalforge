@@ -528,4 +528,3 @@ def test_blocked_completed_candle_decisions_are_separately_auditable():
     assert blocked.blocking_opportunity_id == result.outcomes[0].opportunity_id
     assert result.mapping()["blocked_decisions"] == [blocked.mapping()]
     assert result.execution_valid is False
-
