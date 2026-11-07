@@ -11,12 +11,12 @@ from types import SimpleNamespace
 import pytest
 
 from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
-from signalforge.domain.armed import ExpiryReason
 from signalforge.config.strategy_registry import (
     StrategyRegistration,
     StrategyRegistry,
     StrategySelection,
 )
+from signalforge.domain.armed import ExpiryReason
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.money import Price
 from signalforge.domain.time import CandleInterval
