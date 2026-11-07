@@ -217,3 +217,31 @@ def test_protected_seal_never_reads_result_before_gate_d_accept(
     with pytest.raises(custody.CustodyBlocked, match="requires approved Gate D"):
         custody.seal(root=root, source_file=source, profile="REFERENCE_RAW", attempt=1,
                      synthetic=False)
+
+
+def test_release_uses_verified_bytes_even_if_seal_changes_after_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, source, original = fixture(tmp_path)
+    receipt = custody.seal(root=root, source_file=source, profile="REFERENCE_RAW",
+                           attempt=1, synthetic=True)
+    qa = custody.is_qa(root=root, profile="REFERENCE_RAW", attempt=1)
+    release = private_file(tmp_path / "release.json", json.dumps({
+        "decision": "SYNTHETIC_OOS_RELEASE_TEST", "parent_issue": 253,
+        "record_url": "https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-123",
+        "seal_sha256": receipt["result_sha256"], "is_qa_sha256": qa["is_qa_sha256"],
+    }).encode())
+    original_checked = custody._verified_seal
+
+    def mutate_after_validation(
+        root: Path, profile: str, attempt: int
+    ) -> tuple[dict[str, object], dict[str, object], bytes]:
+        snapshot = original_checked(root, profile, attempt)
+        sealed = root / "sealed/reference_raw-attempt-1.json"
+        sealed.write_bytes(b"UNAPPROVED_CHANGED_BYTES")
+        return snapshot
+
+    monkeypatch.setattr(custody, "_verified_seal", mutate_after_validation)
+    custody.release_oos(root=root, profile="REFERENCE_RAW", attempt=1,
+                        oos_record=release)
+    assert (root / "released/reference_raw-attempt-1.json").read_bytes() == original
