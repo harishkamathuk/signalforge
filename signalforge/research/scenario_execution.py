@@ -233,6 +233,14 @@ class ScenarioResearchRequest:
             raise ValueError("Scenario requires 250 completed warm-up candles")
         if not self.source.source_diagnostic_id.startswith("synthetic-"):
             # The protected-source bridge is the only authority for its source ID.
+            if (
+                coverage[0].start != datetime(2025, 10, 30, tzinfo=UTC)
+                or coverage[0].end != datetime(2026, 10, 30, tzinfo=UTC)
+                or self.is_start != datetime(2025, 10, 31, tzinfo=UTC)
+                or self.oos_start != datetime(2026, 7, 1, tzinfo=UTC)
+                or self.measured_end != datetime(2026, 10, 30, tzinfo=UTC)
+            ):
+                raise ValueError("Protected scenario must preserve frozen SF-094 windows")
             if len(self.repository_revision) != 40 or any(
                 c not in "0123456789abcdef" for c in self.repository_revision.lower()
             ):
