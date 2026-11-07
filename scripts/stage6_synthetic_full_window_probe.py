@@ -7,6 +7,7 @@ a result publication path, a profitability test, or Gate D authorisation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import resource
@@ -67,6 +68,31 @@ def _worker_rss(pid: int) -> int:
         if line.startswith("VmRSS:"):
             return int(line.split()[1]) * 1024
     return 0
+
+
+def _bind_runner_checkout() -> tuple[str, str, str]:
+    """Use only the runner from this exact Git checkout, not site-packages."""
+    root = Path(__file__).resolve().parents[1]
+    expected = (root / "signalforge/research/scenario_execution.py").resolve()
+    if not expected.is_file():
+        raise ProbeBlocked("checked-out scenario runner module is missing")
+    git = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, timeout=10,
+    )
+    head = git.stdout.strip()
+    if len(head) != 40 or any(c not in "0123456789abcdef" for c in head):
+        raise ProbeBlocked("checkout revision is not a Git commit identity")
+    if str(root) in sys.path:
+        sys.path.remove(str(root))
+    sys.path.insert(0, str(root))
+    # The child has not imported any SignalForge modules before this point.
+    from signalforge.research import scenario_execution as actual
+
+    loaded = Path(actual.__file__).resolve() if actual.__file__ else None
+    if loaded != expected:
+        raise ProbeBlocked("imported runner is not from the checked-out source tree")
+    return head, str(loaded), hashlib.sha256(expected.read_bytes()).hexdigest()
 
 
 def _source(minutes: int, *, mode: str) -> Any:
@@ -157,6 +183,7 @@ def _execute(minutes: int, *, mode: str) -> dict[str, object]:
     )
     from signalforge.runtime.strategy import CompletedCandleStrategyContext
 
+    git_head, runner_file, runner_sha256 = _bind_runner_checkout()
     source = _source(minutes, mode=mode)
     strategy_selection = StrategySelection(
         "btc_momentum_baseline_v0", "0.1.0-experimental", {}
@@ -210,7 +237,7 @@ def _execute(minutes: int, *, mode: str) -> dict[str, object]:
         ),
         is_start=is_start, oos_start=oos_start,
         measured_end=START + timedelta(minutes=minutes),
-        repository_revision=IDENTITY,
+        repository_revision=git_head,
         synthetic_fixture_identity=f"{IDENTITY}-{mode}",
     )
     begun = time.monotonic()
@@ -228,6 +255,9 @@ def _execute(minutes: int, *, mode: str) -> dict[str, object]:
         "strategy_mode": "frozen_btc_baseline_synthetic_ohlc" if mode == "quiet"
                          else "synthetic_scheduled_signal_override_NOT_frozen_strategy",
         "source_minutes": minutes,
+        "runner_checkout_git_sha": git_head,
+        "loaded_runner_file": runner_file,
+        "loaded_runner_sha256": runner_sha256,
         "measured_is_candles": result.is_observed,
         "measured_oos_candles": result.oos_observed,
         "expected_is_candles": expected_is,
