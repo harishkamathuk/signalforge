@@ -437,7 +437,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         identity = execute(args.repo_root, args.generation_dir, args.output_dir)
-    except (PreflightError, OSError, KeyError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
+    except (
+        PreflightError, OSError, KeyError, ValueError, TypeError, subprocess.TimeoutExpired
+    ) as exc:
         parser.exit(2, "BLOCKED: " + str(exc) + "\n")
     print("PREPARATION_ONLY_GATE_D_WITHHELD")
     print("input_preregistration_id=" + identity)
