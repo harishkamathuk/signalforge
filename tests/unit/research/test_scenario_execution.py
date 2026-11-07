@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from signalforge.config.strategy_registry import (
+from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config\nfrom signalforge.config.strategy_registry import (
     StrategyRegistration,
     StrategyRegistry,
     StrategySelection,
@@ -82,12 +82,12 @@ def _source(*, overrides: dict[int, tuple[str, str, str, str]] | None = None
     bars = []
     for offset in range(MINUTES):
         at = START + timedelta(minutes=offset)
-        o, h, l, c = prices.get(offset, ("100", "100.05", "99.95", "100"))
+        o, h, low, c = prices.get(offset, ("100", "100.05", "99.95", "100"))
         bars.append(replace(
             original, instrument_id=BTC,
             interval=CandleInterval(at, at + timedelta(minutes=1)),
             open=Price(Decimal(o)), high=Price(Decimal(h)),
-            low=Price(Decimal(l)), close=Price(Decimal(c)),
+            low=Price(Decimal(low)), close=Price(Decimal(c)),
             provider_timestamp_raw=at.isoformat(), provider_timestamp_interpreted=at,
         ))
     manifest = replace(
