@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import json
 import stat
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -113,6 +115,22 @@ def test_symlink_output_cannot_replace_existing_evidence(tmp_path: Path) -> None
     assert protected.read_text() == "protected\n"
 
 
+def test_import_binding_rejects_unverified_code_origins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = Path(preflight.__file__).resolve().parents[1]
+    with pytest.raises(preflight.PreflightError, match="does not belong"):
+        preflight.bind_checked_checkout(tmp_path)
+    foreign = tmp_path / "foreign_module.py"
+    foreign.write_text("not the approved module\\n")
+    monkeypatch.setitem(
+        sys.modules, "signalforge.research.foreign_preflight_test",
+        SimpleNamespace(__file__=str(foreign)),
+    )
+    with pytest.raises(preflight.PreflightError, match="outside the checked repository"):
+        preflight.bind_checked_checkout(repo)
+
+
 def test_revision_rejects_dirty_or_changed_execution_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -186,6 +204,7 @@ def test_execute_fails_before_manifest_if_source_inventory_is_wrong(
     generation = _generation(tmp_path)
     output = _private(tmp_path / "results")
     monkeypatch.setattr(preflight, "verify_revision", lambda _: preflight.BASELINE_SHA)
+    monkeypatch.setattr(preflight, "bind_checked_checkout", lambda _: None)
     monkeypatch.setattr(preflight, "inventory", lambda _: {
         "file_count": 999, "total_bytes": preflight.EXPECTED_SOURCE_BYTES,
     })
