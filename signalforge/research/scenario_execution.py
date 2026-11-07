@@ -359,6 +359,9 @@ class ScenarioResearchResult:
     method_status: ScenarioMethodStatus
     execution_valid: bool = False
     replay_verified: bool = False
+    terminal_active_state: str | None = None
+    attempted_outcome_count: int = 0
+    attempted_trace_count: int = 0
 
     def __post_init__(self) -> None:
         if self.execution_valid:
@@ -388,6 +391,9 @@ class ScenarioResearchResult:
             "failure_bucket": None if self.failure_bucket is None
             else self.failure_bucket.isoformat(),
             "event_count": self.event_count,
+            "terminal_active_state": self.terminal_active_state,
+            "attempted_outcome_count": self.attempted_outcome_count,
+            "attempted_trace_count": self.attempted_trace_count,
             "method_status": self.method_status.value,
             "outcomes": [item.mapping() for item in self.outcomes],
             "trace": [item.mapping() for item in self.trace],
@@ -747,6 +753,12 @@ class ScenarioResearchRunner:
                 ScenarioMethodStatus.INVALID if work.failure is not None and
                 work.failure.startswith("SOURCE_INVALID") else
                 ScenarioMethodStatus.INCONCLUSIVE,
+                terminal_active_state=(
+                    None if work.active is None else
+                    "OPEN" if work.active.entry_price is not None else "ARMED"
+                ),
+                attempted_outcome_count=len(work.outcomes),
+                attempted_trace_count=len(work.trace),
             )
 
         if (
