@@ -18,6 +18,7 @@ nav:
       - BTC Momentum Baseline V0: strategies/btc-momentum-baseline-v0.md
   - Validation:
       - BTC Momentum Baseline V0 Validation Contract: validation/btc-momentum-baseline-v0-validation-v0.md
+      - BTC Momentum Baseline V0 Scenario Validation Proposal: validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md
       - SF-075 Free NSE Historical Data Evaluation: validation/sf-075-data-001-free-nse-historical-data.md
       - Cross-Strategy Proof: validation/cross-strategy-proof.md
       - SF-078 Historical Execution Proof: validation/sf-078-historical-execution-proof.md
