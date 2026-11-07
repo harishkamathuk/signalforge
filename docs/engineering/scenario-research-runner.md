@@ -72,6 +72,17 @@ preserves OPEN/ARMED at dataset end without inventing an exit.
 A true order-changing same-level tie, in-minute cutoff without defined
 precedence, malformed input, unsupported economics, or exhausted resource
 budget fails closed. No other OHLC traversal is automatically substituted.
+The maximum-outcomes budget is inclusive: exactly the permitted number of
+outcomes is valid, and only an attempted excess fails the run. An already
+full budget does not itself terminate otherwise valid later source candles.
+
+When a completed-five-minute actionable decision is blocked by an existing
+ARMED setup or OPEN position, the runner does not create another setup. It
+records a separate `blocked_decisions` entry with the completed-candle UTC
+interval, the blocking opportunity ID and its state, plus a
+`blocked_actionable_count`. These records share the finite
+`max_trace_records` evidence budget with path traces; they are never
+presented as filled trades or eligible new opportunities.
 
 ## Identity, storage and interpretation
 
@@ -82,6 +93,15 @@ profile, continuous session, measured boundaries, versioned finite
 budgets, calculation and repository revision. Its domain-separated
 `scenario_run_id` excludes all *produced* state and result evidence.
 The separate `scenario_result_id` is derived after processing.
+
+On resource exhaustion or unsupported lifecycle failure, returned
+`outcomes`, `trace` and `blocked_decisions` are empty to prevent
+publishing partial or economically selective results. A separate failure
+diagnostic retains `failure_bucket`, `last_complete_bucket`,
+`failure_opportunity_id`, `failure_signal_interval_start` (when an
+active setup remains), `terminal_active_state`, attempted
+outcome/trace counts, and the blocked-decision count. These fields are
+diagnostic provenance, not historical execution claims or point metrics.
 
 `ScenarioResearchResult.write_new(path)` exclusively creates a new JSON
 file, refusing an existing destination. No default write occurs during
@@ -101,8 +121,10 @@ profit or PAPER/live decision.
 `tests/unit/research/test_scenario_execution.py` exercises the
 registered identities, source gating, assumed entry/stop/target chronology,
 single active position, BTC five-minute expiry/new-signal boundary,
-profile sensitivity, budget exhaustion, deterministic run/result bytes,
-non-overwriting output, and strict namespace isolation. It uses generated
+profile sensitivity, budget exhaustion (including exact-capacity success),
+failed active-state identity/last-complete-bucket preservation, bounded
+blocked-signal reporting, deterministic run/result bytes, non-overwriting
+output, and strict namespace isolation. It uses generated
 one-minute bars and synthetic strategy decisions only; it never opens
 SF-088 or SF-096 protected market archives.
 
