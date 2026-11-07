@@ -486,10 +486,11 @@ def test_outcome_limit_accepts_exact_capacity_and_rejects_next_outcome():
 @pytest.mark.parametrize("entered", [False, True])
 def test_failure_retains_active_opportunity_and_last_complete_source(entered):
     """No partial economics, but a failed active state remains reproducible."""
-    prices = ({
-        i: ("100.2", "100.21", "100.1", "100.2")
+    prices = {
+        i: (("100.2", "100.21", "100.1", "100.2") if entered
+            else ("100", "100.05", "100", "100"))
         for i in range(1255, MINUTES)
-    } if entered else {})
+    }
     source = _source(overrides=prices)
     request = _request(source, budgets=ScenarioResourcePolicy(
         "FINITE_FAIL_CLOSED", "1.0.0", 8, 1000, 1000, 1000, 1,
