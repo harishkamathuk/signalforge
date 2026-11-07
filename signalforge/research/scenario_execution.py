@@ -524,7 +524,9 @@ def _step(
                 or economics.raw_target_price is None
                 or economics.raw_target_price.value <= fill.value
             ):
-                work.outcomes.append(_outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK"))
+                work.outcomes.append(
+                    _outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK")
+                )
                 work.active = None
                 return
             active.entry_bucket = bar.interval.start
