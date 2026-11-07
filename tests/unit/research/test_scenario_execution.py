@@ -6,10 +6,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
+from signalforge.domain.armed import ExpiryReason
 from signalforge.config.strategy_registry import (
     StrategyRegistration,
     StrategyRegistry,
@@ -27,7 +29,9 @@ from signalforge.research.historical_bars import (
 from signalforge.research.historical_execution import (
     CONTINUOUS_HISTORICAL_SESSION_POLICY,
     HistoricalBarExecutionRunner,
+    HistoricalContinuationPolicy,
     HistoricalExecutionAssumptionProfile,
+    HistoricalTerminalState,
 )
 from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.research.scenario_execution import (
@@ -38,6 +42,8 @@ from signalforge.research.scenario_execution import (
     ScenarioResearchRunner,
     ScenarioResourcePolicy,
     VersionedRule,
+    _Work,
+    _step,
 )
 from signalforge.runtime.btc_momentum_baseline_v0 import (
     BtcMomentumBaselineDecision,
@@ -48,6 +54,8 @@ from signalforge.runtime.strategy import (
     ArmedSetupView,
     CompletedCandleStrategyContext,
     PositionEconomics,
+    PriceBarrierDirection,
+    PriceBarrierIntent,
     StrategyEntryFillView,
 )
 
@@ -529,3 +537,122 @@ def test_blocked_completed_candle_decisions_are_separately_auditable():
     assert blocked.blocking_opportunity_id == result.outcomes[0].opportunity_id
     assert result.mapping()["blocked_decisions"] == [blocked.mapping()]
     assert result.execution_valid is False
+def test_scenario_output_refuses_protected_data_root_and_symlink(tmp_path: Path):
+    """Neither direct nor resolved aliases may write into SF-088 evidence trees."""
+    result = _runner(251).run(_request(_source()))
+    protected = tmp_path / ".signalforge-data" / "evidence"
+    protected.mkdir(parents=True)
+    with pytest.raises(ValueError, match="protected evidence trees"):
+        result.write_new(protected / "scenario.json")
+    assert not (protected / "scenario.json").exists()
+
+    alias = tmp_path / "evidence-alias"
+    alias.symlink_to(protected, target_is_directory=True)
+    with pytest.raises(ValueError, match="protected evidence trees"):
+        result.write_new(alias / "scenario.json")
+    assert not (protected / "scenario.json").exists()
+
+    ordinary = tmp_path / "permitted-scenario.json"
+    result.write_new(ordinary)
+    assert ordinary.is_file()
+
+
+def test_protected_style_bars_cannot_become_synthetic_by_relabeling():
+    """Construct a metadata-only Delta analogue; never load protected archives."""
+    source = _source()
+    protected_manifest = replace(
+        source.dataset.manifest,
+        provider="delta_exchange_india",
+        acquisition_adapter="sf095-protected-first-pass-read-only",
+        limitations=("UNQUALIFIED_HISTORICAL_METADATA",),
+    )
+    provider_bars = tuple(
+        replace(bar, source_provider="delta_exchange_india")
+        for bar in source.dataset.bars
+    )
+    disguised = RawDiagnosticSource(
+        HistoricalBarDataset(protected_manifest, provider_bars),
+        "synthetic-masquerading-as-protected",
+    )
+    # The raw-source wrapper permits this diagnostic prefix; the scenario
+    # request must independently check actual fixture provenance fields.
+    with pytest.raises(ValueError, match="test-only fixture source provenance"):
+        _request(disguised)
+
+    unmarked = RawDiagnosticSource(
+        replace(source.dataset, manifest=replace(
+            source.dataset.manifest,
+            limitations=("UNQUALIFIED_HISTORICAL_METADATA",),
+        )),
+        "synthetic-without-test-marker",
+    )
+    with pytest.raises(ValueError, match="test-only fixture source provenance"):
+        _request(unmarked)
+
+
+def test_strict_expiry_order_discrepancy_isolated_from_scenario_boundary():
+    """Strict blocks a fresh 5m decision before expiring the old setup; scenario does not."""
+    prices = {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)}
+    prices[1260] = ("100.2", "100.4", "100.1", "100.2")
+    source = _source(overrides=prices)
+    request = _request(source)
+    registry = StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _SignalAt((251, 252)),
+        ),
+    ))
+    scenario = ScenarioResearchRunner(registry=registry).run(request)
+    strict = HistoricalBarExecutionRunner(registry=registry).run(
+        source.dataset, strategy_selection=SEL,
+        engine_calculation_version=request.engine_calculation_version,
+        tick_schedule=None,
+        execution_profile=request.profile,
+        market_session_policy=CONTINUOUS_HISTORICAL_SESSION_POLICY,
+        raw_source=source,
+        measurement_start=request.is_start,
+        continuation_policy=HistoricalContinuationPolicy.FAIL_CLOSED_V1,
+    )
+    new_signal_end = START + timedelta(minutes=1260)
+    assert scenario.failure is None
+    assert any(x.entry_bucket == new_signal_end for x in scenario.outcomes)
+    assert any(
+        x.terminal_state is HistoricalTerminalState.BLOCKED
+        and x.signal_interval.end == new_signal_end
+        for x in strict.outcomes
+    )
+    assert all(
+        not (x.entry_fill is not None and x.signal_interval.end == new_signal_end)
+        for x in strict.outcomes
+    )
+    assert strict.execution_valid is False
+    assert scenario.execution_valid is False
+
+
+def test_order_changing_equal_level_tie_fails_closed_defensively():
+    """Valid long policies prohibit equal barriers; a malformed private state cannot choose."""
+    bar = _source().dataset.bars[1255]
+    price = Price(Decimal("100"))
+    # This bypasses accepted arming validation solely to pressure-test the
+    # hypothetical first-crossing helper's defensive tie branch.
+    invalidation = PriceBarrierIntent(
+        price, PriceBarrierDirection.AT_OR_BELOW,
+        ExpiryReason.SIGNAL_LOW_BREACH,
+    )
+    active = SimpleNamespace(
+        entry_price=None,
+        view=SimpleNamespace(tradable_trigger=price),
+        policy=SimpleNamespace(pre_entry_invalidation=invalidation),
+    )
+    work = _Work(active, [], [], [])
+    _step(
+        work, _SignalAt((251,)),
+        HistoricalExecutionAssumptionProfile.reference_raw(),
+        bar, price.value, price.value, opening=True,
+    )
+    assert work.unsupported == 1
+    assert work.failure == "SCENARIO_UNSUPPORTED: order-changing same-level tie"
+    assert work.failure_bucket == bar.interval.start
+    assert work.outcomes == []
+    assert work.trace == []
+
