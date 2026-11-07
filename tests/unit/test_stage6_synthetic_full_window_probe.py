@@ -83,6 +83,29 @@ def test_parent_passes_nondefault_rss_limit_to_worker(monkeypatch):
     assert captured[captured.index("--vm-limit-gib") + 1] == "2"
 
 
+def test_parent_retains_synthetic_early_failure_report(monkeypatch):
+    class IncompleteChild:
+        returncode = 2
+        pid = 999999
+
+        def poll(self):
+            return 2
+
+        def communicate(self, timeout=None):
+            return (b'{"synthetic_only":true,"status":"SYNTHETIC_RUNNER_EARLY_TERMINATION",'
+                    b'"failure_category":"BUDGET_EXHAUSTED","trace_count":20}', b"")
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", lambda *args, **kw: IncompleteChild())
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+    )
+    assert result["status"] == "WORKER_FAILED_OR_CAP_REACHED"
+    assert result["child_report"]["failure_category"] == "BUDGET_EXHAUSTED"
+    assert result["child_report"]["trace_count"] == 20
+
+
 def test_no_file_or_data_source_cli_options():
     run = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
