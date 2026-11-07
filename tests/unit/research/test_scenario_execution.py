@@ -165,6 +165,8 @@ def test_assumptions_explicit_versioned_and_unknown_rejected():
         ))
     with pytest.raises(ValueError, match="finite"):
         ScenarioResourcePolicy("FINITE_FAIL_CLOSED", "1.0.0", 0, 100, 100, 100, 1)
+    with pytest.raises(ValueError, match="max_states=1"):
+        ScenarioResourcePolicy("FINITE_FAIL_CLOSED", "1.0.0", 100, 100, 100, 100, 2)
     with pytest.raises(ValueError, match="SCENARIO_RESEARCH"):
         replace(_request(_source()), mode="RAW_DIAGNOSTIC")
 
