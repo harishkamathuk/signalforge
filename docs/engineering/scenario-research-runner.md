@@ -22,7 +22,10 @@ Each request must explicitly provide `ScenarioMode.SCENARIO_RESEARCH`,
 `RawDiagnosticSource` (or a *synthetic-only* test source), a frozen BTC
 strategy selection, the frozen RAW profile, the completed-five-minute
 indicator engine version, a provenance revision, UTC frozen research
-boundaries, and a finite `ScenarioResourcePolicy`. It rejects unavailable
+boundaries, and a finite `ScenarioResourcePolicy`. Synthetic-only strategy
+fixture variants also require an explicit identity-bearing
+`synthetic_fixture_identity` beginning with `synthetic-`; protected
+requests prohibit this test-only field. It rejects unavailable
 source evidence, mismatched instruments, strict-mode profile combinations
 and unregistered rule or budget variants.
 
