@@ -94,6 +94,11 @@ validation; a synthetic defensive negative test exercises this branch.
 The maximum-outcomes budget is inclusive: exactly the permitted number of
 outcomes is valid, and only an attempted excess fails the run. An already
 full budget does not itself terminate otherwise valid later source candles.
+The versioned `max_states` budget denotes **concurrent ARMED/OPEN lifecycle
+slots**, not cumulative state transitions. The approved single-path runner
+uses one typed active slot, so `max_states=1` is mandatory and a purported
+higher-capacity policy is rejected at request construction. Event, trace and
+minute-bar budgets independently bound cumulative processing.
 
 When a completed-five-minute actionable decision is blocked by an existing
 ARMED setup or OPEN position, the runner does not create another setup. It
