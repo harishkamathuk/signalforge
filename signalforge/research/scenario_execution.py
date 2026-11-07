@@ -183,6 +183,7 @@ class ScenarioResearchRequest:
     oos_start: datetime
     measured_end: datetime
     repository_revision: str
+    synthetic_fixture_identity: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode is not ScenarioMode.SCENARIO_RESEARCH:
@@ -231,7 +232,15 @@ class ScenarioResearchRequest:
                 raise ValueError("Scenario boundaries must align to completed five-minute candles")
         if self.is_start - coverage[0].start < timedelta(minutes=250 * 5):
             raise ValueError("Scenario requires 250 completed warm-up candles")
-        if not self.source.source_diagnostic_id.startswith("synthetic-"):
+        if self.source.source_diagnostic_id.startswith("synthetic-"):
+            if (
+                self.synthetic_fixture_identity is None
+                or not self.synthetic_fixture_identity.startswith("synthetic-")
+            ):
+                raise ValueError("Synthetic strategy fixture identity must be explicit")
+        else:
+            if self.synthetic_fixture_identity is not None:
+                raise ValueError("Protected runs may not claim synthetic strategy fixtures")
             # The protected-source bridge is the only authority for its source ID.
             if (
                 coverage[0].start != datetime(2025, 10, 30, tzinfo=UTC)
@@ -643,6 +652,7 @@ def _manifest(request: ScenarioResearchRequest, strategy: Strategy,
             "config_id": str(strategy.config_identity.config_id),
             "config_hash": strategy.config_identity.config_hash,
             "engine_calculation_version": request.engine_calculation_version,
+            "synthetic_fixture_identity": request.synthetic_fixture_identity,
         },
         "assumptions": {
             **request.assumptions.mapping(),
