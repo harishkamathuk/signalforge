@@ -55,6 +55,34 @@ def test_low_memory_snapshot_blocks_before_launch(monkeypatch):
     assert result["status"] == "BLOCKED_INSUFFICIENT_INITIAL_HEADROOM"
 
 
+def test_parent_passes_nondefault_rss_limit_to_worker(monkeypatch):
+    captured = []
+
+    class CompletedChild:
+        returncode = 0
+        pid = 999999
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=None):
+            return b'{"synthetic_only":true,"status":"SYNTHETIC_RUNNER_COMPLETED"}', b""
+
+    def spawn(command, **_kwargs):
+        captured.extend(command)
+        return CompletedChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+    )
+    assert result["status"] == "SYNTHETIC_RUNNER_COMPLETED"
+    assert captured[captured.index("--max-rss-gib") + 1] == "1"
+    assert captured[captured.index("--vm-limit-gib") + 1] == "2"
+
+
 def test_no_file_or_data_source_cli_options():
     run = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
