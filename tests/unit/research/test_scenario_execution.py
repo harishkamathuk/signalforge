@@ -120,7 +120,7 @@ def _request(source: RawDiagnosticSource, *,
         assumptions=ScenarioAssumptionSet.btc_ohlc_path_v1(),
         profile=profile or HistoricalExecutionAssumptionProfile.reference_raw(),
         resources=budgets or ScenarioResourcePolicy(
-            "FINITE_FAIL_CLOSED", "1.0.0", 100, 1000, 1000, 1000,
+            "FINITE_FAIL_CLOSED", "1.0.0", 100, 1000, 1000, 1000, 1,
         ),
         is_start=START + timedelta(minutes=1250),
         oos_start=START + timedelta(minutes=1255),
@@ -149,7 +149,7 @@ def test_assumptions_explicit_versioned_and_unknown_rejected():
             "REJECT_SAME_LEVEL_TIE_V1", "2.0.0",
         ))
     with pytest.raises(ValueError, match="finite"):
-        ScenarioResourcePolicy("FINITE_FAIL_CLOSED", "1.0.0", 0, 100, 100, 100)
+        ScenarioResourcePolicy("FINITE_FAIL_CLOSED", "1.0.0", 0, 100, 100, 100, 1)
     with pytest.raises(ValueError, match="SCENARIO_RESEARCH"):
         replace(_request(_source()), mode="RAW_DIAGNOSTIC")
 
