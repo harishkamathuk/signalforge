@@ -43,7 +43,6 @@ from signalforge.runtime.btc_momentum_baseline_v0 import (
     BtcMomentumBaselineDecision,
     BtcMomentumBaselineV0Strategy,
 )
-from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
 from signalforge.runtime.strategy import CompletedCandleStrategyContext
 
 
