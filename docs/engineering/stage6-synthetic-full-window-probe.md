@@ -80,7 +80,8 @@ The `--serialize-result` switch uses the **unchanged**
 `run_verified()` traversals. The complete synthetic result, generated source
 and runner remain resident during the write. The parent creates a private
 0700 direct child of the system temp directory; the child verifies it is
-empty, private, outside Git and protected paths. Writes use a 0077 umask.
+empty, private, outside **any** Git checkout/worktree (including another
+repository's `.git` ancestor) and protected paths. Writes use a 0077 umask.
 The parent hands the worker an inherited one-use pipe token and checks a
 matching live parent PID, so running hidden worker options directly cannot
 authorize a persistent write or bypass parent resource monitoring. The parent
