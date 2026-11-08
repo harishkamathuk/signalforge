@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +42,8 @@ def test_frozen_limits_and_synthetic_epoch_are_not_protected_window():
     ["--child", "--mode", "both"],
     ["--child", "--serialize-result", "--mode", "quiet"],
     ["--child-scratch", "/tmp/signalforge-sf272-forbidden"],
+    ["--child", "--mode", "quiet", "--serialize-result",
+     "--child-scratch", "/tmp/signalforge-sf272-forbidden"],
     ["--max-output-mib", "2048"],
 ])
 def test_unsafe_or_invalid_requests_fail_before_worker(args):
@@ -120,6 +123,8 @@ def test_no_file_or_data_source_cli_options():
     assert "--serialize-result" in run.stdout
     assert "--max-output-mib" in run.stdout
     assert "--child-scratch" not in run.stdout
+    assert "--child-handoff-fd" not in run.stdout
+    assert "--child-parent-pid" not in run.stdout
 
 
 def test_audit_hook_refuses_private_evidence_even_if_absent():
@@ -368,3 +373,44 @@ def test_parent_refuses_protected_tmpdir_before_creating_artifact(monkeypatch, t
     )
     assert result["status"] == "BLOCKED_UNSAFE_SCRATCH_ROOT"
     assert list(protected.iterdir()) == []
+
+
+def test_sigterm_stops_worker_and_cleans_parent_owned_scratch(monkeypatch):
+    """A catchable SIGTERM interrupts the parent but never leaves a partial result."""
+    scratch_paths: list[Path] = []
+    killed: list[bool] = []
+
+    class RunningChild:
+        pid = 999999
+        returncode = -9
+
+        def poll(self):
+            signal.raise_signal(signal.SIGTERM)
+            return None
+
+        def kill(self):
+            killed.append(True)
+
+        def communicate(self, timeout=None):
+            return b"", b""
+
+    def spawn(command, **options):
+        scratch_paths.append(Path(command[command.index("--child-scratch") + 1]))
+        assert len(options["pass_fds"]) == 1
+        assert "--child-parent-pid" in command
+        assert "--child-handoff-fd" in command
+        (scratch_paths[-1] / "synthetic-result.json").write_bytes(b"partial")
+        return RunningChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    with pytest.raises(probe.ProbeBlocked, match="SIGTERM"):
+        probe._run_one(
+            minutes=1300, mode="quiet", max_rss_gib=1,
+            vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+            serialize_result=True, max_output_mib=64,
+        )
+    assert killed == [True]
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
