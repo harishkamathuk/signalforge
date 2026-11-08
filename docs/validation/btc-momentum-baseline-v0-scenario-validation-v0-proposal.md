@@ -495,7 +495,8 @@ The first scenario study is a methodology exercise, not an optimization sweep.
 The owner [Option A proportionality decision](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981)
 applies to this **Level 2 formal validation** study; it does not turn Stage 6 into
 unrestricted Level 1 exploration or authorise historical performance before Gate D.
-The custodian may produce a single sealed **full-window** result only **after** Gate D,
+The custodian may produce sealed **full-window** results for the two fixed
+profiles and required attempts only **after** Gate D,
 release a recorded IS-first QA/review view, and record an explicit OOS-release
 checkpoint **before any OOS performance inspection**. The operator must not preview
 OOS, tune the frozen experiment after results, change a profile or reset lifecycle
@@ -508,8 +509,9 @@ not a default methodology requirement. The existing SF-264 custody CLI still
 requires a distinct parent-issue `OOS_RELEASE_ACCEPT` record; this is a **tooling
 constraint**, not permission to fabricate that record or bypass its validation.
 Any necessary change to that implementation belongs to 02 under separate
-authorised engineering scope. Until the tool and protocol agree, keep OOS
-release blocked. Gate E and all full-grid/replay/unsupported requirements remain.
+authorised engineering scope. **Under the current CLI, OOS release remains blocked
+without a genuine matching owner record**; any alternative requires reviewed
+tooling alignment before use. Gate E and all full-grid/replay/unsupported requirements remain.
 
 ## 10. Provider trade-tape interaction
 
