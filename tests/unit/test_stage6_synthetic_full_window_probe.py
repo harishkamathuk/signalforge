@@ -317,3 +317,34 @@ def test_real_synthetic_canonical_write_small_smoke(mode: str):
     assert "synthetic-result.json" not in run.stdout
     for banned in ("profit", "win_rate", "expectancy", "pnl", "r_distribution"):
         assert banned not in run.stdout.lower()
+
+
+def test_parent_rejects_success_without_canonical_receipt(monkeypatch):
+    """A child reporting runner success must not silently skip its requested write."""
+    scratch_paths: list[Path] = []
+
+    class MisreportedChild:
+        returncode = 0
+        pid = 999999
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=None):
+            return b'{"synthetic_only":true,"status":"SYNTHETIC_RUNNER_COMPLETED"}', b""
+
+    def spawn(command, **_kwargs):
+        scratch_paths.append(Path(command[command.index("--child-scratch") + 1]))
+        return MisreportedChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "INVALID_SERIALIZATION_RECEIPT"
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
