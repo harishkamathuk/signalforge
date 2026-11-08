@@ -81,9 +81,15 @@ The `--serialize-result` switch uses the **unchanged**
 and runner remain resident during the write. The parent creates a private
 0700 direct child of the system temp directory; the child verifies it is
 empty, private, outside Git and protected paths. Writes use a 0077 umask.
-The parent removes the entire scratch directory after success, failure or
-worker termination, including a partially written file. There is **no persistent
-result artifact**, no selectable source or destination path and no OOS release.
+The parent hands the worker an inherited one-use pipe token and checks a
+matching live parent PID, so running hidden worker options directly cannot
+authorize a persistent write or bypass parent resource monitoring. The parent
+handles catchable SIGTERM by stopping/waiting for the worker, then removing the
+entire scratch directory (including partial output). A parent **SIGKILL**, host
+power loss or process-group termination cannot guarantee cleanup; any orphan
+must be quarantined/removed manually without treating it as research evidence.
+There is **no intentionally persistent result artifact**, no selectable source
+or destination path and no OOS release.
 
 The sanitized JSON reports per synthetic mode:
 `peak_rss_bytes_before_write`, `peak_rss_bytes` after writing, parent
