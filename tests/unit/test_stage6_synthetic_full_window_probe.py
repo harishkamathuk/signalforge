@@ -180,8 +180,8 @@ def test_disposable_scratch_accepts_only_private_empty_temp_root(tmp_path: Path)
     """A caller-selected directory is never eligible for canonical output."""
     with pytest.raises(probe.ProbeBlocked):
         probe._private_scratch(tmp_path)
-    import tempfile
     import stat
+    import tempfile
 
     with tempfile.TemporaryDirectory(prefix=probe.SCRATCH_PREFIX) as name:
         private = Path(name)
