@@ -348,3 +348,23 @@ def test_parent_rejects_success_without_canonical_receipt(monkeypatch):
     assert result["status"] == "INVALID_SERIALIZATION_RECEIPT"
     assert len(scratch_paths) == 1
     assert not scratch_paths[0].exists()
+
+
+def test_parent_refuses_protected_tmpdir_before_creating_artifact(monkeypatch, tmp_path: Path):
+    """Even TMPDIR redirection cannot cause a write beneath protected evidence."""
+    protected = tmp_path / ".signalforge-data"
+    protected.mkdir()
+    monkeypatch.setattr(probe.tempfile, "gettempdir", lambda: str(protected))
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("never launch a worker inside protected TMPDIR")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "BLOCKED_UNSAFE_SCRATCH_ROOT"
+    assert list(protected.iterdir()) == []
