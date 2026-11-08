@@ -99,6 +99,18 @@ def _bind_runner_checkout() -> tuple[str, str, str]:
     return head, str(loaded), hashlib.sha256(expected.read_bytes()).hexdigest()
 
 
+def _safe_temp_root() -> Path:
+    """Reject a system temporary root under Git or protected/private evidence."""
+    temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    repo_root = Path(__file__).resolve().parents[1]
+    if (not temp_root.is_dir()
+            or temp_root.is_relative_to(repo_root)
+            or any(part in (".signalforge-data", "signalforge-private", "sf088", "sf096")
+                   for part in temp_root.parts)):
+        raise ProbeBlocked("unsafe synthetic serialization temp root")
+    return temp_root
+
+
 def _private_scratch(path: Path) -> Path:
     """Permit an empty 0700 disposable directory directly below the system temp root.
 
@@ -106,7 +118,7 @@ def _private_scratch(path: Path) -> Path:
     source path is accepted, even if hidden worker options are supplied directly.
     """
     actual = path.resolve(strict=True)
-    temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    temp_root = _safe_temp_root()
     repo_root = Path(__file__).resolve().parents[1]
     if (path.is_symlink() or not actual.is_dir()
             or actual.parent != temp_root
@@ -123,7 +135,7 @@ def _private_scratch(path: Path) -> Path:
 
 def _scratch_free_bytes() -> int:
     """Read actual filesystem free bytes before opting into bounded output."""
-    stats = os.statvfs(tempfile.gettempdir())
+    stats = os.statvfs(_safe_temp_root())
     return stats.f_bavail * stats.f_frsize
 
 
@@ -369,12 +381,19 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
                "--vm-limit-gib", str(vm_limit_gib),
                "--timeout-seconds", str(timeout_seconds)]
     if serialize_result:
+        # Never even create a scratch directory inside the Git or evidence trees,
+        # including a user-modified TMPDIR on the operator workstation.
+        try:
+            temp_root = _safe_temp_root()
+            disk_free = _scratch_free_bytes()
+        except (ProbeBlocked, OSError):
+            return {"mode": mode, "status": "BLOCKED_UNSAFE_SCRATCH_ROOT"}
         # Allow space for the declared cap plus an independent local reserve.
-        if _scratch_free_bytes() < (max_output_mib + 256) * MIB:
+        if disk_free < (max_output_mib + 256) * MIB:
             return {"mode": mode, "status": "BLOCKED_INSUFFICIENT_SCRATCH_DISK"}
         # The parent owns cleanup after normal completion, MemoryError, SIGKILL,
         # RSS/host safety stops and partially written canonical JSON.
-        with tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX) as scratch:
+        with tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX, dir=temp_root) as scratch:
             command.extend([
                 "--serialize-result", "--max-output-mib", str(max_output_mib),
                 "--child-scratch", scratch,
