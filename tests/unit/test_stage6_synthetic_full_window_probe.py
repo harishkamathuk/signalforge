@@ -414,3 +414,26 @@ def test_sigterm_stops_worker_and_cleans_parent_owned_scratch(monkeypatch):
     assert killed == [True]
     assert len(scratch_paths) == 1
     assert not scratch_paths[0].exists()
+
+
+def test_parent_refuses_tmpdir_inside_other_git_worktree(monkeypatch, tmp_path: Path):
+    """The outside-Git condition applies to any checkout, not just this repo."""
+    checkout = tmp_path / "other-worktree"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: /different/git/meta", encoding="utf-8")
+    root = checkout / "temp"
+    root.mkdir()
+    monkeypatch.setattr(probe.tempfile, "gettempdir", lambda: str(root))
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("must not launch a worker into another Git worktree")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "BLOCKED_UNSAFE_SCRATCH_ROOT"
+    assert list(root.iterdir()) == []
