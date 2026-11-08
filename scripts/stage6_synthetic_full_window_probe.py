@@ -379,10 +379,30 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
                 "--serialize-result", "--max-output-mib", str(max_output_mib),
                 "--child-scratch", scratch,
             ])
-            return _monitor_child(
+            measured = _monitor_child(
                 command, mode=mode, max_rss_gib=max_rss_gib,
                 timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
             )
+            # A healthy runner without an actual complete canonical write is
+            # NOT a successful serialization study, even if the child exits 0.
+            if measured.get("status") == "SYNTHETIC_RUNNER_COMPLETED":
+                evidence = measured.get("serialization")
+                if not isinstance(evidence, dict):
+                    return {"mode": mode, "status": "INVALID_SERIALIZATION_RECEIPT"}
+                size = evidence.get("bytes")
+                digest = evidence.get("sha256")
+                before_rss = measured.get("peak_rss_bytes_before_write")
+                after_rss = evidence.get("peak_rss_bytes_after_write")
+                if (
+                    evidence.get("status") != "SYNTHETIC_CANONICAL_WRITE_COMPLETED"
+                    or type(size) is not int or not 0 < size <= max_output_mib * MIB
+                    or type(digest) is not str or len(digest) != 64
+                    or any(char not in "0123456789abcdef" for char in digest)
+                    or type(before_rss) is not int or before_rss <= 0
+                    or type(after_rss) is not int or after_rss < before_rss
+                ):
+                    return {"mode": mode, "status": "INVALID_SERIALIZATION_RECEIPT"}
+            return measured
     return _monitor_child(
         command, mode=mode, max_rss_gib=max_rss_gib,
         timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
