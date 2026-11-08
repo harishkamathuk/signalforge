@@ -121,7 +121,8 @@ Synthetic fixtures and tests may exercise the API before then.
    Option A. **Existing CLI limitation:** `oos-release --oos-record` still
    requires a genuine separate parent-issue `OOS_RELEASE_ACCEPT` comment,
    linked through a local record with `parent_issue`, `record_url`,
-   `preregistration_id`, `seal_sha256`, and `is_qa_sha256`. The CLI does not
+   `decision=OOS_RELEASE_ACCEPT`, `preregistration_id`, `seal_sha256`,
+   and `is_qa_sha256`. The CLI does not
    authenticate GitHub authorship and cannot stop the Linux account owner
    reading the seal. **Do not forge a comment, bypass the CLI, or claim the
    approved simpler checkpoint works with this version.** Before any release
