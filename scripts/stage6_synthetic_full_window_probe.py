@@ -113,7 +113,11 @@ def _safe_temp_root() -> Path:
     if (not temp_root.is_dir()
             or temp_root.is_relative_to(repo_root)
             or any(part in (".signalforge-data", "signalforge-private", "sf088", "sf096")
-                   for part in temp_root.parts)):
+                   for part in temp_root.parts)
+            or any((ancestor / ".git").exists() or (ancestor / ".git").is_symlink()
+                   for ancestor in (temp_root, *temp_root.parents))):
+        # Check worktrees (.git file), repositories (.git directory) and links,
+        # not just the checkout that contains this script.
         raise ProbeBlocked("unsafe synthetic serialization temp root")
     return temp_root
 
