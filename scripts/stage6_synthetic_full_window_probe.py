@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import resource
+import signal
 import stat
 import subprocess
 import sys
@@ -30,6 +31,7 @@ FULL_OOS_CANDLES = 34_848
 GIB = 1024**3
 MIB = 1024**2
 SCRATCH_PREFIX = "signalforge-sf272-"
+HANDOFF_TOKEN = b"SF272_PARENT_OWNED_SERIALIZATION"
 START = datetime(2027, 1, 1, tzinfo=UTC)  # NOT the frozen SF-088 source interval.
 IDENTITY = "synthetic-sf268-memory-only"
 
@@ -97,6 +99,11 @@ def _bind_runner_checkout() -> tuple[str, str, str]:
     if loaded != expected:
         raise ProbeBlocked("imported runner is not from the checked-out source tree")
     return head, str(loaded), hashlib.sha256(expected.read_bytes()).hexdigest()
+
+
+def _terminate_parent(_signum: int, _frame: object) -> None:
+    """Turn catchable termination into an exception for child/scratch cleanup."""
+    raise ProbeBlocked("synthetic serialization parent SIGTERM received")
 
 
 def _safe_temp_root() -> Path:
@@ -348,8 +355,22 @@ def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[st
 
 def _child(minutes: int, *, mode: str, vm_limit_gib: int,
            cpu_limit_seconds: int, scratch: Path | None = None,
-           max_output_mib: int = 512) -> int:
+           max_output_mib: int = 512, handoff_fd: int | None = None,
+           parent_pid: int | None = None) -> int:
     """Contain synthetic computation before importing any SignalForge module."""
+    if scratch is not None:
+        # Hidden CLI flags are not authority. Only a live parent that passed
+        # its open read-end across exec may authorize the disposable writer.
+        if handoff_fd is None or parent_pid != os.getppid():
+            raise ProbeBlocked("synthetic serialization requires live parent handoff")
+        try:
+            token = os.read(handoff_fd, len(HANDOFF_TOKEN))
+        except OSError as exc:
+            raise ProbeBlocked("invalid synthetic serialization parent handoff") from exc
+        finally:
+            os.close(handoff_fd)
+        if token != HANDOFF_TOKEN:
+            raise ProbeBlocked("invalid synthetic serialization parent handoff")
     resource.setrlimit(resource.RLIMIT_AS, (vm_limit_gib * GIB, vm_limit_gib * GIB))
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_seconds, cpu_limit_seconds + 1))
     output_cap = max_output_mib * MIB if scratch is not None else MIB
@@ -394,14 +415,27 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
         # The parent owns cleanup after normal completion, MemoryError, SIGKILL,
         # RSS/host safety stops and partially written canonical JSON.
         with tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX, dir=temp_root) as scratch:
-            command.extend([
-                "--serialize-result", "--max-output-mib", str(max_output_mib),
-                "--child-scratch", scratch,
-            ])
-            measured = _monitor_child(
-                command, mode=mode, max_rss_gib=max_rss_gib,
-                timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
-            )
+            read_fd, write_fd = os.pipe()
+            try:
+                os.write(write_fd, HANDOFF_TOKEN)
+                command.extend([
+                    "--serialize-result", "--max-output-mib", str(max_output_mib),
+                    "--child-scratch", scratch,
+                    "--child-handoff-fd", str(read_fd),
+                    "--child-parent-pid", str(os.getpid()),
+                ])
+                previous_handler = signal.signal(signal.SIGTERM, _terminate_parent)
+                try:
+                    measured = _monitor_child(
+                        command, mode=mode, max_rss_gib=max_rss_gib,
+                        timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
+                        pass_fds=(read_fd,),
+                    )
+                finally:
+                    signal.signal(signal.SIGTERM, previous_handler)
+            finally:
+                os.close(read_fd)
+                os.close(write_fd)
             # A healthy runner without an actual complete canonical write is
             # NOT a successful serialization study, even if the child exits 0.
             if measured.get("status") == "SYNTHETIC_RUNNER_COMPLETED":
@@ -429,11 +463,15 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
 
 
 def _monitor_child(command: list[str], *, mode: str, max_rss_gib: int,
-                   timeout_seconds: int, min_free_gib: float) -> dict[str, object]:
+                   timeout_seconds: int, min_free_gib: float,
+                   pass_fds: tuple[int, ...] = ()) -> dict[str, object]:
     """Monitor one child, preserving bounded synthetic diagnostics on failures."""
     reserve = int(min_free_gib * GIB)
     start = time.monotonic()
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        pass_fds=pass_fds,
+    )
     peak_observed = 0
     kill_reason = None
     try:
@@ -504,6 +542,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-output-mib", type=int, choices=(64, 128, 256, 512, 1024),
                         default=512, help="per-child canonical output file limit in MiB")
     parser.add_argument("--child-scratch", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--child-handoff-fd", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--child-parent-pid", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if (args.minutes < 1300 or args.minutes > FULL_MINUTES or args.minutes % 5
@@ -511,7 +551,12 @@ def main(argv: list[str] | None = None) -> int:
         or not 0.5 <= args.min_free_gib <= 2.0
         or args.vm_limit_gib < args.max_rss_gib
         or (args.child_scratch is not None and (not args.child or not args.serialize_result))
-        or (args.child and args.serialize_result and args.child_scratch is None)):
+        or (args.child and args.serialize_result and args.child_scratch is None)
+        or (args.child and args.serialize_result and (
+            args.child_handoff_fd is None or args.child_handoff_fd < 0
+            or args.child_parent_pid is None or args.child_parent_pid <= 0))
+        or (not (args.child and args.serialize_result) and (
+            args.child_handoff_fd is not None or args.child_parent_pid is not None))):
         parser.error("invalid bounded synthetic probe settings")
     if args.child:
         if args.mode == "both":
@@ -521,7 +566,9 @@ def main(argv: list[str] | None = None) -> int:
                           vm_limit_gib=args.vm_limit_gib,
                           cpu_limit_seconds=args.timeout_seconds,
                           scratch=args.child_scratch,
-                          max_output_mib=args.max_output_mib)
+                          max_output_mib=args.max_output_mib,
+                          handoff_fd=args.child_handoff_fd,
+                          parent_pid=args.child_parent_pid)
         except (MemoryError, ValueError, OSError) as exc:
             print(json.dumps({"status": "SYNTHETIC_WORKER_BLOCKED",
                               "error_type": type(exc).__name__,
