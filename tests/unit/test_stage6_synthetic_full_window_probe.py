@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -39,6 +40,11 @@ def test_frozen_limits_and_synthetic_epoch_are_not_protected_window():
     ["--min-free-gib", "0.1"],
     ["--min-free-gib", "2.5"],
     ["--child", "--mode", "both"],
+    ["--child", "--serialize-result", "--mode", "quiet"],
+    ["--child-scratch", "/tmp/signalforge-sf272-forbidden"],
+    ["--child", "--mode", "quiet", "--serialize-result",
+     "--child-scratch", "/tmp/signalforge-sf272-forbidden"],
+    ["--max-output-mib", "2048"],
 ])
 def test_unsafe_or_invalid_requests_fail_before_worker(args):
     with pytest.raises(SystemExit) as e:
@@ -114,6 +120,11 @@ def test_no_file_or_data_source_cli_options():
     for unwanted in ("--source-file", "--private-dir", "--generation-dir", "--data"):
         assert unwanted not in run.stdout
     assert "--max-rss-gib" in run.stdout
+    assert "--serialize-result" in run.stdout
+    assert "--max-output-mib" in run.stdout
+    assert "--child-scratch" not in run.stdout
+    assert "--child-handoff-fd" not in run.stdout
+    assert "--child-parent-pid" not in run.stdout
 
 
 def test_audit_hook_refuses_private_evidence_even_if_absent():
@@ -156,6 +167,8 @@ def test_actual_scenario_runner_small_synthetic_smoke(mode: str):
     assert result["measured_is_candles"] == 1
     assert result["measured_oos_candles"] == 9
     assert result["peak_rss_bytes"] > 0
+    assert result["serialization"]["status"] == "NOT_REQUESTED"
+    assert report["serialization_requested"] is False
     assert len(result["runner_checkout_git_sha"]) == 40
     assert len(result["loaded_runner_sha256"]) == 64
     assert result["loaded_runner_file"].endswith(
@@ -166,3 +179,261 @@ def test_actual_scenario_runner_small_synthetic_smoke(mode: str):
     # This is only an interface/capacity diagnostic, not a synthetic trade study.
     for banned in ("profit", "win_rate", "expectancy", "pnl", "r_distribution"):
         assert banned not in run.stdout.lower()
+
+
+def test_disposable_scratch_accepts_only_private_empty_temp_root(tmp_path: Path):
+    """A caller-selected directory is never eligible for canonical output."""
+    with pytest.raises(probe.ProbeBlocked):
+        probe._private_scratch(tmp_path)
+    import stat
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix=probe.SCRATCH_PREFIX) as name:
+        private = Path(name)
+        assert probe._private_scratch(private) == private
+        (private / "leftover").write_text("partial", encoding="utf-8")
+        with pytest.raises(probe.ProbeBlocked, match="must be empty"):
+            probe._private_scratch(private)
+        (private / "leftover").unlink()
+        private.chmod(0o755)
+        with pytest.raises(probe.ProbeBlocked, match="unapproved"):
+            probe._private_scratch(private)
+        private.chmod(0o700)
+        assert stat.S_IMODE(private.stat().st_mode) == 0o700
+
+
+def test_low_scratch_disk_blocks_before_worker(monkeypatch):
+    """Synthetic serialization never starts when scratch disk reserve is absent."""
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 5 * probe.MIB)
+
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("worker must not start without scratch capacity")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "BLOCKED_INSUFFICIENT_SCRATCH_DISK"
+
+
+def test_parent_cleans_partial_serialization_after_failed_worker(monkeypatch):
+    """A worker failure leaves no private or partially written canonical JSON."""
+    scratch_paths: list[Path] = []
+
+    class FailedChild:
+        returncode = 2
+        pid = 999999
+
+        def poll(self):
+            return 2
+
+        def communicate(self, timeout=None):
+            return b"", b"intentional synthetic worker failure"
+
+    def spawn(command, **_kwargs):
+        scratch = Path(command[command.index("--child-scratch") + 1])
+        scratch_paths.append(scratch)
+        assert scratch.is_dir()
+        assert command[command.index("--max-output-mib") + 1] == "64"
+        assert "--serialize-result" in command
+        (scratch / "synthetic-result.json").write_bytes(b"partial")
+        return FailedChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=1300, mode="scheduled", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "WORKER_FAILED_OR_CAP_REACHED"
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
+
+
+def test_parent_cleans_partial_serialization_after_rss_safety_kill(monkeypatch):
+    """The parent must remove an interrupted writer's partial scratch artifact."""
+    scratch_paths: list[Path] = []
+
+    class RunningChild:
+        pid = 999999
+        returncode = -9
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.returncode = -9
+
+        def communicate(self, timeout=None):
+            return b"", b""
+
+    def spawn(command, **_kwargs):
+        scratch = Path(command[command.index("--child-scratch") + 1])
+        scratch_paths.append(scratch)
+        (scratch / "synthetic-result.json").write_bytes(b"partial")
+        return RunningChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe, "_worker_rss", lambda _pid: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=1300, mode="scheduled", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "SAFETY_STOP"
+    assert result["reason"] == "RSS_CEILING_REACHED"
+    assert not scratch_paths[0].exists()
+
+
+@pytest.mark.parametrize("mode", ["quiet", "scheduled"])
+def test_real_synthetic_canonical_write_small_smoke(mode: str):
+    """Exercise run_verified and the unchanged result writer, with ephemeral output."""
+    if sys.platform != "linux":
+        pytest.skip("Linux /proc and RLIMIT_AS required")
+    run = subprocess.run(
+        [sys.executable, str(SCRIPT), "--minutes", "1300", "--mode", mode,
+         "--serialize-result", "--max-output-mib", "64",
+         "--max-rss-gib", "1", "--vm-limit-gib", "2",
+         "--timeout-seconds", "120", "--min-free-gib", "0.5"],
+        capture_output=True, text=True, check=False, timeout=150,
+    )
+    assert run.returncode == 0, (run.stdout[-2000:], run.stderr[-2000:])
+    report = json.loads(run.stdout)
+    assert report["status"] == "SYNTHETIC_RUNNER_RESOURCE_OBSERVATION_ONLY"
+    assert report["serialization_requested"] is True
+    assert report["protected_source_access"] is False
+    assert report["historical_performance_evaluated"] is False
+    result = report["results"][0]
+    assert result["two_internal_traversals"] is True
+    assert result["serialization"]["status"] == "SYNTHETIC_CANONICAL_WRITE_COMPLETED"
+    assert 0 < result["serialization"]["bytes"] < 64 * probe.MIB
+    assert len(result["serialization"]["sha256"]) == 64
+    assert result["serialization"]["peak_rss_bytes_after_write"] >= (
+        result["peak_rss_bytes_before_write"]
+    )
+    assert result["peak_rss_bytes"] >= result["peak_rss_bytes_before_write"]
+    assert "synthetic-result.json" not in run.stdout
+    for banned in ("profit", "win_rate", "expectancy", "pnl", "r_distribution"):
+        assert banned not in run.stdout.lower()
+
+
+def test_parent_rejects_success_without_canonical_receipt(monkeypatch):
+    """A child reporting runner success must not silently skip its requested write."""
+    scratch_paths: list[Path] = []
+
+    class MisreportedChild:
+        returncode = 0
+        pid = 999999
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=None):
+            return b'{"synthetic_only":true,"status":"SYNTHETIC_RUNNER_COMPLETED"}', b""
+
+    def spawn(command, **_kwargs):
+        scratch_paths.append(Path(command[command.index("--child-scratch") + 1]))
+        return MisreportedChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "INVALID_SERIALIZATION_RECEIPT"
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
+
+
+def test_parent_refuses_protected_tmpdir_before_creating_artifact(monkeypatch, tmp_path: Path):
+    """Even TMPDIR redirection cannot cause a write beneath protected evidence."""
+    protected = tmp_path / ".signalforge-data"
+    protected.mkdir()
+    monkeypatch.setattr(probe.tempfile, "gettempdir", lambda: str(protected))
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("never launch a worker inside protected TMPDIR")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "BLOCKED_UNSAFE_SCRATCH_ROOT"
+    assert list(protected.iterdir()) == []
+
+
+def test_sigterm_stops_worker_and_cleans_parent_owned_scratch(monkeypatch):
+    """A catchable SIGTERM interrupts the parent but never leaves a partial result."""
+    scratch_paths: list[Path] = []
+    killed: list[bool] = []
+
+    class RunningChild:
+        pid = 999999
+        returncode = -9
+
+        def poll(self):
+            signal.raise_signal(signal.SIGTERM)
+            return None
+
+        def kill(self):
+            killed.append(True)
+
+        def communicate(self, timeout=None):
+            return b"", b""
+
+    def spawn(command, **options):
+        scratch_paths.append(Path(command[command.index("--child-scratch") + 1]))
+        assert len(options["pass_fds"]) == 1
+        assert "--child-parent-pid" in command
+        assert "--child-handoff-fd" in command
+        (scratch_paths[-1] / "synthetic-result.json").write_bytes(b"partial")
+        return RunningChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe, "_scratch_free_bytes", lambda: 2 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    with pytest.raises(probe.ProbeBlocked, match="SIGTERM"):
+        probe._run_one(
+            minutes=1300, mode="quiet", max_rss_gib=1,
+            vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+            serialize_result=True, max_output_mib=64,
+        )
+    assert killed == [True]
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
+
+
+def test_parent_refuses_tmpdir_inside_other_git_worktree(monkeypatch, tmp_path: Path):
+    """The outside-Git condition applies to any checkout, not just this repo."""
+    checkout = tmp_path / "other-worktree"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: /different/git/meta", encoding="utf-8")
+    root = checkout / "temp"
+    root.mkdir()
+    monkeypatch.setattr(probe.tempfile, "gettempdir", lambda: str(root))
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("must not launch a worker into another Git worktree")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    result = probe._run_one(
+        minutes=1300, mode="quiet", max_rss_gib=1,
+        vm_limit_gib=2, timeout_seconds=120, min_free_gib=0.5,
+        serialize_result=True, max_output_mib=64,
+    )
+    assert result["status"] == "BLOCKED_UNSAFE_SCRATCH_ROOT"
+    assert list(root.iterdir()) == []

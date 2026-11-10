@@ -11,8 +11,11 @@ import hashlib
 import json
 import os
 import resource
+import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +29,9 @@ FROZEN_TRACES = 2_096_640
 FULL_IS_CANDLES = 69_984
 FULL_OOS_CANDLES = 34_848
 GIB = 1024**3
+MIB = 1024**2
+SCRATCH_PREFIX = "signalforge-sf272-"
+HANDOFF_TOKEN = b"SF272_PARENT_OWNED_SERIALIZATION"
 START = datetime(2027, 1, 1, tzinfo=UTC)  # NOT the frozen SF-088 source interval.
 IDENTITY = "synthetic-sf268-memory-only"
 
@@ -95,6 +101,55 @@ def _bind_runner_checkout() -> tuple[str, str, str]:
     return head, str(loaded), hashlib.sha256(expected.read_bytes()).hexdigest()
 
 
+def _terminate_parent(_signum: int, _frame: object) -> None:
+    """Turn catchable termination into an exception for child/scratch cleanup."""
+    raise ProbeBlocked("synthetic serialization parent SIGTERM received")
+
+
+def _safe_temp_root() -> Path:
+    """Reject a system temporary root under Git or protected/private evidence."""
+    temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    repo_root = Path(__file__).resolve().parents[1]
+    if (not temp_root.is_dir()
+            or temp_root.is_relative_to(repo_root)
+            or any(part in (".signalforge-data", "signalforge-private", "sf088", "sf096")
+                   for part in temp_root.parts)
+            or any((ancestor / ".git").exists() or (ancestor / ".git").is_symlink()
+                   for ancestor in (temp_root, *temp_root.parents))):
+        # Check worktrees (.git file), repositories (.git directory) and links,
+        # not just the checkout that contains this script.
+        raise ProbeBlocked("unsafe synthetic serialization temp root")
+    return temp_root
+
+
+def _private_scratch(path: Path) -> Path:
+    """Permit an empty 0700 disposable directory directly below the system temp root.
+
+    The parent alone creates this directory. No arbitrary output or protected
+    source path is accepted, even if hidden worker options are supplied directly.
+    """
+    actual = path.resolve(strict=True)
+    temp_root = _safe_temp_root()
+    repo_root = Path(__file__).resolve().parents[1]
+    if (path.is_symlink() or not actual.is_dir()
+            or actual.parent != temp_root
+            or not actual.name.startswith(SCRATCH_PREFIX)
+            or actual.is_relative_to(repo_root)
+            or stat.S_IMODE(actual.stat().st_mode) != 0o700
+            or any(part in (".signalforge-data", "signalforge-private", "sf088", "sf096")
+                   for part in actual.parts)):
+        raise ProbeBlocked("unapproved synthetic serialization scratch directory")
+    if any(actual.iterdir()):
+        raise ProbeBlocked("synthetic serialization scratch directory must be empty")
+    return actual
+
+
+def _scratch_free_bytes() -> int:
+    """Read actual filesystem free bytes before opting into bounded output."""
+    stats = os.statvfs(_safe_temp_root())
+    return stats.f_bavail * stats.f_frsize
+
+
 def _source(minutes: int, *, mode: str) -> Any:
     """Construct an invented chronological one-minute dataset wholly in memory."""
     from decimal import Decimal
@@ -161,8 +216,8 @@ def _source(minutes: int, *, mode: str) -> Any:
     )
 
 
-def _execute(minutes: int, *, mode: str) -> dict[str, object]:
-    """Execute the unmodified runner, with no protected source or result output."""
+def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[str, object]:
+    """Run the unchanged synthetic runner, optionally measuring canonical output."""
     from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
     from signalforge.config.strategy_registry import (
         StrategyRegistration,
@@ -243,8 +298,31 @@ def _execute(minutes: int, *, mode: str) -> dict[str, object]:
     begun = time.monotonic()
     result = runner.run_verified(request)  # Actual two-pass runner; synthetic source only.
     elapsed = round(time.monotonic() - begun, 3)
+    runner_peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
     expected_is = int((oos_start - is_start) / timedelta(minutes=5))
     expected_oos = int((request.measured_end - oos_start) / timedelta(minutes=5))
+    # Reuse the real writer (including its nested mapping()/result_id allocations).
+    # Keep the complete result, source and runner resident until writing finishes.
+    serialization: dict[str, object] = {"status": "NOT_REQUESTED"}
+    if scratch is not None:
+        if result.failure is not None:
+            serialization = {"status": "SKIPPED_FAILED_SYNTHETIC_RUN"}
+        else:
+            destination = _private_scratch(scratch) / "synthetic-result.json"
+            begun_write = time.monotonic()
+            result.write_new(destination)
+            write_elapsed = round(time.monotonic() - begun_write, 3)
+            with destination.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            serialization = {
+                "status": "SYNTHETIC_CANONICAL_WRITE_COMPLETED",
+                "bytes": destination.stat().st_size,
+                "sha256": digest,
+                "elapsed_seconds": write_elapsed,
+                "peak_rss_bytes_after_write": (
+                    resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                ),
+            }
     # Never report trade economics, price paths, result mappings or OOS statistics.
     return {
         "status": "SYNTHETIC_RUNNER_COMPLETED" if result.failure is None
@@ -271,28 +349,50 @@ def _execute(minutes: int, *, mode: str) -> dict[str, object]:
         "failure_category": None if result.failure is None
                             else result.failure.split(":", 1)[0],
         "elapsed_runner_seconds": elapsed,
+        "peak_rss_bytes_before_write": runner_peak,
         "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+        "serialization": serialization,
         "gate_d_approved": False,
         "execution_valid": False,
     }
 
 
 def _child(minutes: int, *, mode: str, vm_limit_gib: int,
-           cpu_limit_seconds: int) -> int:
+           cpu_limit_seconds: int, scratch: Path | None = None,
+           max_output_mib: int = 512, handoff_fd: int | None = None,
+           parent_pid: int | None = None) -> int:
     """Contain synthetic computation before importing any SignalForge module."""
+    if scratch is not None:
+        # Hidden CLI flags are not authority. Only a live parent that passed
+        # its open read-end across exec may authorize the disposable writer.
+        if handoff_fd is None or parent_pid != os.getppid():
+            raise ProbeBlocked("synthetic serialization requires live parent handoff")
+        try:
+            token = os.read(handoff_fd, len(HANDOFF_TOKEN))
+        except OSError as exc:
+            raise ProbeBlocked("invalid synthetic serialization parent handoff") from exc
+        finally:
+            os.close(handoff_fd)
+        if token != HANDOFF_TOKEN:
+            raise ProbeBlocked("invalid synthetic serialization parent handoff")
     resource.setrlimit(resource.RLIMIT_AS, (vm_limit_gib * GIB, vm_limit_gib * GIB))
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_seconds, cpu_limit_seconds + 1))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+    output_cap = max_output_mib * MIB if scratch is not None else MIB
+    resource.setrlimit(resource.RLIMIT_FSIZE, (output_cap, output_cap))
+    os.umask(0o077)
     _assert_synthetic_only()
-    report = _execute(minutes, mode=mode)
+    if scratch is not None:
+        _private_scratch(scratch)  # Reject invalid scratch before constructing a source.
+    report = _execute(minutes, mode=mode, scratch=scratch)
     print(json.dumps(report, sort_keys=True), flush=True)
     return 0 if report["status"] == "SYNTHETIC_RUNNER_COMPLETED" else 2
 
 
 def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
              vm_limit_gib: int, timeout_seconds: int,
-             min_free_gib: float) -> dict[str, object]:
-    """Monitor and terminate one synthetic subprocess before unsafe RSS growth."""
+             min_free_gib: float, serialize_result: bool = False,
+             max_output_mib: int = 512) -> dict[str, object]:
+    """Run one bounded child; clean ephemeral result even on a worker safety stop."""
     available = _available_ram()
     reserve = int(min_free_gib * GIB)
     if available < max_rss_gib * GIB + reserve:
@@ -305,8 +405,77 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
                "--max-rss-gib", str(max_rss_gib),
                "--vm-limit-gib", str(vm_limit_gib),
                "--timeout-seconds", str(timeout_seconds)]
+    if serialize_result:
+        # Never even create a scratch directory inside the Git or evidence trees,
+        # including a user-modified TMPDIR on the operator workstation.
+        try:
+            temp_root = _safe_temp_root()
+            disk_free = _scratch_free_bytes()
+        except (ProbeBlocked, OSError):
+            return {"mode": mode, "status": "BLOCKED_UNSAFE_SCRATCH_ROOT"}
+        # Allow space for the declared cap plus an independent local reserve.
+        if disk_free < (max_output_mib + 256) * MIB:
+            return {"mode": mode, "status": "BLOCKED_INSUFFICIENT_SCRATCH_DISK"}
+        # The parent owns cleanup after normal completion, MemoryError, SIGKILL,
+        # RSS/host safety stops and partially written canonical JSON.
+        with tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX, dir=temp_root) as scratch:
+            read_fd, write_fd = os.pipe()
+            try:
+                os.write(write_fd, HANDOFF_TOKEN)
+                command.extend([
+                    "--serialize-result", "--max-output-mib", str(max_output_mib),
+                    "--child-scratch", scratch,
+                    "--child-handoff-fd", str(read_fd),
+                    "--child-parent-pid", str(os.getpid()),
+                ])
+                previous_handler = signal.signal(signal.SIGTERM, _terminate_parent)
+                try:
+                    measured = _monitor_child(
+                        command, mode=mode, max_rss_gib=max_rss_gib,
+                        timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
+                        pass_fds=(read_fd,),
+                    )
+                finally:
+                    signal.signal(signal.SIGTERM, previous_handler)
+            finally:
+                os.close(read_fd)
+                os.close(write_fd)
+            # A healthy runner without an actual complete canonical write is
+            # NOT a successful serialization study, even if the child exits 0.
+            if measured.get("status") == "SYNTHETIC_RUNNER_COMPLETED":
+                evidence = measured.get("serialization")
+                if not isinstance(evidence, dict):
+                    return {"mode": mode, "status": "INVALID_SERIALIZATION_RECEIPT"}
+                size = evidence.get("bytes")
+                digest = evidence.get("sha256")
+                before_rss = measured.get("peak_rss_bytes_before_write")
+                after_rss = evidence.get("peak_rss_bytes_after_write")
+                if (
+                    evidence.get("status") != "SYNTHETIC_CANONICAL_WRITE_COMPLETED"
+                    or type(size) is not int or not 0 < size <= max_output_mib * MIB
+                    or type(digest) is not str or len(digest) != 64
+                    or any(char not in "0123456789abcdef" for char in digest)
+                    or type(before_rss) is not int or before_rss <= 0
+                    or type(after_rss) is not int or after_rss < before_rss
+                ):
+                    return {"mode": mode, "status": "INVALID_SERIALIZATION_RECEIPT"}
+            return measured
+    return _monitor_child(
+        command, mode=mode, max_rss_gib=max_rss_gib,
+        timeout_seconds=timeout_seconds, min_free_gib=min_free_gib,
+    )
+
+
+def _monitor_child(command: list[str], *, mode: str, max_rss_gib: int,
+                   timeout_seconds: int, min_free_gib: float,
+                   pass_fds: tuple[int, ...] = ()) -> dict[str, object]:
+    """Monitor one child, preserving bounded synthetic diagnostics on failures."""
+    reserve = int(min_free_gib * GIB)
     start = time.monotonic()
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        pass_fds=pass_fds,
+    )
     peak_observed = 0
     kill_reason = None
     try:
@@ -372,12 +541,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vm-limit-gib", type=int, choices=(2, 3, 4, 5), default=4)
     parser.add_argument("--timeout-seconds", type=int, default=1200)
     parser.add_argument("--min-free-gib", type=float, default=0.75)
+    parser.add_argument("--serialize-result", action="store_true",
+                        help="measure ephemeral canonical full-result write (synthetic only)")
+    parser.add_argument("--max-output-mib", type=int, choices=(64, 128, 256, 512, 1024),
+                        default=512, help="per-child canonical output file limit in MiB")
+    parser.add_argument("--child-scratch", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--child-handoff-fd", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--child-parent-pid", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if (args.minutes < 1300 or args.minutes > FULL_MINUTES or args.minutes % 5
         or not 120 <= args.timeout_seconds <= 3600
         or not 0.5 <= args.min_free_gib <= 2.0
-        or args.vm_limit_gib < args.max_rss_gib):
+        or args.vm_limit_gib < args.max_rss_gib
+        or (args.child_scratch is not None and (not args.child or not args.serialize_result))
+        or (args.child and args.serialize_result and args.child_scratch is None)
+        or (args.child and args.serialize_result and (
+            args.child_handoff_fd is None or args.child_handoff_fd < 0
+            or args.child_parent_pid is None or args.child_parent_pid <= 0))
+        or (not (args.child and args.serialize_result) and (
+            args.child_handoff_fd is not None or args.child_parent_pid is not None))):
         parser.error("invalid bounded synthetic probe settings")
     if args.child:
         if args.mode == "both":
@@ -385,7 +568,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return _child(args.minutes, mode=args.mode,
                           vm_limit_gib=args.vm_limit_gib,
-                          cpu_limit_seconds=args.timeout_seconds)
+                          cpu_limit_seconds=args.timeout_seconds,
+                          scratch=args.child_scratch,
+                          max_output_mib=args.max_output_mib,
+                          handoff_fd=args.child_handoff_fd,
+                          parent_pid=args.child_parent_pid)
         except (MemoryError, ValueError, OSError) as exc:
             print(json.dumps({"status": "SYNTHETIC_WORKER_BLOCKED",
                               "error_type": type(exc).__name__,
@@ -398,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
             minutes=args.minutes, mode=mode, max_rss_gib=args.max_rss_gib,
             vm_limit_gib=args.vm_limit_gib,
             timeout_seconds=args.timeout_seconds, min_free_gib=args.min_free_gib,
+            serialize_result=args.serialize_result, max_output_mib=args.max_output_mib,
         )
         results.append(result)
         if result["status"] != "SYNTHETIC_RUNNER_COMPLETED":
@@ -415,6 +603,8 @@ def main(argv: list[str] | None = None) -> int:
                                   "max_states": 1},
         "synthetic_source_interval_start": START.isoformat(),
         "synthetic_only": True, "protected_source_access": False,
+        "serialization_requested": args.serialize_result,
+        "output_file_cap_mib": args.max_output_mib if args.serialize_result else None,
         "gate_d_approved": False, "historical_performance_evaluated": False,
         "available_ram_gib_after": round(_available_ram() / GIB, 3),
         "safety_controls": {"max_rss_gib": args.max_rss_gib,
@@ -426,7 +616,11 @@ def main(argv: list[str] | None = None) -> int:
             "Only synthetic prices; scheduled mode overrides signal decisions for stress.",
             "This measures actual runner and source construction, NOT protected BTC outcomes.",
             "RSS sampling can miss sub-150ms spikes; RLIMIT_AS is additional fail-closed cap.",
-            "No full historical result disk output or protected OOS inspection.",
+            ("Opt-in write uses the real canonical serializer, but only on synthetic "
+             "results in parent-cleaned private scratch; no protected result is saved."
+             if args.serialize_result else
+             "No full result disk output or protected OOS inspection."),
+            "Measured synthetic peak RSS is not a worst-case protected source bound.",
             "Observed success is not a formal worst-case upper memory bound.",
             "Both profiles and separate outer process-isolated repeats remain future Gate D work.",
         ],
