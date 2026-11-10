@@ -234,7 +234,9 @@ def _scope_command(worker_args: list[str], *, unit: str | None = None) -> list[s
 
 def _probe() -> dict[str, object]:
     """Run a fabricated-data-free prelaunch check through the real scope command."""
-    cmd = _scope_command(["--internal-probe"])
+    cmd = _scope_command(
+        ["--internal-probe"], unit=f"sf274-probe-{os.getpid()}.scope",
+    )
     proc = subprocess.run(
         cmd, capture_output=True, text=True, check=False, timeout=40,
     )
