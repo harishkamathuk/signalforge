@@ -254,6 +254,7 @@ def test_unconfirmed_scope_stop_is_a_distinct_blocker(monkeypatch, tmp_path):
         return SimpleNamespace(returncode=124)
 
     monkeypatch.setattr(launcher.subprocess, "run", still_active)
+    monkeypatch.setattr(launcher.time, "sleep", lambda _: None)
     result = launcher._parent_run("REFERENCE_RAW", 1)
     assert result["status"] == "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"
     assert result["scope_confirmed_stopped"] is False
@@ -290,6 +291,7 @@ def test_parent_success_promotes_only_matching_receipt(monkeypatch, tmp_path):
     result = launcher._parent_run("REFERENCE_RAW", 2)
     assert result["status"] == "CANONICAL_RESULT_PRIVATE_NOT_RELEASED"
     assert result["gate_e_approved"] is False
+    assert not (output / ".sf274-active.json").exists()
     directory = output / "reference_raw-attempt-2"
     assert (directory / "canonical-result.json").exists()
     assert not (directory / "partial.json").exists()
@@ -338,6 +340,23 @@ def test_scope_state_requires_readable_explicit_inactive(
         ),
     )
     assert launcher._scope_inactive("sf274-example.scope") is confirmed
+
+
+def test_successful_scope_shutdown_can_be_asynchronous(monkeypatch):
+    states = iter((False, False, True))
+    paused = []
+    monkeypatch.setattr(launcher, "_scope_inactive", lambda unit: next(states))
+    monkeypatch.setattr(launcher.time, "sleep", lambda seconds: paused.append(seconds))
+    assert launcher._wait_scope_inactive("sf274-example.scope") is True
+    assert paused == [0.2, 0.2]
+
+
+def test_scope_shutdown_wait_is_bounded_and_fails_closed(monkeypatch):
+    paused = []
+    monkeypatch.setattr(launcher, "_scope_inactive", lambda unit: False)
+    monkeypatch.setattr(launcher.time, "sleep", lambda seconds: paused.append(seconds))
+    assert launcher._wait_scope_inactive("sf274-example.scope") is False
+    assert paused == [0.2] * 9
 
 
 def test_scope_stop_bus_error_is_not_confirmed(monkeypatch):
@@ -433,6 +452,7 @@ def test_unconfirmed_scope_marker_persists_and_blocks_new_attempt(
         launcher.subprocess, "run",
         lambda *_a, **_kw: SimpleNamespace(returncode=1, stdout=""),
     )
+    monkeypatch.setattr(launcher.time, "sleep", lambda _: None)
     first = launcher._parent_run("REFERENCE_RAW", 1)
     assert first["status"] == "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"
     assert (root / ".sf274-active.json").exists()
