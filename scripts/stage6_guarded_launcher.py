@@ -19,9 +19,9 @@ import signal
 import stat
 import subprocess
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
