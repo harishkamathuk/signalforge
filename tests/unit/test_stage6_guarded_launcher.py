@@ -198,8 +198,10 @@ def test_parent_failure_quarantines_without_canonical_result(monkeypatch, tmp_pa
         if args[:3] == ["systemctl", "--user", "stop"]:
             stopped.append(args[-1])
             return SimpleNamespace(returncode=0)
-        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
-            return SimpleNamespace(returncode=3)
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return SimpleNamespace(
+                returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n",
+            )
         return SimpleNamespace(returncode=124)
 
     monkeypatch.setattr(launcher.subprocess, "run", command_run)
@@ -223,9 +225,11 @@ def test_parent_keyboard_interrupt_stops_scope_and_quarantines(monkeypatch, tmp_
         if args[:3] == ["systemctl", "--user", "stop"]:
             controls.append("stop")
             return SimpleNamespace(returncode=0)
-        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
+        if args[:3] == ["systemctl", "--user", "show"]:
             controls.append("check")
-            return SimpleNamespace(returncode=3)
+            return SimpleNamespace(
+                returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n",
+            )
         raise KeyboardInterrupt
 
     monkeypatch.setattr(launcher.subprocess, "run", interrupted)
@@ -243,8 +247,10 @@ def test_unconfirmed_scope_stop_is_a_distinct_blocker(monkeypatch, tmp_path):
     monkeypatch.setattr(launcher, "_scope_command", lambda *_a, **_kw: ["fake-scope"])
 
     def still_active(args, **_kwargs):
-        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
-            return SimpleNamespace(returncode=0)
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return SimpleNamespace(
+                returncode=0, stdout="LoadState=loaded\nActiveState=active\n",
+            )
         return SimpleNamespace(returncode=124)
 
     monkeypatch.setattr(launcher.subprocess, "run", still_active)
@@ -259,6 +265,10 @@ def test_parent_success_promotes_only_matching_receipt(monkeypatch, tmp_path):
     monkeypatch.setattr(launcher, "_scope_command", lambda *_a, **_kw: ["fake-scoped-worker"])
 
     def command_run(_args, **_kwargs):
+        if _args[:3] == ["systemctl", "--user", "show"]:
+            return SimpleNamespace(
+                returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n",
+            )
         attempt = output / "reference_raw-attempt-2"
         pending = attempt / "partial.json"
         pending.write_bytes(b"fabricated-non-economic-json\n")
@@ -285,6 +295,149 @@ def test_parent_success_promotes_only_matching_receipt(monkeypatch, tmp_path):
     assert not (directory / "partial.json").exists()
     assert stat.S_IMODE((directory / "canonical-result.json").stat().st_mode) == 0o600
     assert not (directory / "failure.json").exists()
+
+
+def test_flock_rejects_parallel_attempts_across_profiles(monkeypatch, tmp_path):
+    _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    with launcher._exclusive_operator_launch():
+        with pytest.raises(launcher.LaunchBlocked, match="in progress"):
+            with launcher._exclusive_operator_launch():
+                pytest.fail("overlapping attempts acquired the shared lock")
+
+
+def test_crash_marker_blocks_subsequent_attempt_after_flock_release(monkeypatch, tmp_path):
+    root, _, _ = _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    with launcher._exclusive_operator_launch() as marker:
+        launcher._write_private_json(marker, {
+            "scope": "sf274-reference_raw-a1-222.scope",
+        })
+    with pytest.raises(launcher.LaunchBlocked, match="previous launch state unresolved"):
+        with launcher._exclusive_operator_launch():
+            pytest.fail("orphan marker must block further attempts")
+    assert stat.S_IMODE((root / ".sf274-active.json").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(("active", "loaded", "rc", "confirmed"), [
+    ("inactive", "not-found", 0, True),
+    ("failed", "loaded", 0, True),
+    ("active", "loaded", 0, False),
+    ("activating", "loaded", 0, False),
+    ("inactive", "loaded", 1, False),  # Bus failure, even with plausible text.
+    ("", "", 0, False),  # Empty or truncated bus response.
+    ("inactive", "unknown", 0, False),
+])
+def test_scope_state_requires_readable_explicit_inactive(
+    monkeypatch, active, loaded, rc, confirmed,
+):
+    monkeypatch.setattr(
+        launcher.subprocess, "run",
+        lambda *_a, **_kw: SimpleNamespace(
+            returncode=rc,
+            stdout=(f"ActiveState={active}\nLoadState={loaded}\n"
+                    if active else ""),
+        ),
+    )
+    assert launcher._scope_inactive("sf274-example.scope") is confirmed
+
+
+def test_scope_stop_bus_error_is_not_confirmed(monkeypatch):
+    def run(args, **_kw):
+        if "stop" in args:
+            return SimpleNamespace(returncode=1, stdout="")
+        return SimpleNamespace(returncode=1, stdout="")
+    monkeypatch.setattr(launcher.subprocess, "run", run)
+    assert launcher._stop_scope("sf274-example.scope") is False
+
+
+def test_real_limits_checks_effective_cgroup_and_rlimit(monkeypatch):
+    from pathlib import Path
+
+    def limits(*, memory="3221225472", swap="0", as_bytes=None,
+               file_bytes=None, cpu_seconds=None, missing=False):
+        actual = {
+            launcher.resource.RLIMIT_AS:
+                (launcher.MAX_AS if as_bytes is None else as_bytes),
+            launcher.resource.RLIMIT_FSIZE:
+                (launcher.MAX_OUTPUT if file_bytes is None else file_bytes),
+            launcher.resource.RLIMIT_CPU:
+                (launcher.CPU_SECONDS if cpu_seconds is None else cpu_seconds),
+        }
+
+        def read_text(path, *args, **kwargs):
+            value = str(path)
+            if value == "/proc/self/cgroup":
+                return "0::/user.slice/user-1000.slice/app.scope\n"
+            if value.endswith("/memory.max") and not missing:
+                return memory + "\n"
+            if value.endswith("/memory.swap.max"):
+                return swap + "\n"
+            raise FileNotFoundError(value)
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        monkeypatch.setattr(
+            launcher.resource, "getrlimit",
+            lambda which: (actual[which], actual[which]),
+        )
+        return launcher._limits
+
+    assert limits()()["memory_max_bytes"] == launcher.MAX_MEMORY
+    for kw in (
+        {"memory": "max"},
+        {"swap": "1"},
+        {"as_bytes": launcher.resource.RLIM_INFINITY},
+        {"file_bytes": launcher.resource.RLIM_INFINITY},
+        {"cpu_seconds": launcher.resource.RLIM_INFINITY},
+        {"missing": True},
+    ):
+        with pytest.raises(launcher.LaunchBlocked):
+            limits(**kw)()
+
+
+def test_failure_receipt_is_0600_under_permissive_umask(monkeypatch, tmp_path):
+    root, _, _ = _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_probe", lambda: {"status": "LIMITS_VERIFIED"})
+    monkeypatch.setattr(
+        launcher, "_scope_command", lambda *_a, **_kw: ["fake-scoped-worker"],
+    )
+
+    def command_run(args, **_kwargs):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return SimpleNamespace(
+                returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n",
+            )
+        return SimpleNamespace(returncode=124)
+
+    monkeypatch.setattr(launcher.subprocess, "run", command_run)
+    import os
+
+    old = os.umask(0o022)
+    try:
+        result = launcher._parent_run("REFERENCE_RAW", 1)
+    finally:
+        os.umask(old)
+    assert result["status"] == "ATTEMPT_QUARANTINED_NO_PERFORMANCE"
+    receipt = root / "reference_raw-attempt-1" / "failure.json"
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+    assert not (root / ".sf274-active.json").exists()
+
+
+def test_unconfirmed_scope_marker_persists_and_blocks_new_attempt(
+    monkeypatch, tmp_path,
+):
+    root, _, _ = _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_probe", lambda: {"status": "LIMITS_VERIFIED"})
+    monkeypatch.setattr(
+        launcher, "_scope_command", lambda *_a, **_kw: ["fake-scoped-worker"],
+    )
+    monkeypatch.setattr(
+        launcher.subprocess, "run",
+        lambda *_a, **_kw: SimpleNamespace(returncode=1, stdout=""),
+    )
+    first = launcher._parent_run("REFERENCE_RAW", 1)
+    assert first["status"] == "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"
+    assert (root / ".sf274-active.json").exists()
+    with pytest.raises(launcher.LaunchBlocked, match="previous launch state unresolved"):
+        launcher._parent_run("REFERENCE_RAW", 2)
 
 
 def test_current_source_run_is_forbidden_in_synthetic_tests():
