@@ -221,7 +221,19 @@ python scripts/stage6_guarded_launcher.py --run \
 ```
 
 Run attempts 1 and 2 for each of REFERENCE_RAW and ADVERSE_RAW **sequentially**,
-with fresh non-overwriting destinations. Each launched process checks its own
+with fresh non-overwriting destinations. The launcher also takes one nonblocking
+OS file lock at the shared private result root **before** prelaunch headroom
+checks. A second invocation cannot overlap another profile or attempt. While
+the worker scope is active, the private root contains a 0600
+`.sf274-active.json` marker; it is cleared only after systemd confirms the
+scope is inactive/removed. If the parent crashes, the bus cannot be queried,
+or termination remains uncertain, the marker **stays** and blocks later runs
+even after the file lock is released. On this condition, inspect the named
+scope and confirm it is terminated before any manual marker clearance. Do not
+remove a marker merely to get another attempt running, or reinterpret an
+unknown `systemctl` status as safe termination.
+
+Each launched process checks its own
 effective cgroup and rlimits before loading protected history. Source and
 strategy/run manifest identity must match the original fixed hashes and frozen
 Gate C calculation tree before invoking `run_verified`. Only canonical bytes
