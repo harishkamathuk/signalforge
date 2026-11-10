@@ -1,7 +1,10 @@
 # Stage 6 — Independent inputs and sealed-result custody (SF-264)
 
-**Status:** tooling for preparation and synthetic testing only; **Gate D historical
-execution remains withheld** until an explicit separate decision under [#253](https://github.com/harishkamathuk/signalforge/issues/253).
+**Status:** [Gate D owner ACCEPT](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6778010311)
+was recorded on 2026-11-10 **conditionally**. Protected research execution is
+still blocked until the actual guarded launch is verified on the operator's WSL
+machine. This document and its tools are not Gate E, historical-fill or PAPER/live
+authority.
 The 00.01 [solo-developer assurance protocol](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6711344205),
 as narrowed by the later [Option A decision](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981),
 allows operator-attested independent **algorithmic** checks without implying
@@ -162,3 +165,82 @@ pytest -q tests/unit/test_stage6_result_custody.py \
 The custody tool is **preparation engineering only**. It grants neither Gate D
 nor protected performance authority, nor qualified historical fills, paper/live
 operation, or a change to BTC strategy/model/source/windows/profiles/budgets.
+
+
+## Guarded historical-launch command (SF-274; operator verification required)
+
+The narrow [SF-274](https://github.com/harishkamathuk/signalforge/issues/274)
+launcher binds the **existing** frozen research request and approved private
+manifest to external Linux controls. It deliberately runs **one named profile
+and attempt per invocation**, never an automatic four-run batch or an IS-only
+shortcut. It does not compute/publish point metrics or release OOS.
+
+After a separate **FIN/merge** of the SF-274 implementation, on the *clean
+updated* WSL `develop` checkout:
+
+```bash
+cd ~/dev/signalforge
+python scripts/stage6_guarded_launcher.py --probe
+```
+
+This source-free probe uses **the same** `systemd-run --user --scope` /
+`timeout` / `prlimit` command builder as the protected worker and checks
+inside the cgroup that `MemoryMax=3 GiB`, `MemorySwapMax=0`,
+`RLIMIT_AS=4 GiB`, `RLIMIT_CPU<=1800 seconds` and
+`RLIMIT_FSIZE<=512 MiB` are effective. The subprocess wall limit is
+1,200 seconds with TERM then KILL. This is a **research operator limit**,
+not a change to the frozen `FINITE_FAIL_CLOSED` semantic budgets or proof
+that actual historical workload fits in memory. Host prelaunch
+`MemAvailable` must exceed 3 GiB + 0.75 GiB reserve; the output filesystem
+must hold 512 MiB + 256 MiB reserve. No arbitrary 6 GiB RAM threshold.
+
+The script expects the unchanged original private manifests and one operator
+record at
+`~/signalforge-private/stage6/gate-d-preregistration/gate-d-record.json`
+with 0600 permissions and exact values `parent_issue=253`,
+`record_url=https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6778010311`,
+`decision=GATE_D_ACCEPT`, frozen `preregistration_id` and frozen
+`execution_revision`. The operator must authenticate the GitHub comment;
+the script cannot independently validate that comment's author. Original
+SF-088 data stays in its protected local generation directory; no alternate
+data path is offered. Create the result root in advance, with mode 0700,
+outside the Git checkout and protected source:
+
+```bash
+umask 077
+mkdir -p -m 700 "$HOME/signalforge-private/stage6/gate-d-historical-results"
+```
+
+**Future command, only after SF-274 FIN and the WSL operator verifies
+the exact scope/probe/failure behaviour, and only under the existing owner
+Gate D decision:**
+
+```bash
+python scripts/stage6_guarded_launcher.py --run \
+  --profile REFERENCE_RAW --attempt 1
+```
+
+Run attempts 1 and 2 for each of REFERENCE_RAW and ADVERSE_RAW **sequentially**,
+with fresh non-overwriting destinations. Each launched process checks its own
+effective cgroup and rlimits before loading protected history. Source and
+strategy/run manifest identity must match the original fixed hashes and frozen
+Gate C calculation tree before invoking `run_verified`. Only canonical bytes
+and a non-economic digest/size receipt can be promoted to a private
+`canonical-result.json` in the isolated attempt directory. Any nonzero,
+timeout, memory/file-size limit or incomplete receipt leaves the directory
+**quarantined**; never publish partial point performance or rerun selectively.
+
+The launcher **does not automatically seal or release results**. Feed a completed
+canonical result exclusively to the existing `stage6_result_custody.py seal`
+command with the genuine matching Gate D record and private manifest, then
+run its IS-only grid QA. The separate genuine parent
+`OOS_RELEASE_ACCEPT` checkpoint must identify the exact sealed and IS-QA
+hashes for each released attempt. Gate E acceptance is still separate.
+A solo operator can read local bytes; this procedure is tamper-evident,
+not independent separation of duties.
+
+**Known limitation:** the parent does not inspect economics and cannot prove
+future historical capacity. A cgroup memory stop or other failure must produce
+only a resource/integrity failure receipt; a successful canonical write alone
+does not establish complete coverage, zero unsupported, result-byte replay
+agreement or permission to interpret performance.
