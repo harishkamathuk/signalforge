@@ -172,6 +172,8 @@ def test_parent_failure_quarantines_without_canonical_result(monkeypatch, tmp_pa
         if args[:3] == ["systemctl", "--user", "stop"]:
             stopped.append(args[-1])
             return SimpleNamespace(returncode=0)
+        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
+            return SimpleNamespace(returncode=3)
         return SimpleNamespace(returncode=124)
 
     monkeypatch.setattr(launcher.subprocess, "run", command_run)
@@ -183,6 +185,46 @@ def test_parent_failure_quarantines_without_canonical_result(monkeypatch, tmp_pa
     assert len(stopped) == 1
     with pytest.raises(launcher.LaunchBlocked, match="overwritten"):
         launcher._parent_run("REFERENCE_RAW", 1)
+
+
+def test_parent_keyboard_interrupt_stops_scope_and_quarantines(monkeypatch, tmp_path):
+    output, _, _ = _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_probe", lambda: {"status": "LIMITS_VERIFIED"})
+    monkeypatch.setattr(launcher, "_scope_command", lambda *_a, **_kw: ["fake-scope"])
+    controls = []
+
+    def interrupted(args, **_kwargs):
+        if args[:3] == ["systemctl", "--user", "stop"]:
+            controls.append("stop")
+            return SimpleNamespace(returncode=0)
+        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
+            controls.append("check")
+            return SimpleNamespace(returncode=3)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(launcher.subprocess, "run", interrupted)
+    result = launcher._parent_run("REFERENCE_RAW", 1)
+    assert result["status"] == "ATTEMPT_QUARANTINED_NO_PERFORMANCE"
+    assert result["launcher_exit_code"] == 130
+    assert result["scope_confirmed_stopped"] is True
+    assert controls == ["stop", "check"]
+    assert (output / "reference_raw-attempt-1/failure.json").exists()
+
+
+def test_unconfirmed_scope_stop_is_a_distinct_blocker(monkeypatch, tmp_path):
+    _setup_protected_looking_preflight(monkeypatch, tmp_path)
+    monkeypatch.setattr(launcher, "_probe", lambda: {"status": "LIMITS_VERIFIED"})
+    monkeypatch.setattr(launcher, "_scope_command", lambda *_a, **_kw: ["fake-scope"])
+
+    def still_active(args, **_kwargs):
+        if args[:4] == ["systemctl", "--user", "is-active", "--quiet"]:
+            return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=124)
+
+    monkeypatch.setattr(launcher.subprocess, "run", still_active)
+    result = launcher._parent_run("REFERENCE_RAW", 1)
+    assert result["status"] == "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"
+    assert result["scope_confirmed_stopped"] is False
 
 
 def test_parent_success_promotes_only_matching_receipt(monkeypatch, tmp_path):
