@@ -54,6 +54,33 @@ def test_actual_envelope_has_cgroup_timeout_rlimits_and_one_worker(monkeypatch):
     assert "stage6_synthetic_full_window_probe.py" not in " ".join(cmd)
 
 
+def test_scope_probe_uses_a_named_unit_and_checks_report(monkeypatch):
+    observed = {}
+
+    def scope(args, *, unit=None):
+        observed["args"] = args
+        observed["unit"] = unit
+        return ["fake-source-free-scope"]
+
+    def execute(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "status": "LIMITS_VERIFIED",
+            "memory_max_bytes": launcher.MAX_MEMORY,
+            "memory_swap_max_bytes": 0,
+            "as_soft_bytes": launcher.MAX_AS,
+            "file_soft_bytes": launcher.MAX_OUTPUT,
+            "cpu_soft_seconds": launcher.CPU_SECONDS,
+        }))
+
+    monkeypatch.setattr(launcher, "_scope_command", scope)
+    monkeypatch.setattr(launcher.subprocess, "run", execute)
+    result = launcher._probe()
+    assert result["status"] == "LIMITS_VERIFIED"
+    assert observed["args"] == ["--internal-probe"]
+    assert observed["unit"].startswith("sf274-probe-")
+    assert observed["unit"].endswith(".scope")
+
+
 def test_default_probe_does_not_access_protected_source(monkeypatch, capsys):
     monkeypatch.setattr(launcher, "verify_checkout", lambda: None)
 
