@@ -2,8 +2,13 @@
 
 **Status:** tooling for preparation and synthetic testing only; **Gate D historical
 execution remains withheld** until an explicit separate decision under [#253](https://github.com/harishkamathuk/signalforge/issues/253).
-The 00.01 [solo-developer assurance protocol](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6711344205)
-allows an operator-attested second algorithmic pass but **not** a claim of independent human review.
+The 00.01 [solo-developer assurance protocol](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6711344205),
+as narrowed by the later [Option A decision](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981),
+allows operator-attested independent **algorithmic** checks without implying
+independent human inspection of protected bytes. Stage 6 remains **Level 2 formal
+validation**, with one explicit pre-execution Gate D and later Gate E acceptance.
+Existing SHA evidence and a byte-verified encrypted external copy may be reused;
+neither an extra physical backup nor a second human custodian is a default gate.
 
 This guide covers two standard-library scripts under repository-root `scripts/`:
 
@@ -52,13 +57,33 @@ python scripts/stage6_result_custody.py \
   resource-check --min-ram-gib 6 --min-disk-gib 20
 ```
 
-The default safety thresholds are **conventional operator thresholds**, **not** a
-proven worst-case upper bound. The earlier WSL snapshot had ~4.4 GiB available RAM,
-so a 6 GiB minimum may fail. `CAPACITY_SNAPSHOT_ONLY_NOT_FULL_RUN_CERTIFIED`
-means **memory feasibility remains unproved**, even when thresholds pass.
-This command reads Linux `MemAvailable` and current filesystem free space;
-it does not read market data, model events, or scenario performance. Do not
-change the frozen `FINITE_FAIL_CLOSED` run budgets based on resource observations.
+The `--min-ram-gib 6` and `--min-disk-gib 20` values are **diagnostic
+operator choices**, not normative Gate D approval thresholds. Under
+[Option A](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981),
+a 6 GiB free-RAM snapshot failure **alone is not a Gate D blocker**; the
+tool's `meets_thresholds=false` and exit code 2 still accurately mean its
+*specified* thresholds were not met. Do not relabel the snapshot as a pass.
+
+The operator measured a full-window fabricated 525,600-minute
+`run_verified` scheduled-activity probe at **3,034,071,040 bytes (2.826 GiB)
+peak RSS**, roughly **178 MiB below** its **3 GiB RSS guard**. A separate
+quiet-mode probe peaked at about 2.66 GiB. Both finished, but do **not**
+prove worst-case protected-history headroom. The original WSL resource snapshot
+reported ~4.67 GiB available RAM and >900 GiB free local disk; this
+is observation, not full-run certification. In particular, the full **canonical
+result JSON serialization and retention** of the complete high-activity result
+were **not** measured; Python object duplication, result bytes, and overlapping
+processes could exceed the observed headroom.
+
+**Before Gate D**, 04 must give a defensible evidence-based disposition of this
+serialization/peak-memory and bounded abort/recovery risk, and 02 owns any
+necessary engineering change. A representative **synthetic-only** full-result
+canonicalization/serialization measurement, bounded and process isolated,
+is preferred to either assuming success or inflating thresholds. Do not
+silently alter frozen `FINITE_FAIL_CLOSED` semantic budgets, runner behaviour,
+research identity or allowed windows. This command only reads Linux
+`MemAvailable` and filesystem free space; it never reads market
+data, events or scenario performance.
 
 ## Post-Gate-D custody workflow — **NOT authorised yet**
 
@@ -89,26 +114,37 @@ Synthetic fixtures and tests may exercise the API before then.
    conditional point metrics, or outcomes/traces**. This is deliberately more
    restrictive than a full post-Gate-D research report. It is **not** proof of
    full-run methodology sufficiency, IS performance or any OOS conclusion.
-5. The operator documents the IS QA checkpoint and obtains a distinct genuine
-   **OOS_RELEASE_ACCEPT** decision in #253, linked to the exact full-result
-   SHA and IS-QA artifact SHA. Only then may `oos-release --oos-record` create
-   a new exclusive `released/<profile>-attempt-N.json` full-window copy.
-   The local OOS record must contain `parent_issue`, `record_url`,
+5. **Approved Level 2 policy:** the single operator records IS-first QA/review
+   and an explicit **OOS release checkpoint** bound to each sealed full-result
+   SHA and IS-QA artifact SHA, before viewing OOS performance. This checkpoint
+   is not a second default **project-owner research-approval gate** under
+   Option A. **Existing CLI limitation:** `oos-release --oos-record` still
+   requires a genuine separate parent-issue `OOS_RELEASE_ACCEPT` comment,
+   linked through a local record with `parent_issue`, `record_url`,
    `decision=OOS_RELEASE_ACCEPT`, `preregistration_id`, `seal_sha256`,
-   `is_qa_sha256`. **The program cannot cryptographically confirm the GitHub
-   comment or prevent the Linux account owner reading the sealed file.**
+   and `is_qa_sha256`. The CLI does not
+   authenticate GitHub authorship and cannot stop the Linux account owner
+   reading the seal. **Do not forge a comment, bypass the CLI, or claim the
+   approved simpler checkpoint works with this version.** Before any release
+   using this utility, either comply with its genuine existing record rule
+   or have 02 separately review and authorise a scoped tooling alignment.
+   This outstanding tooling/policy mismatch must be disclosed in the Gate D
+   packet. An `OOS_RELEASE_ACCEPT` comment does not substitute for Gate D.
 6. A separate reviewed comparison of both independent attempts, complete-grid
    gates, all `SCENARIO_UNSUPPORTED` and result-byte equality is required
    before interpreting *any* scenario-conditioned point statistics; this utility
    does **not** implement those scientific checks and never implies Gate E.
 
 All custody artifacts live outside Git and protected archive trees, under 0700
-folders with 0600 files. Keep protected SHA records in a separate evidence log
-and byte-verified backup to make a later alteration detectable. A single
-operator can change both local bytes and local records; GitHub-published hashes,
-external backups and owner decisions create audit evidence, **not** strict
-segregation of duties. A crash after writing a seal but before its receipt leaves
-an orphan and must **block**, not be silently overwritten/recovered.
+folders with 0600 files, as enforced by this existing utility. Retain
+tamper-evident result hashes and recorded checkpoints. The separately encrypted
+USB backup and independent-algorithmic protected source checks have **already
+been reported by the operator** in #260; preserve their hashes and evidence
+qualification, but **do not mandate another external backup as a ceremony**.
+A single operator can change local bytes and records; hashes and backups
+support later detection but are **not** segregation of duties. A crash after
+writing a seal but before its receipt leaves an orphan and must **block**, not
+be silently overwritten/recovered.
 
 ### Synthetic-only testing
 

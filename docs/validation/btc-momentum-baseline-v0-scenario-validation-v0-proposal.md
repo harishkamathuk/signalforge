@@ -490,6 +490,29 @@ Before any scenario performance execution:
 
 The first scenario study is a methodology exercise, not an optimization sweep.
 
+### Stage 6 proportional single-operator OOS procedure (approved 2026-11-08)
+
+The owner [Option A proportionality decision](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981)
+applies to this **Level 2 formal validation** study; it does not turn Stage 6 into
+unrestricted Level 1 exploration or authorise historical performance before Gate D.
+The custodian may produce sealed **full-window** results for the two fixed
+profiles and required attempts only **after** Gate D,
+release a recorded IS-first QA/review view, and record an explicit OOS-release
+checkpoint **before any OOS performance inspection**. The operator must not preview
+OOS, tune the frozen experiment after results, change a profile or reset lifecycle
+at the IS/OOS boundary. Record immutable result identities and tamper-evident
+hashes; report the single-operator ability to access sealed full-window bytes as a
+residual risk, **not** independent separation of duties.
+
+A second privileged human custodian or separate human OOS approval ceremony is
+not a default methodology requirement. The existing SF-264 custody CLI still
+requires a distinct parent-issue `OOS_RELEASE_ACCEPT` record; this is a **tooling
+constraint**, not permission to fabricate that record or bypass its validation.
+Any necessary change to that implementation belongs to 02 under separate
+authorised engineering scope. **Under the current CLI, OOS release remains blocked
+without a genuine matching owner record**; any alternative requires reviewed
+tooling alignment before use. Gate E and all full-grid/replay/unsupported requirements remain.
+
 ## 10. Provider trade-tape interaction
 
 SF-098 / #252 remains independent.
@@ -509,7 +532,9 @@ separately approved validation question. Do not retrospectively tune the scenari
 
 ## 11. Audit and reproducibility checklist
 
-A future sanitized report must allow an independent reviewer to verify:
+A future sanitized report must allow reproducible technical cross-checks and a
+proportionate adversarial reviewer to verify (identifying operator, automated
+and independent-human evidence honestly):
 
 ### Authority
 
@@ -563,13 +588,20 @@ Before any future experiment is authorized:
 
 After any future experiment:
 
-- an independent/adversarial review must inspect preregistration compliance, source identity,
-  repeatability, coverage, metric labelling and OOS discipline;
+- an appropriately scoped technical/adversarial review must inspect preregistration
+  compliance, source identity, deterministic repeatability, coverage, metric
+  labelling and recorded IS/OOS release discipline;
+- the evidence ledger must distinguish algorithmic cross-checks, operator
+  attestations, model-assisted review and genuine independent-human review;
 - review must distinguish observed facts from scenario-conditioned claims;
-- unresolved findings must be corrected or the study remain `SCENARIO_METHOD_INCONCLUSIVE` /
-  `SCENARIO_METHOD_INVALID` as applicable.
+- unresolved material findings must be corrected or the study remain
+  `SCENARIO_METHOD_INCONCLUSIVE` / `SCENARIO_METHOD_INVALID` as applicable.
 
-Author-performed checks alone are not independent approval.
+A second human with privileged access to protected source or OOS results is
+**not** mandatory under the owner-approved solo-operator Level 2 protocol.
+Author-performed algorithmic verification is not independent-human approval.
+The project owner retains explicit Gate D pre-execution and Gate E research
+acceptance; these remain distinct from an operator's OOS-release checkpoint.
 
 ## 13. Cross-contract reconciliation with SF-254
 
