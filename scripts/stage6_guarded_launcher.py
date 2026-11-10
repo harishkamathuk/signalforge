@@ -19,6 +19,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -377,6 +378,16 @@ def _scope_inactive(unit: str) -> bool:
             and states["LoadState"] in {"loaded", "not-found"})
 
 
+def _wait_scope_inactive(unit: str) -> bool:
+    """Allow bounded asynchronous teardown after a successful scope client exit."""
+    for attempt in range(10):
+        if _scope_inactive(unit):
+            return True
+        if attempt != 9:
+            time.sleep(0.2)
+    return False
+
+
 def _stop_scope(unit: str) -> bool:
     """Ask systemd to stop, then require a separately confirmed inactive state."""
     try:
@@ -469,7 +480,9 @@ def _parent_run_locked(profile: str, attempt: int, marker: Path) -> dict[str, ob
     finally:
         signal.signal(signal.SIGTERM, old_handler)
     # Even a successful client exit is insufficient evidence of an empty scope.
-    stopped = _scope_inactive(unit) if exit_code == 0 else _stop_scope(unit)
+    # Allow systemd's asynchronous cleanup briefly, then require an explicit stop.
+    stopped = (_wait_scope_inactive(unit) or _stop_scope(unit)
+               if exit_code == 0 else _stop_scope(unit))
     receipt_path = path / "worker-receipt.json"
     pending = path / "partial.json"
     if stopped and exit_code == 0 and receipt_path.is_file() and pending.is_file():
@@ -508,8 +521,6 @@ def _parent_run_locked(profile: str, attempt: int, marker: Path) -> dict[str, ob
             }
         except (OSError, ValueError, LaunchBlocked):
             pass
-    if exit_code == 0 and not stopped:
-        stopped = _stop_scope(unit)
     failure = {
         "status": ("ATTEMPT_QUARANTINED_NO_PERFORMANCE" if stopped
                    else "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"),
