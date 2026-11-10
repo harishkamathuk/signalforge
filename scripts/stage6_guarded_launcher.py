@@ -143,7 +143,7 @@ def _available_ram() -> int:
     raise LaunchBlocked("Linux MemAvailable is unavailable")
 
 
-def verify_prelaunch(profile: str, attempt: int) -> tuple[Path, Path]:
+def verify_prelaunch(profile: str, attempt: int, *, existing: bool = False) -> tuple[Path, Path]:
     """Check operator input/authority and private output without reading market bars."""
     require(profile in RUNS and attempt in (1, 2), "unregistered profile or attempt")
     verify_checkout()
@@ -175,8 +175,11 @@ def verify_prelaunch(profile: str, attempt: int) -> tuple[Path, Path]:
     require(free.f_bavail * free.f_frsize >= MAX_OUTPUT + 256 * MIB,
             "insufficient output filesystem reserve")
     attempt_dir = output / f"{profile.lower()}-attempt-{attempt}"
-    require(not attempt_dir.exists() and not attempt_dir.is_symlink(),
-            "existing attempt evidence would be overwritten")
+    if existing:
+        _private(attempt_dir, 0o700)
+    else:
+        require(not attempt_dir.exists() and not attempt_dir.is_symlink(),
+                "existing attempt evidence would be overwritten")
     require(len(expected_run) == 64, "invalid registered run identity")
     return source, attempt_dir
 
@@ -209,7 +212,7 @@ def _limits() -> dict[str, int]:
     }
 
 
-def _scope_command(worker_args: list[str]) -> list[str]:
+def _scope_command(worker_args: list[str], *, unit: str | None = None) -> list[str]:
     """Apply identical external limits to a harmless probe and protected worker."""
     required = ("systemd-run", "timeout", "prlimit")
     resolved = [shutil.which(name) for name in required]
@@ -218,6 +221,7 @@ def _scope_command(worker_args: list[str]) -> list[str]:
     assert systemd and timeout and prlimit
     return [
         systemd, "--user", "--scope", "--quiet", "--collect",
+        *([] if unit is None else [f"--unit={unit}"]),
         "-p", f"MemoryMax={MAX_MEMORY}", "-p", "MemorySwapMax=0",
         timeout, "--signal=TERM", "--kill-after=5s", f"{WALL_SECONDS}s",
         prlimit, f"--as={MAX_AS}:{MAX_AS}",
@@ -258,7 +262,7 @@ def _worker(profile: str, attempt: int) -> None:
     """Build the exact frozen request and write a private non-published result."""
     _limits()  # Before any protected source is read.
     os.umask(0o077)
-    source_dir, attempt_dir = verify_prelaunch(profile, attempt)
+    source_dir, attempt_dir = verify_prelaunch(profile, attempt, existing=True)
     attempt_dir = _private(attempt_dir, 0o700)  # Created only by parent.
     sys.path.insert(0, str(ROOT))
     from signalforge.config.identity import canonical_config_json, config_hash
@@ -343,8 +347,11 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
     _, path = verify_prelaunch(profile, attempt)
     _probe()  # Actual scope command, with no source access, always checked first.
     path.mkdir(mode=0o700)  # Exclusive; no reuse of a failed attempt.
-    command = _scope_command(["--internal-worker", "--profile", profile,
-                              "--attempt", str(attempt)])
+    unit = f"sf274-{profile.lower()}-a{attempt}-{os.getpid()}.scope"
+    command = _scope_command(
+        ["--internal-worker", "--profile", profile, "--attempt", str(attempt)],
+        unit=unit,
+    )
     try:
         with open(os.devnull, "wb") as quiet:
             proc = subprocess.run(
@@ -354,6 +361,15 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
         exit_code = proc.returncode
     except subprocess.TimeoutExpired:
         exit_code = 124
+    except OSError:
+        exit_code = 127
+    if exit_code != 0:
+        # Killing the systemd-run *client* alone need not stop its detached scope.
+        # Stop the named cgroup scope before returning any failure/quarantine.
+        subprocess.run(
+            ["systemctl", "--user", "stop", unit], capture_output=True,
+            check=False, timeout=20,
+        )
     receipt_path = path / "worker-receipt.json"
     pending = path / "partial.json"
     if exit_code == 0 and receipt_path.is_file() and pending.is_file():
@@ -417,9 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--attempt", type=int, choices=(1, 2))
     args = parser.parse_args(argv)
     if args.run or args.internal_worker:
-        parser.error("--profile and --attempt are required for a protected attempt") if (
-            args.profile is None or args.attempt is None
-        ) else None
+        if args.profile is None or args.attempt is None:
+            parser.error("--profile and --attempt are required for a protected attempt")
     elif args.profile is not None or args.attempt is not None:
         parser.error("profile and attempt are only valid for an explicit run")
     try:
