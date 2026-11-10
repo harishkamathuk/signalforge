@@ -14,6 +14,7 @@ import json
 import os
 import resource
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -342,37 +343,59 @@ def _worker(profile: str, attempt: int) -> None:
         os.fsync(output.fileno())
 
 
+def _stop_scope(unit: str) -> bool:
+    """Stop the named unit and independently verify it is not still active."""
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "stop", unit], capture_output=True,
+            check=False, timeout=20,
+        )
+        check = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", unit],
+            capture_output=True, check=False, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return check.returncode != 0
+
+
+def _signal_abort(_signal: int, _frame: object) -> None:
+    """Turn catchable parent termination into a quarantined failure."""
+    raise KeyboardInterrupt
+
+
 def _parent_run(profile: str, attempt: int) -> dict[str, object]:
     """Launch exactly one process and quarantine any incomplete attempt."""
     _, path = verify_prelaunch(profile, attempt)
     _probe()  # Actual scope command, with no source access, always checked first.
-    path.mkdir(mode=0o700)  # Exclusive; no reuse of a failed attempt.
     unit = f"sf274-{profile.lower()}-a{attempt}-{os.getpid()}.scope"
     command = _scope_command(
         ["--internal-worker", "--profile", profile, "--attempt", str(attempt)],
         unit=unit,
     )
+    path.mkdir(mode=0o700)  # Exclusive; no reuse of a failed attempt.
+    old_handler = signal.signal(signal.SIGTERM, _signal_abort)
     try:
-        with open(os.devnull, "wb") as quiet:
-            proc = subprocess.run(
-                command, stdout=quiet, stderr=quiet, check=False,
-                timeout=WALL_SECONDS + 45,
-            )
-        exit_code = proc.returncode
-    except subprocess.TimeoutExpired:
-        exit_code = 124
-    except OSError:
-        exit_code = 127
-    if exit_code != 0:
-        # Killing the systemd-run *client* alone need not stop its detached scope.
-        # Stop the named cgroup scope before returning any failure/quarantine.
-        subprocess.run(
-            ["systemctl", "--user", "stop", unit], capture_output=True,
-            check=False, timeout=20,
-        )
+        try:
+            with open(os.devnull, "wb") as quiet:
+                proc = subprocess.run(
+                    command, stdout=quiet, stderr=quiet, check=False,
+                    timeout=WALL_SECONDS + 45,
+                )
+            exit_code = proc.returncode
+        except subprocess.TimeoutExpired:
+            exit_code = 124
+        except OSError:
+            exit_code = 127
+        except KeyboardInterrupt:
+            exit_code = 130
+    finally:
+        signal.signal(signal.SIGTERM, old_handler)
+    # Killing the systemd-run *client* alone need not stop its scope.
+    stopped = True if exit_code == 0 else _stop_scope(unit)
     receipt_path = path / "worker-receipt.json"
     pending = path / "partial.json"
-    if exit_code == 0 and receipt_path.is_file() and pending.is_file():
+    if stopped and exit_code == 0 and receipt_path.is_file() and pending.is_file():
         try:
             _private(receipt_path, 0o600)
             _private(pending, 0o600)
@@ -407,12 +430,16 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
             }
         except (OSError, ValueError, LaunchBlocked):
             pass
+    if exit_code == 0:
+        stopped = _stop_scope(unit)
     failure = {
-        "status": "ATTEMPT_QUARANTINED_NO_PERFORMANCE",
+        "status": ("ATTEMPT_QUARANTINED_NO_PERFORMANCE" if stopped
+                   else "SCOPE_STOP_UNVERIFIED_NO_PERFORMANCE"),
         "profile": profile, "attempt": attempt,
         "launcher_exit_code": exit_code,
         "reason": "LIMIT_OR_INTEGRITY_STOP",
         "partial_file_retained": pending.exists(),
+        "scope_confirmed_stopped": stopped,
     }
     # No deletion, retry, result mapping or OOS disclosure on failure.
     with (path / "failure.json").open("x", encoding="utf-8") as output:
