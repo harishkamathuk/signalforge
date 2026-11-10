@@ -9,6 +9,7 @@ No trade metrics, OOS contents or result mappings are printed.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -18,7 +19,9 @@ import signal
 import stat
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -349,20 +352,76 @@ def _worker(profile: str, attempt: int) -> None:
         os.fsync(output.fileno())
 
 
+def _scope_inactive(unit: str) -> bool:
+    """Trust only an explicitly readable inactive/removed systemd unit state."""
+    try:
+        check = subprocess.run(
+            ["systemctl", "--user", "show", unit,
+             "--property=ActiveState", "--property=LoadState", "--no-pager"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if check.returncode != 0:
+        return False
+    states: dict[str, str] = {}
+    for line in check.stdout.splitlines():
+        if "=" not in line:
+            return False
+        key, value = line.split("=", 1)
+        if key in states:
+            return False
+        states[key] = value
+    return (set(states) == {"ActiveState", "LoadState"}
+            and states["ActiveState"] in {"inactive", "failed"}
+            and states["LoadState"] in {"loaded", "not-found"})
+
+
 def _stop_scope(unit: str) -> bool:
-    """Stop the named unit and independently verify it is not still active."""
+    """Ask systemd to stop, then require a separately confirmed inactive state."""
     try:
         subprocess.run(
             ["systemctl", "--user", "stop", unit], capture_output=True,
             check=False, timeout=20,
         )
-        check = subprocess.run(
-            ["systemctl", "--user", "is-active", "--quiet", unit],
-            capture_output=True, check=False, timeout=10,
-        )
     except (OSError, subprocess.SubprocessError):
         return False
-    return check.returncode != 0
+    # Stop can report 'not found' for an already collected scope. A successful
+    # explicit state query, not the stop return code, is the decisive evidence.
+    return _scope_inactive(unit)
+
+
+@contextmanager
+def _exclusive_operator_launch() -> Iterator[Path]:
+    """One cross-profile launch at a time; retain a crash/unknown-scope marker."""
+    output = _private(OUTPUT_ROOT, 0o700)
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+    fd = os.open(output / ".sf274-launch.lock", flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        require(stat.S_ISREG(os.fstat(fd).st_mode), "launch lock is not a file")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise LaunchBlocked("another Stage 6 attempt is in progress") from exc
+        marker = output / ".sf274-active.json"
+        require(not marker.exists() and not marker.is_symlink(),
+                "previous launch state unresolved; verify the scope before proceeding")
+        yield marker
+    finally:
+        os.close(fd)
+
+
+def _write_private_json(path: Path, record: dict[str, object]) -> None:
+    """Exclusive 0600 JSON evidence even under a permissive parent umask."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        json.dump(record, stream, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def _signal_abort(_signal: int, _frame: object) -> None:
@@ -371,7 +430,13 @@ def _signal_abort(_signal: int, _frame: object) -> None:
 
 
 def _parent_run(profile: str, attempt: int) -> dict[str, object]:
-    """Launch exactly one process and quarantine any incomplete attempt."""
+    """Enforce cross-profile exclusivity before resource/headroom admission."""
+    with _exclusive_operator_launch() as marker:
+        return _parent_run_locked(profile, attempt, marker)
+
+
+def _parent_run_locked(profile: str, attempt: int, marker: Path) -> dict[str, object]:
+    """Launch exactly one scope, retaining uncertainty until manual resolution."""
     _, path = verify_prelaunch(profile, attempt)
     _probe()  # Actual scope command, with no source access, always checked first.
     unit = f"sf274-{profile.lower()}-a{attempt}-{os.getpid()}.scope"
@@ -380,6 +445,12 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
         unit=unit,
     )
     path.mkdir(mode=0o700)  # Exclusive; no reuse of a failed attempt.
+    # If this parent dies unexpectedly, the marker survives flock release and
+    # blocks a new attempt until the operator checks the named scope.
+    _write_private_json(marker, {
+        "schema": "sf274-active-scope-v1", "scope": unit,
+        "profile": profile, "attempt": attempt, "parent_pid": os.getpid(),
+    })
     old_handler = signal.signal(signal.SIGTERM, _signal_abort)
     try:
         try:
@@ -397,8 +468,8 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
             exit_code = 130
     finally:
         signal.signal(signal.SIGTERM, old_handler)
-    # Killing the systemd-run *client* alone need not stop its scope.
-    stopped = True if exit_code == 0 else _stop_scope(unit)
+    # Even a successful client exit is insufficient evidence of an empty scope.
+    stopped = _scope_inactive(unit) if exit_code == 0 else _stop_scope(unit)
     receipt_path = path / "worker-receipt.json"
     pending = path / "partial.json"
     if stopped and exit_code == 0 and receipt_path.is_file() and pending.is_file():
@@ -426,6 +497,7 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
             completed = path / "canonical-result.json"
             os.link(pending, completed, follow_symlinks=False)
             pending.unlink()
+            marker.unlink()  # Confirmed stopped and canonical receipt verified.
             return {
                 "status": "CANONICAL_RESULT_PRIVATE_NOT_RELEASED",
                 "profile": profile, "attempt": attempt,
@@ -436,7 +508,7 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
             }
         except (OSError, ValueError, LaunchBlocked):
             pass
-    if exit_code == 0:
+    if exit_code == 0 and not stopped:
         stopped = _stop_scope(unit)
     failure = {
         "status": ("ATTEMPT_QUARANTINED_NO_PERFORMANCE" if stopped
@@ -448,9 +520,11 @@ def _parent_run(profile: str, attempt: int) -> dict[str, object]:
         "scope_confirmed_stopped": stopped,
     }
     # No deletion, retry, result mapping or OOS disclosure on failure.
-    with (path / "failure.json").open("x", encoding="utf-8") as output:
-        json.dump(failure, output, sort_keys=True)
-        output.write("\n")
+    _write_private_json(path / "failure.json", failure)
+    if stopped:
+        marker.unlink()
+    # On unknown scope state the marker persists after the flock is released,
+    # blocking *all* further attempt launches rather than trusting a dead parent.
     return failure
 
 
