@@ -277,8 +277,12 @@ def _worker(profile: str, attempt: int) -> None:
     from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute
     from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
     from signalforge.research.scenario_execution import (
-        ScenarioAssumptionSet, ScenarioMode, ScenarioResearchRequest,
-        ScenarioResearchRunner, ScenarioResourcePolicy, _manifest,
+        ScenarioAssumptionSet,
+        ScenarioMode,
+        ScenarioResearchRequest,
+        ScenarioResearchRunner,
+        ScenarioResourcePolicy,
+        _manifest,
     )
 
     source = load_sf095_raw_diagnostic_source(source_dir)
