@@ -227,7 +227,18 @@ def test_four_attempt_workflow_is_read_only_deterministic_and_sanitized(tmp_path
     assert report["distinct_profile_results"]
     assert len(report["attempts"]) == 4
     text = json.dumps(report)
-    for secret in ("entry_price", "115", "holding_span", "2026-06-30", str(root), '"r"', '"trace"'):
+    # Fingerprints can legitimately contain the digits of a synthetic price;
+    # check exact values and field names, not substrings inside approved hashes.
+    for secret in (
+        "entry_price",
+        "exit_price",
+        '"115"',
+        "holding_span",
+        "2026-06-30",
+        str(root),
+        '"r"',
+        '"trace"',
+    ):
         assert secret not in text
     assert before == {p: p.read_bytes() for p in root.rglob("*.json")}
 
@@ -359,11 +370,15 @@ def test_ambient_decimal_precision_does_not_change_report(tmp_path: Path) -> Non
         assert cli.validate_released(root=root, oos_records=records, synthetic=True) == expected
 
 
-def test_output_cannot_add_files_to_existing_custody(tmp_path: Path, capsys) -> None:
+@pytest.mark.parametrize("root_style", ["canonical", "dotdot"])
+def test_output_cannot_add_files_to_existing_custody(
+    tmp_path: Path, capsys, root_style: str
+) -> None:
     root, records = released_fixture(tmp_path)
+    input_root = root if root_style == "canonical" else root / ".." / root.name
     args = [
         "--root",
-        str(root),
+        str(input_root),
         "--oos-records",
         *map(str, records),
         "--synthetic-test-only",

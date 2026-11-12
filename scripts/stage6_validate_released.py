@@ -295,8 +295,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        # Compare canonical directories on both sides. Lexical '..' in the
+        # operator's root spelling must not let a report enter custody.
+        root = custody._private_directory(args.root)
         report = validate_released(
-            root=args.root, oos_records=args.oos_records, synthetic=args.synthetic_test_only
+            root=root, oos_records=args.oos_records, synthetic=args.synthetic_test_only
         )
         if args.research_summary:
             report = {
@@ -311,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             parent = custody._private_directory(args.output.parent)
             custody._check(
-                not parent.is_relative_to(args.root.absolute()),
+                not parent.is_relative_to(root),
                 "report must be outside existing custody evidence",
             )
             custody._write_once(parent / args.output.name, raw)
