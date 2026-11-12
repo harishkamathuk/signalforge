@@ -9,7 +9,7 @@
 
 ## Purpose and evidence boundary
 
-This document assesses **which scientific findings can legitimately be reported** from the existing frozen BTC scenario study. It is not the final quantitative performance report, a fresh audit of source bytes, a new methodological approval, or Gate E acceptance. Its initial version contains no observed historical activity counts beyond the previously released completeness figures; the event counts remain to be extracted from the existing sanitized report under operator control.
+This document assesses **which scientific findings can legitimately be reported** from the existing frozen BTC scenario study. It is not the final quantitative performance report, a fresh audit of source bytes, a new methodological approval, or Gate E acceptance. It includes operator-extracted, report-hash-verified non-economic event counts from the already preserved sanitized report. These are descriptive scenario outputs, not IS/OOS trading-performance cohorts.
 
 The only protected-study report referenced is the **existing**, privately retained, one-time combined validation result. SHA-256:
 
@@ -38,7 +38,7 @@ The validated v1 fields and custody identities are not a full causal reconstruct
 
 ## Reportable conditional activity — event-time basis, not trade cohorts
 
-The merged [Stage 6 validator guide](../engineering/stage6-released-validation.md) and `signalforge.research.stage6_validation.conditional_summary` already support these **non-economic** fields separately for each profile/attempt. Numerical values must be read from `research_summary.attempts` in the existing sanitized private report; none are inferred here.
+The merged [Stage 6 validator guide](../engineering/stage6-released-validation.md) and `signalforge.research.stage6_validation.conditional_summary` already support these **non-economic** fields separately for each profile/attempt. The numeric counts below were read by the WSL operator from `research_summary.attempts` in the original sanitized private report after verifying its recorded SHA-256. No raw historical result files were opened for this assessment.
 
 | Measure | Permissible time basis | Interpretation |
 |---|---|---|
@@ -53,6 +53,28 @@ A bucket exactly at the IS/OOS split belongs to OOS for entry/exit event counts.
 
 For reproducibility display both fixed attempts per profile. If the canonical bytes remain equal within each profile, one **predeclared** attempt (for example attempt 1) may stand for its profile's *descriptive* result; do not add repeated attempts together as independent activity, select the best result or average them as distinct experiments. The two RAW profiles remain separate scenario execution assumptions.
 
+## Operator-extracted numerical findings (non-economic)
+
+**Provenance:** On 2026-11-12 the operator locally checked SHA-256 `4bb682e01eeed829eb7d148f2807ee80b651e5e74e4b3eedbd9df5be92b279b5` on the existing sanitized report and supplied the following permitted counts from `research_summary.attempts`. The figures below are **operator-reported sanitized output**, not fresh independently witnessed source bytes or an additional validation run. Decision coverage is runner-reported and checked by the bounded validator.
+
+| Profile | Attempt | IS decisions | IS entry events | IS exit events | IS blocked intervals | OOS decisions | OOS entry events | OOS exit events | OOS blocked intervals |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| REFERENCE_RAW | 1 | 69,984/69,984 | 730 | 730 | 1,616 | 34,848/34,848 | 296 | 296 | 843 |
+| REFERENCE_RAW | 2 | 69,984/69,984 | 730 | 730 | 1,616 | 34,848/34,848 | 296 | 296 | 843 |
+| ADVERSE_RAW | 1 | 69,984/69,984 | 655 | 655 | 1,988 | 34,848/34,848 | 275 | 275 | 980 |
+| ADVERSE_RAW | 2 | 69,984/69,984 | 655 | 655 | 1,988 | 34,848/34,848 | 275 | 275 | 980 |
+
+Every attempt also reports **zero** closed lifecycles crossing the IS/OOS split, **zero** unresolved dataset-end `OPEN`, and **zero** unresolved dataset-end `ARMED`. These are observed saved-result counts under the frozen scenario; they do not prove that all missing signal/expiry attribution fields can be reconstructed.
+
+**Descriptive sensitivity, comparing one matching result per fixed profile (attempt 1 for each):**
+
+- REFERENCE_RAW records **75 more IS accepted entry events** (730 vs 655) and **21 more OOS accepted entry events** (296 vs 275) than ADVERSE_RAW. Counts of exit events differ by the same amounts.
+- ADVERSE_RAW records **372 more IS blocked decision intervals** (1,988 vs 1,616) and **137 more OOS blocked intervals** (980 vs 843) than REFERENCE_RAW.
+- Across the two measured periods together, REFERENCE_RAW has **1,026** accepted entry events versus **930** for ADVERSE_RAW; ADVERSE_RAW has **2,968** blocked intervals versus **2,459** for REFERENCE_RAW. These totals sum supported **event counts**, **not** trades assigned to a cohort, return, drawdown or profitability.
+- The attempt-2 figures exactly match attempt 1 within each profile, consistent with the independently verified canonical byte equality. Attempts are **not** doubled in the profile comparisons.
+
+These figures describe differences in conditional modeled activity under the two registered execution profiles. They are **not** evidence that REFERENCE_RAW makes more money or that ADVERSE_RAW loses money. The zero cross-window closed-lifecycle count does **not** supply absent signal/expiry timestamps, an approved cohort attribution rule, or other mandatory reporting fields.
+
 ## Mandatory research measures still unavailable
 
 The original [scenario validation contract §§5–7](../validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md) requires separate IS/OOS lifecycle and conditional performance reporting. No approved universal attribution rule assigns cross-window trades by signal, entry or exit, and v1 does not preserve every signal or expiry timestamp. Do **not** infer a missing timestamp or silently select a cohort rule after outcomes exist.
@@ -61,11 +83,11 @@ Accordingly, the current report marks the affected IS/OOS cohort metrics `UNAVAI
 
 Even where individual saved closed outcomes contain R, price or holding-span fields, that fact **does not authorise** substituting a full-window economic aggregate for mandatory IS/OOS comparisons. Event counts are not trade cohorts. `UNAVAILABLE` does not satisfy a mandatory reporting requirement. Therefore the research summary remains `INCONCLUSIVE`, notwithstanding the bounded artifact-validation PASS.
 
-## Next allowed step — extract supported counts once, without rerunning validation
+## Evidence retention and future research boundary
 
-Read **only** the existing sanitized report's `research_summary.attempts` data locally. Verify that its SHA still equals the preserved checkpoint SHA before inspecting counts. Extract just per-profile/attempt `windows.IS/OOS.decision_coverage`, `accepted_entry_events`, `exit_events`, `blocked_decision_intervals`, `cross_window_closed_lifecycles` and `dataset_end_unresolved`. Show both attempts, retaining the exact time bases and evidence tiers. Do not read raw `released/` artifacts, invoke the validator again or print economic statistics.
+The **read-only extraction is complete**. Its permitted counts are recorded above; do not rerun the validator, reparse protected results or create another private report. The source sanitized report remains private and unchanged; its SHA identifies the supporting evidence. Numeric presentation and interpretation in this documentation PR still require normal adversarial review, documentation checks and merge evidence.
 
-After the operator supplies **only** those approved non-economic counts, add an evidence-bound numeric results section through review; do not manufacture counts from prior metadata. Do not relax research-reporting eligibility. This document may become the reviewed, version-controlled permanent assessment after its documentation PR passes normal review and is merged.
+Further required IS/OOS cohort economics cannot be obtained merely by reformatting these event counts. Any change to the scientific question or window attribution would require explicit separate methodological authority; it is not assumed here.
 
 ## Outstanding work and disposition
 
