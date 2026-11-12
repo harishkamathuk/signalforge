@@ -9,7 +9,8 @@ Before substantive work, inspect the current work item, repository state and app
 1. Approved, versioned normative strategy specifications and applicable [architecture decisions](docs/architecture/decisions/).
 2. Current [Engineering Definition of Done](docs/engineering-definition-of-done.md), engineering standards and issue-specific acceptance criteria.
 3. Versioned source/tests, accepted GitHub decisions, PR review evidence and CI for the exact relevant revision.
-4. Project orientation sources and conversation history only for context; neither overrides GitHub authority.
+4. Project Sources provide persistent navigation/context but do not override GitHub authority.
+5. Conversation recollection is lowest precedence and cannot override the sources above.
 
 Start with [README](README.md), the [PR template](.github/pull_request_template.md) and the [Python Documentation Standard](docs/python-documentation-standard.md). Follow applicable ADRs, normative specifications and issue contracts rather than reproducing them here. An ADR's historical-reference status or supersession matters; do not treat an older reference as overriding a later accepted contract. If authorities conflict, stop and surface the conflict.
 
@@ -24,7 +25,7 @@ Start with [README](README.md), the [PR template](.github/pull_request_template.
 
 ## Work commands and permissions
 
-Use the established SignalForge working protocol; explicit task instructions select the scope, but cannot override accepted contracts:
+Commands are case-insensitive and context-aware: an explicit issue/PR target overrides the inferred active work item. Approved issue scope and current GitHub contracts remain authoritative; the Project Working Protocol provides additional context when available:
 
 - **PRM / REC / HOF:** Produce a copy-ready implementation prompt / recommendation / source-grounded handover, respectively; do not implement.
 - **IMP:** Implement accepted scope, test, document, perform adversarial review and prepare/update the PR. **Do not merge.**
