@@ -16,6 +16,7 @@ START = datetime(2025, 10, 31, tzinfo=UTC)
 SPLIT = datetime(2026, 7, 1, tzinfo=UTC)
 END = datetime(2026, 10, 30, tzinfo=UTC)
 LIMITATIONS = (
+    "EVIDENCE_CONTRACT_INTERPRETATION_PENDING",
     "DECISION_GRID_IS_RUNNER_COUNTERS_NOT_A_PER_DECISION_LEDGER",
     "TRACE_HAS_NO_OPPORTUNITY_OR_ARMING_LINKS_FOR_FULL_CONTINUITY_PROOF",
     "SOURCE_INTEGRITY_AND_IS_FIRST_PROCEDURE_REUSE_OPERATOR_ATTESTATION",
@@ -69,7 +70,6 @@ def _lifecycle(result: dict[str, object]) -> None:
     _require(_count(result["attempted_trace_count"]) == len(traces))
     _require(_count(result["blocked_actionable_count"]) == len(blocked))
     _require(len(outcomes) <= 104833 and len(traces) + len(blocked) <= 2096640)
-    rejected = sum(o.get("state") == "REJECTED" for o in outcomes)
     seen: set[str] = set()
     entries: list[datetime] = []
     exits: list[tuple[datetime, str]] = []
@@ -141,6 +141,12 @@ def _lifecycle(result: dict[str, object]) -> None:
     actions: Counter[str] = Counter()
     prior: datetime | None = None
     open_position = False
+    # The frozen runner publishes outcomes in completion order under one active
+    # setup. Each ENTRY therefore consumes the next entry-bearing outcome;
+    # REJECTED consumes the attempt without ever opening a position. Its missing
+    # fill timestamp must not disable checks for every other accepted entry.
+    entry_outcomes = iter(o for o in outcomes if o["state"] in ("CLOSED", "OPEN", "REJECTED"))
+    next_entry = next(entry_outcomes, None)
     for trace in traces:
         _require(
             set(trace)
@@ -170,26 +176,22 @@ def _lifecycle(result: dict[str, object]) -> None:
         else:
             _require(_decimal(trace["modeled_base"]) == end)
         if action == "ENTRY":
-            if not rejected:
-                _require(not open_position)
-            open_position = True
-            trace_entries.append(bucket)
+            _require(not open_position and next_entry is not None)
+            assert next_entry is not None
+            if next_entry["state"] != "REJECTED":
+                _require(bucket == _time(next_entry["entry_bucket"]))
+                open_position = True
+                trace_entries.append(bucket)
+            next_entry = next(entry_outcomes, None)
         elif action in ("STOP", "TARGET"):
-            if not rejected:
-                _require(open_position)
+            _require(open_position)
             open_position = False
             trace_exits.append((bucket, action))
         elif action == "INVALIDATION":
-            if not rejected:
-                _require(not open_position)
-    # A rejected entry emits ENTRY but no accepted fill in the frozen runner.
-    # Such cases lack a causal trace link; report a limitation, never guess
-    # which ENTRY belongs to the rejected opportunity.
-    if not rejected:
-        _require(trace_entries == entries and trace_exits == exits)
-        _require(open_position == (active == ["OPEN"]))
-    else:
-        _require(len(trace_entries) == len(entries) + rejected and trace_exits == exits)
+            _require(not open_position)
+    _require(next_entry is None)
+    _require(trace_entries == entries and trace_exits == exits)
+    _require(open_position == (active == ["OPEN"]))
     _require(
         actions["INVALIDATION"] == sum(o["reason"] == "PRE_ENTRY_INVALIDATION" for o in outcomes)
     )
@@ -234,9 +236,11 @@ def validate_result(result: dict[str, object]) -> dict[str, object]:
         result: Mapping already parsed and identity-verified by canonical custody.
 
     Returns:
-        Non-economic allowlisted rule verdicts. A consistent v1 artifact remains
-        INCONCLUSIVE for full independent validity because it lacks a decision
-        ledger and causal arming links; the runner's validity is reported separately.
+        Non-economic allowlisted rule verdicts. The provisional independent gate
+        remains INCONCLUSIVE pending the evidence-contract reconciliation recorded
+        in the operator documentation. A separate decision ledger is additional
+        assurance, not an established preregistration requirement. Runner validity
+        is reported separately.
         No protected error text, timestamps, prices or trade metrics are returned.
     """
     checks: dict[str, str] = {}
@@ -282,6 +286,9 @@ def validate_result(result: dict[str, object]) -> dict[str, object]:
             checks["SAVED_LIFECYCLE_CONSISTENCY"] = "INCONCLUSIVE"
     except (EvidenceInvalid, ValueError, TypeError, KeyError, OverflowError):
         checks["SAVED_LIFECYCLE_CONSISTENCY"] = "INVALID"
+    # COR #280: this is a provisional implementation hold, not a frozen rule
+    # demanding a separate decision ledger. Resolve the evidence-sufficiency
+    # interpretation explicitly before changing PASS/summary eligibility.
     checks["INDEPENDENT_GRID_AND_ARMING_CONTINUITY"] = "INCONCLUSIVE"
     if isinstance(result.get("failure"), str) and str(result["failure"]).startswith(
         "SOURCE_INVALID"

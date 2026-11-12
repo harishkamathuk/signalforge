@@ -272,7 +272,7 @@ def validate_released(
 def main(argv: list[str] | None = None) -> int:
     """Print deterministic sanitized JSON or exclusively create a private report.
 
-    Exit codes: 0 independent pass (not attainable from v1 evidence alone),
+    Exit codes: 0 independent pass (not enabled during the COR interpretation hold),
     2 inconclusive, 1 invalid/blocked. Summary requests remain withheld when
     the full independent gate is not satisfied. No point statistics are leaked.
     """

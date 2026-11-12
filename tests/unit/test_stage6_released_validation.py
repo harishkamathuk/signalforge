@@ -454,3 +454,38 @@ def test_oos_preregistration_mismatch_is_rejected(tmp_path: Path) -> None:
         custody._check_approval(
             path, decision="OOS_RELEASE_ACCEPT", extra={"preregistration_id": custody.PREREG}
         )
+
+
+def rejected_then_accepted_fixture() -> dict[str, object]:
+    """A failed entry attempt must not disable later accepted-entry validation."""
+    result = result_fixture()
+    rejection = dict(result["outcomes"][0])
+    rejection.update(
+        opportunity_id="c" * 64, state="REJECTED",
+        reason="NON_POSITIVE_OR_UNSUPPORTED_RISK", entry_bucket=None,
+        entry_price=None, exit_bucket=None, exit_price=None, r=None,
+        holding_span_1m_buckets=None,
+    )
+    result["outcomes"].insert(0, rejection)
+    rejected_entry = dict(result["trace"][0])
+    rejected_entry["bucket_start"] = "2026-06-30T23:50:00+00:00"
+    result["trace"].insert(0, rejected_entry)
+    result.update(event_count=4, attempted_outcome_count=3, attempted_trace_count=4)
+    return result
+
+
+def test_rejected_entry_followed_by_accepted_lifecycles() -> None:
+    result = rejected_then_accepted_fixture()
+    assert validate_result(result)["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "PASS"
+
+
+def test_rejection_does_not_disable_accepted_entry_timestamp_check() -> None:
+    result = rejected_then_accepted_fixture()
+    result["trace"][1]["bucket_start"] = "2026-06-30T23:58:00+00:00"
+    assert validate_result(result)["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "INVALID"
+
+
+def test_rejection_does_not_disable_one_open_position_check() -> None:
+    result = rejected_then_accepted_fixture()
+    result["trace"][2]["action"] = "ENTRY"
+    assert validate_result(result)["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "INVALID"
