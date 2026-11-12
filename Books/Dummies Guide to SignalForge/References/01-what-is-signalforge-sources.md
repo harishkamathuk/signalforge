@@ -3,15 +3,16 @@
 **Editorial status:** AAS approved by the book owner on 12 November 2026.
 **Repository:** `harishkamathuk/signalforge`
 **Verification date:** 12 November 2026
-**Verification basis:** GitHub `develop` documentation fetched during CURATE. Editorial source checking is not independent runtime, CI, operational or trading-performance validation.
+**Verification basis:** GitHub `develop` documentation fetched during CURATE, now pinned to immutable repository commit [`3c1b014fb85498dc836cbfdf8ccbc02649cad6a7`](https://github.com/harishkamathuk/signalforge/commit/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7). Editorial source checking is not independent runtime, CI, operational or trading-performance validation.
+**Citation policy:** Links in the table below identify the exact historical repository revision used for the approval. For newer status, inspect current `develop` separately; do not treat the pinned revision as current.
 
 | Chapter claim | Classification | Source |
 |---|---|---|
-| SignalForge is a strategy-driven intraday research and execution framework, initially focused on NSE equities | Verified project description | [README](https://github.com/harishkamathuk/signalforge/blob/develop/README.md) |
-| Accepted NSE Strategy V1 is long-only and uses completed five-minute candles | Verified strategy description | [README — Strategy V1](https://github.com/harishkamathuk/signalforge/blob/develop/README.md) |
-| Deterministic single-security replay is documented with an explicit registered strategy | Verified documented software capability | [Replay CLI](https://github.com/harishkamathuk/signalforge/blob/develop/docs/replay-cli.md) |
-| Accepted NSE strategy and experimental reference strategy share the replay runtime | Verified engineering proof document, not profitability proof | [Cross-strategy proof](https://github.com/harishkamathuk/signalforge/blob/develop/docs/validation/cross-strategy-proof.md) |
-| An NSE live PAPER operator is documented; the command has no broker-order placement option | Verified documented software capability; not proof of operational gate completion | [Live PAPER operations](https://github.com/harishkamathuk/signalforge/blob/develop/docs/live-paper-operations.md) |
+| SignalForge is a strategy-driven intraday research and execution framework, initially focused on NSE equities | Verified project description | [README](https://github.com/harishkamathuk/signalforge/blob/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7/README.md) |
+| Accepted NSE Strategy V1 is long-only and uses completed five-minute candles | Verified strategy description | [README — Strategy V1](https://github.com/harishkamathuk/signalforge/blob/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7/README.md) |
+| Deterministic single-security replay is documented with an explicit registered strategy | Verified documented software capability | [Replay CLI](https://github.com/harishkamathuk/signalforge/blob/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7/docs/replay-cli.md) |
+| Accepted NSE strategy and experimental reference strategy share the replay runtime | Verified engineering proof document, not profitability proof | [Cross-strategy proof](https://github.com/harishkamathuk/signalforge/blob/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7/docs/validation/cross-strategy-proof.md) |
+| An NSE live PAPER operator is documented; the command has no broker-order placement option | Verified documented software capability; not proof of operational gate completion | [Live PAPER operations](https://github.com/harishkamathuk/signalforge/blob/3c1b014fb85498dc836cbfdf8ccbc02649cad6a7/docs/live-paper-operations.md) |
 | Paper-before-controlled-live and evidence-led research are project principles | Project intent, not readiness claim | Project charter `01-signalforge-project-charter.md` (supplied project source; contextual rather than Git authority) |
 | Real-money execution is a potential future stage | Planned capability only | Project charter and repository README; no live-money permission asserted |
 
