@@ -16,7 +16,6 @@ START = datetime(2025, 10, 31, tzinfo=UTC)
 SPLIT = datetime(2026, 7, 1, tzinfo=UTC)
 END = datetime(2026, 10, 30, tzinfo=UTC)
 LIMITATIONS = (
-    "EVIDENCE_CONTRACT_INTERPRETATION_PENDING",
     "DECISION_GRID_IS_RUNNER_COUNTERS_NOT_A_PER_DECISION_LEDGER",
     "TRACE_HAS_NO_OPPORTUNITY_OR_ARMING_LINKS_FOR_FULL_CONTINUITY_PROOF",
     "SOURCE_INTEGRITY_AND_IS_FIRST_PROCEDURE_REUSE_OPERATOR_ATTESTATION",
@@ -119,7 +118,15 @@ def _lifecycle(result: dict[str, object]) -> None:
             if state == "CLOSED":
                 exit_at = _time(outcome["exit_bucket"])
                 _require(exit_at >= entry and _decimal(outcome["exit_price"]) > 0)
-                _decimal(outcome["r"])
+                realised_r = _decimal(outcome["r"])
+                entry_price = _decimal(outcome["entry_price"])
+                exit_price = _decimal(outcome["exit_price"])
+                # Accepted long entries have strictly positive risk. Verify the
+                # persisted sign without reconstructing absent stop/risk inputs.
+                _require(
+                    (realised_r > 0) == (exit_price > entry_price)
+                    and (realised_r < 0) == (exit_price < entry_price)
+                )
                 span = _count(outcome["holding_span_1m_buckets"])
                 _require(span == 1 + int((exit_at - entry) / timedelta(minutes=1)))
                 exits.append((exit_at, cast(str, reason)))
@@ -222,6 +229,8 @@ def _lifecycle(result: dict[str, object]) -> None:
         _require(type(identity) is str and identity in by_id)
         _require(decision["blocking_state"] in ("ARMED", "OPEN"))
         outcome = by_id[cast(str, identity)]
+        if decision["blocking_state"] == "ARMED" and outcome["entry_bucket"] is not None:
+            _require(_time(outcome["entry_bucket"]) >= interval_end)
         if decision["blocking_state"] == "OPEN":
             _require(outcome["state"] in ("OPEN", "CLOSED"))
             _require(_time(outcome["entry_bucket"]) < interval_end)
@@ -236,11 +245,10 @@ def validate_result(result: dict[str, object]) -> dict[str, object]:
         result: Mapping already parsed and identity-verified by canonical custody.
 
     Returns:
-        Non-economic allowlisted rule verdicts. The provisional independent gate
-        remains INCONCLUSIVE pending the evidence-contract reconciliation recorded
-        in the operator documentation. A separate decision ledger is additional
-        assurance, not an established preregistration requirement. Runner validity
-        is reported separately.
+        Non-economic persisted-field verdicts under owner decision #6833739363.
+        PASS here requires prior canonical authentication by the caller; final
+        independent artifact PASS also requires custody and both repeat attempts.
+        Runner assertions and reused operator evidence are explicitly separate.
         No protected error text, timestamps, prices or trade metrics are returned.
     """
     checks: dict[str, str] = {}
@@ -286,17 +294,127 @@ def validate_result(result: dict[str, object]) -> dict[str, object]:
             checks["SAVED_LIFECYCLE_CONSISTENCY"] = "INCONCLUSIVE"
     except (EvidenceInvalid, ValueError, TypeError, KeyError, OverflowError):
         checks["SAVED_LIFECYCLE_CONSISTENCY"] = "INVALID"
-    # COR #280: this is a provisional implementation hold, not a frozen rule
-    # demanding a separate decision ledger. Resolve the evidence-sufficiency
-    # interpretation explicitly before changing PASS/summary eligibility.
-    checks["INDEPENDENT_GRID_AND_ARMING_CONTINUITY"] = "INCONCLUSIVE"
+    required = {
+        "mode",
+        "schema_version",
+        "scenario_run_id",
+        "execution_valid",
+        "certainty",
+        "replay_verified",
+        "is_observed",
+        "oos_observed",
+        "unsupported",
+        "failure",
+        "failure_bucket",
+        "event_count",
+        "terminal_active_state",
+        "attempted_outcome_count",
+        "attempted_trace_count",
+        "blocked_actionable_count",
+        "failure_opportunity_id",
+        "failure_signal_interval_start",
+        "last_complete_bucket",
+        "method_status",
+        "outcomes",
+        "trace",
+        "blocked_decisions",
+    }
+    checks["MANDATORY_PERSISTED_FIELDS"] = "PASS" if required <= result.keys() else "INVALID"
+    checks["SCENARIO_BOUNDARY"] = (
+        "PASS"
+        if (
+            result.get("mode") == "SCENARIO_RESEARCH"
+            and result.get("schema_version") == "scenario-result-v1"
+            and result.get("execution_valid") is False
+            and result.get("certainty") == "SCENARIO_CONDITIONED"
+        )
+        else "INVALID"
+    )
+    checks["COUNTER_TYPES_AND_BOUNDS"] = (
+        "PASS"
+        if all(
+            type(result.get(key)) is int and 0 <= cast(int, result[key]) <= bound
+            for key, bound in (
+                ("is_observed", 69984),
+                ("oos_observed", 34848),
+                ("unsupported", 104833),
+            )
+        )
+        else "INVALID"
+    )
+    checks["DIAGNOSTIC_COUNT_TYPES"] = (
+        "PASS"
+        if all(
+            type(result.get(key)) is int and cast(int, result[key]) >= 0
+            for key in (
+                "event_count",
+                "attempted_outcome_count",
+                "attempted_trace_count",
+                "blocked_actionable_count",
+            )
+        )
+        else "INVALID"
+    )
+    checks["FAILURE_FIELD_TYPES"] = (
+        "PASS"
+        if all(
+            result.get(key) is None or type(result.get(key)) is str
+            for key in (
+                "failure",
+                "failure_bucket",
+                "failure_opportunity_id",
+                "failure_signal_interval_start",
+                "last_complete_bucket",
+            )
+        )
+        else "INVALID"
+    )
+    status_value = result.get("method_status")
+    checks["METHOD_STATUS_ENUM"] = (
+        "PASS"
+        if status_value
+        in (
+            "SCENARIO_METHOD_VALID",
+            "SCENARIO_METHOD_INCONCLUSIVE",
+        )
+        else "INVALID"
+    )
+    # A VALID runner assertion cannot coexist with a failed completeness field.
+    checks["RUNNER_ASSERTIONS_CONSISTENT"] = (
+        "PASS"
+        if (
+            status_value != "SCENARIO_METHOD_VALID"
+            or all(
+                checks[key] == "PASS"
+                for key in (
+                    "FULL_WINDOW_COUNTERS",
+                    "ZERO_UNSUPPORTED",
+                    "REPLAY_REPORTED",
+                    "NO_FAILURE_OR_TRUNCATION",
+                )
+            )
+        )
+        else "INVALID"
+    )
     if isinstance(result.get("failure"), str) and str(result["failure"]).startswith(
         "SOURCE_INVALID"
     ):
         checks["NO_FAILURE_OR_TRUNCATION"] = "INVALID"
-    status = "INVALID" if "INVALID" in checks.values() else "INCONCLUSIVE"
+    status = (
+        "INVALID"
+        if "INVALID" in checks.values()
+        else "INCONCLUSIVE"
+        if "INCONCLUSIVE" in checks.values()
+        else "PASS"
+    )
     return {
         "status": status,
+        "evidence_tiers": {
+            "independently_checked": "PERSISTED_FIELDS_AND_SAVED_LIFECYCLE_CONSISTENCY",
+            "runner_reported": "GRID_EVALUATION_REPLAY_FLAG_AND_FAILURE_ASSERTIONS",
+            "operator_attested": "PRIOR_SOURCE_INTEGRITY_AND_IS_FIRST_PROCEDURE_REUSED",
+            "not_reconstructed": "PER_DECISION_AND_FULL_ARMED_CAUSAL_HISTORY",
+        },
         "runner_validity": "RUNNER_REPORTED_VALID"
         if result.get("method_status") == "SCENARIO_METHOD_VALID"
         else "RUNNER_NOT_REPORTED_VALID",
@@ -314,4 +432,102 @@ def validate_result(result: dict[str, object]) -> dict[str, object]:
         "checks": checks,
         "limitations": list(LIMITATIONS),
         "point_metrics_allowed": False,
+    }
+
+
+METRIC_NAMES = (
+    "win_rate",
+    "average_r_expectancy",
+    "profit_factor_r",
+    "cumulative_r_max_drawdown",
+    "trade_frequency",
+    "realised_r_distribution",
+    "holding_span_1m_bucket_distribution",
+    "exit_reason_distribution",
+    "actionable_opportunities",
+    "expired",
+    "rejected",
+    "scenario_complete_opportunities",
+    "strict_ambiguous_overlap",
+    "missing_corrupt_source",
+    "closed_trade_cohort_count",
+    "unresolved_cohort_count",
+)
+
+
+def conditional_summary(result: dict[str, object]) -> dict[str, object]:
+    """Summarize supported event counts without inventing lifecycle cohorts.
+
+    Args:
+        result: Canonically authenticated result; this function rechecks its gates.
+
+    Returns:
+        Sanitized counts only after persisted-field PASS. All mandatory cohort
+        metrics remain UNAVAILABLE; report completeness is INCONCLUSIVE even
+        when artifact validation passes. No full-window economics substitute for
+        missing IS/OOS evidence. Caller must also verify custody and repeatability.
+    """
+    if validate_result(result)["status"] != "PASS":
+        return {"status": "WITHHELD", "reason": "ARTIFACT_VALIDATION_PASS_REQUIRED"}
+    outcomes = _rows(result["outcomes"])
+    blocked = _rows(result["blocked_decisions"])
+    windows: dict[str, object] = {}
+    for name, lower, upper in (("IS", START, SPLIT), ("OOS", SPLIT, END)):
+
+        def in_window(value: object, lower: datetime = lower, upper: datetime = upper) -> bool:
+            return value is not None and lower <= _time(value) < upper
+
+        windows[name] = {
+            "decision_coverage": {
+                "expected": 69984 if name == "IS" else 34848,
+                "runner_reported_observed": result[
+                    "is_observed" if name == "IS" else "oos_observed"
+                ],
+            },
+            "accepted_entry_events": sum(in_window(o["entry_bucket"]) for o in outcomes),
+            "exit_events": sum(in_window(o["exit_bucket"]) for o in outcomes),
+            "blocked_decision_intervals": sum(in_window(d["interval_start"]) for d in blocked),
+            "time_bases": {
+                "accepted_entry_events": "PERSISTED_ENTRY_BUCKET_HALF_OPEN_UTC",
+                "exit_events": "PERSISTED_EXIT_BUCKET_HALF_OPEN_UTC",
+                "blocked_decision_intervals": "PERSISTED_DECISION_INTERVAL_START_HALF_OPEN_UTC",
+            },
+            "conditional_metrics": {
+                metric: {
+                    "status": "UNAVAILABLE",
+                    "reason": (
+                        "PER_WINDOW_CORRUPT_SOURCE_COUNTS_NOT_PERSISTED"
+                        if metric == "missing_corrupt_source"
+                        else "STRICT_OVERLAP_LABELS_NOT_PERSISTED"
+                        if metric == "strict_ambiguous_overlap"
+                        else "SIGNAL_OR_EXPIRY_TIMESTAMPS_NOT_PERSISTED"
+                        if metric
+                        in (
+                            "expired",
+                            "rejected",
+                            "actionable_opportunities",
+                            "scenario_complete_opportunities",
+                        )
+                        else "NO_APPROVED_CROSS_WINDOW_LIFECYCLE_COHORT_RULE"
+                    ),
+                }
+                for metric in METRIC_NAMES
+            },
+        }
+    return {
+        "status": "INCONCLUSIVE",
+        "point_metrics_allowed": False,
+        "certainty": "SCENARIO_CONDITIONED",
+        "execution_valid": False,
+        "windows": windows,
+        "dataset_end_time_basis": "FROZEN_MEASURED_END",
+        "dataset_end_unresolved": {
+            state: sum(o["state"] == state for o in outcomes) for state in ("OPEN", "ARMED")
+        },
+        "cross_window_closed_lifecycles": sum(
+            o["state"] == "CLOSED" and _time(o["entry_bucket"]) < SPLIT <= _time(o["exit_bucket"])
+            for o in outcomes
+        ),
+        "comparisons": {"status": "UNAVAILABLE", "reason": "MANDATORY_IS_OOS_METRICS_UNAVAILABLE"},
+        "limitations": ["EVENT_COUNTS_ARE_NOT_TRADE_COHORTS", "NO_FULL_WINDOW_ECONOMIC_SUBSTITUTE"],
     }

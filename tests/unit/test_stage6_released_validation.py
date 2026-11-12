@@ -144,10 +144,10 @@ def released_fixture(tmp_path: Path, *, mutate=None) -> tuple[Path, list[Path]]:
     return root, records
 
 
-def test_full_counters_are_not_independent_coverage_proof() -> None:
+def test_bounded_persisted_pass_is_not_independent_historical_reconstruction() -> None:
     report = validate_result(result_fixture())
     assert report["runner_validity"] == "RUNNER_REPORTED_VALID"
-    assert report["status"] == "INCONCLUSIVE"
+    assert report["status"] == "PASS"
     assert report["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "PASS"
     assert report["checks"]["FULL_WINDOW_COUNTERS"] == "PASS"
     assert not report["point_metrics_allowed"]
@@ -210,7 +210,11 @@ def test_terminal_armed_and_flat_are_permitted() -> None:
 def test_budget_failure_withheld_history_is_inconclusive() -> None:
     result = result_fixture()
     result.update(
-        failure="BUDGET_EXHAUSTED: synthetic", outcomes=[], trace=[], blocked_decisions=[]
+        failure="BUDGET_EXHAUSTED: synthetic",
+        outcomes=[],
+        trace=[],
+        blocked_decisions=[],
+        method_status="SCENARIO_METHOD_INCONCLUSIVE",
     )
     report = validate_result(result)
     assert report["status"] == "INCONCLUSIVE"
@@ -222,7 +226,7 @@ def test_four_attempt_workflow_is_read_only_deterministic_and_sanitized(tmp_path
     before = {p: p.read_bytes() for p in root.rglob("*.json")}
     report = cli.validate_released(root=root, oos_records=records, synthetic=True)
     assert report == cli.validate_released(root=root, oos_records=records, synthetic=True)
-    assert report["status"] == "INCONCLUSIVE"
+    assert report["status"] == "INDEPENDENT_VALIDATION_PASS"
     assert report["within_profile_byte_repeatability"] == dict.fromkeys(custody.RUNS, "PASS")
     assert report["distinct_profile_results"]
     assert len(report["attempts"]) == 4
@@ -337,7 +341,7 @@ def test_cli_exclusive_private_output_and_summary_gate(tmp_path: Path, capsys) -
         "--output",
         str(target),
     ]
-    assert cli.main(args) == 2
+    assert cli.main(args) == 0
     raw = target.read_bytes()
     assert target.stat().st_mode & 0o777 == 0o600
     assert cli.main(args) == 1
@@ -346,7 +350,8 @@ def test_cli_exclusive_private_output_and_summary_gate(tmp_path: Path, capsys) -
     target2 = output / "summary.json"
     args[-1] = str(target2)
     assert cli.main([*args, "--research-summary"]) == 2
-    assert json.loads(target2.read_bytes())["status"] == "WITHHELD"
+    assert json.loads(target2.read_bytes())["status"] == "INDEPENDENT_VALIDATION_PASS"
+    assert json.loads(target2.read_bytes())["research_summary"]["status"] == "INCONCLUSIVE"
     protected = tmp_path / ".signalforge-data"
     protected.mkdir(mode=0o700)
     args[-1] = str(protected / "report.json")
@@ -416,11 +421,11 @@ def test_stdout_cli_is_machine_readable_and_repeatable(tmp_path: Path) -> None:
     ]
     first = subprocess.run(command, capture_output=True, check=False)
     second = subprocess.run(command, capture_output=True, check=False)
-    assert first.returncode == second.returncode == 2
+    assert first.returncode == second.returncode == 0
     assert first.stdout == second.stdout
     assert first.stderr == second.stderr == b""
     report = json.loads(first.stdout)
-    assert report["status"] == "INCONCLUSIVE"
+    assert report["status"] == "INDEPENDENT_VALIDATION_PASS"
     assert not report["point_metrics_allowed"]
 
 
@@ -461,9 +466,14 @@ def rejected_then_accepted_fixture() -> dict[str, object]:
     result = result_fixture()
     rejection = dict(result["outcomes"][0])
     rejection.update(
-        opportunity_id="c" * 64, state="REJECTED",
-        reason="NON_POSITIVE_OR_UNSUPPORTED_RISK", entry_bucket=None,
-        entry_price=None, exit_bucket=None, exit_price=None, r=None,
+        opportunity_id="c" * 64,
+        state="REJECTED",
+        reason="NON_POSITIVE_OR_UNSUPPORTED_RISK",
+        entry_bucket=None,
+        entry_price=None,
+        exit_bucket=None,
+        exit_price=None,
+        r=None,
         holding_span_1m_buckets=None,
     )
     result["outcomes"].insert(0, rejection)
@@ -489,3 +499,162 @@ def test_rejection_does_not_disable_one_open_position_check() -> None:
     result = rejected_then_accepted_fixture()
     result["trace"][2]["action"] = "ENTRY"
     assert validate_result(result)["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "INVALID"
+
+
+@pytest.mark.parametrize("field", sorted(custody.FROZEN_RESULTS))
+def test_missing_persisted_field_can_never_pass(field: str) -> None:
+    result = result_fixture()
+    del result[field]
+    assert validate_result(result)["status"] == "INVALID"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("replay_verified", False),
+        ("unsupported", 1),
+        ("oos_observed", 34847),
+        ("is_observed", 69985),
+        ("is_observed", True),
+        ("execution_valid", True),
+        ("certainty", "OBSERVED_SOURCE"),
+        ("method_status", "UNKNOWN"),
+        ("failure_bucket", "2026-07-01T00:00:00+00:00"),
+    ],
+)
+def test_runner_valid_cannot_override_failed_gate(field, value) -> None:
+    result = result_fixture()
+    result[field] = value
+    assert validate_result(result)["status"] == "INVALID"
+
+
+def test_truthfully_reported_incomplete_grid_is_inconclusive() -> None:
+    result = result_fixture()
+    result.update(oos_observed=34847, method_status="SCENARIO_METHOD_INCONCLUSIVE")
+    assert validate_result(result)["status"] == "INCONCLUSIVE"
+
+
+def test_pass_keeps_evidence_tiers_and_causal_limits_explicit() -> None:
+    report = validate_result(result_fixture())
+    assert report["status"] == "PASS"
+    assert set(report["evidence_tiers"]) == {
+        "independently_checked",
+        "runner_reported",
+        "operator_attested",
+        "not_reconstructed",
+    }
+    assert "PER_DECISION" in report["evidence_tiers"]["not_reconstructed"]
+    assert "EVIDENCE_CONTRACT_INTERPRETATION_PENDING" not in report["limitations"]
+    assert not report["point_metrics_allowed"]
+
+
+def test_supported_event_time_counts_do_not_allocate_cross_window_trades() -> None:
+    summary = cli.stage6_validation.conditional_summary(result_fixture())
+    assert summary["status"] == "INCONCLUSIVE"
+    assert summary["windows"]["IS"]["accepted_entry_events"] == 1
+    assert summary["windows"]["IS"]["exit_events"] == 0
+    assert summary["windows"]["OOS"]["accepted_entry_events"] == 1
+    assert summary["windows"]["OOS"]["exit_events"] == 1
+    assert summary["cross_window_closed_lifecycles"] == 1
+    assert summary["dataset_end_unresolved"] == {"OPEN": 1, "ARMED": 0}
+    assert summary["windows"]["IS"]["blocked_decision_intervals"] == 1
+    for window in summary["windows"].values():
+        assert all(
+            m["status"] == "UNAVAILABLE" and m["reason"]
+            for m in window["conditional_metrics"].values()
+        )
+        assert "time_bases" in window
+    assert not summary["point_metrics_allowed"]
+    assert '"1.5"' not in json.dumps(summary)
+
+
+def test_event_exactly_at_split_uses_persisted_bucket_only() -> None:
+    result = result_fixture()
+    result["outcomes"][0]["entry_bucket"] = "2026-07-01T00:00:00+00:00"
+    result["outcomes"][0]["holding_span_1m_buckets"] = 2
+    result["trace"][0]["bucket_start"] = "2026-07-01T00:00:00+00:00"
+    result.update(blocked_decisions=[], blocked_actionable_count=0)
+    summary = cli.stage6_validation.conditional_summary(result)
+    assert summary["windows"]["IS"]["accepted_entry_events"] == 0
+    assert summary["windows"]["OOS"]["accepted_entry_events"] == 2
+    assert summary["cross_window_closed_lifecycles"] == 0
+
+
+def test_global_repeatability_failure_withholds_all_summary_counts(tmp_path: Path) -> None:
+    def mutate(result, profile, attempt):
+        if profile == "REFERENCE_RAW" and attempt == 2:
+            result["outcomes"][0]["r"] = Decimal("2")
+
+    root, records = released_fixture(tmp_path, mutate=mutate)
+    report = cli.validate_released(
+        root=root, oos_records=records, synthetic=True, research_summary=True
+    )
+    assert report["status"] == "INVALID"
+    assert report["research_summary"]["status"] == "WITHHELD"
+    assert report["research_summary"]["attempts"] == []
+
+
+def test_four_artifact_pass_does_not_complete_mandatory_research_report(tmp_path: Path) -> None:
+    root, records = released_fixture(tmp_path)
+    report = cli.validate_released(
+        root=root, oos_records=records, synthetic=True, research_summary=True
+    )
+    assert report["status"] == "INDEPENDENT_VALIDATION_PASS"
+    assert report["research_summary"]["status"] == "INCONCLUSIVE"
+    assert len(report["research_summary"]["attempts"]) == 4
+    assert report == cli.validate_released(
+        root=root, oos_records=records, synthetic=True, research_summary=True
+    )
+    assert not report["research_summary"]["point_metrics_allowed"]
+
+
+def test_rejected_attempts_are_not_fabricated_accepted_entry_events() -> None:
+    summary = cli.stage6_validation.conditional_summary(rejected_then_accepted_fixture())
+    assert summary["windows"]["IS"]["accepted_entry_events"] == 1
+    assert summary["windows"]["IS"]["conditional_metrics"]["rejected"]["status"] == "UNAVAILABLE"
+
+
+def test_terminal_armed_summary_has_no_fabricated_entry_or_exit() -> None:
+    result = result_fixture()
+    result["outcomes"][1].update(state="ARMED", entry_bucket=None, entry_price=None)
+    result["trace"].pop()
+    result.update(terminal_active_state="ARMED", event_count=2, attempted_trace_count=2)
+    summary = cli.stage6_validation.conditional_summary(result)
+    assert summary["dataset_end_unresolved"] == {"OPEN": 0, "ARMED": 1}
+    assert summary["windows"]["OOS"]["accepted_entry_events"] == 0
+    assert summary["windows"]["OOS"]["exit_events"] == 1
+
+
+def test_blocked_armed_cannot_already_have_an_accepted_entry() -> None:
+    result = result_fixture()
+    result["blocked_decisions"][0]["blocking_state"] = "ARMED"
+    assert validate_result(result)["status"] == "INVALID"
+
+
+def test_corrupt_failure_diagnostics_are_invalid_not_merely_inconclusive() -> None:
+    result = result_fixture()
+    result.update(
+        failure=123,
+        method_status="SCENARIO_METHOD_INCONCLUSIVE",
+        outcomes=[],
+        trace=[],
+        blocked_decisions=[],
+        event_count=-1,
+    )
+    assert validate_result(result)["status"] == "INVALID"
+
+
+def test_invalid_local_result_has_no_supported_summary() -> None:
+    result = result_fixture()
+    result["replay_verified"] = False
+    assert cli.stage6_validation.conditional_summary(result) == {
+        "status": "WITHHELD",
+        "reason": "ARTIFACT_VALIDATION_PASS_REQUIRED",
+    }
+
+
+@pytest.mark.parametrize("reported_r", [Decimal("-1"), Decimal("0")])
+def test_contradictory_persisted_r_sign_blocks_artifact_pass(reported_r) -> None:
+    result = result_fixture()
+    result["outcomes"][0]["r"] = reported_r
+    assert validate_result(result)["status"] == "INVALID"

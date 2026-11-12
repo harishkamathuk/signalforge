@@ -21,14 +21,7 @@ paths are explicit; there are no private-directory defaults. Supply the existing
 four approval records in **REFERENCE 1, REFERENCE 2, ADVERSE 1, ADVERSE 2** order.
 The placeholders below must name existing records; do not create replacements.
 
-```bash
-python scripts/stage6_validate_released.py \
-  --root "$CUSTODY_ROOT" \
-  --oos-records "$REFERENCE_1_OOS_RECORD" "$REFERENCE_2_OOS_RECORD" \
-                "$ADVERSE_1_OOS_RECORD" "$ADVERSE_2_OOS_RECORD" \
-  --output "$REPORT_DIRECTORY/stage6-validation.json"
-sha256sum "$REPORT_DIRECTORY/stage6-validation.json"
-```
+Use the single combined invocation under [One-time operator invocation](#one-time-operator-invocation-after-code-review) below; do not run a separate preliminary validation.
 
 `CUSTODY_ROOT` is the existing 0700 custody directory. The script reads only
 `released/{reference_raw,adverse_raw}-attempt-{1,2}.json`, the corresponding
@@ -43,10 +36,11 @@ The report is exclusively created with mode 0600: existing files and symlinks
 are never overwritten. Do not redirect stdout over existing evidence. Preserve
 the original output when a repeat command reports a collision.
 
-Exit codes: **1 INVALID/blocked**, **2 INCONCLUSIVE**. The current implementation does not enable
-exit 0 / `INDEPENDENT_VALIDATION_PASS` while the COR interpretation below is
-pending. This hold is not a preregistered separate-ledger requirement. A return
-of 2 must not be reported as a successful independent methodology validation.
+Exit codes: **0 bounded artifact PASS** (validation-only invocation),
+**1 INVALID/blocked**, **2 INCONCLUSIVE validation or incomplete requested
+research summary**. In combined mode a report may have
+`status=INDEPENDENT_VALIDATION_PASS`, `research_summary.status=INCONCLUSIVE`
+and exit 2. These are separate scopes, not conflicting verdicts.
 
 ## What is verified
 
@@ -81,81 +75,112 @@ and timestamp-free; identical inputs and validator checkout produce identical
 output. SHA values depend on the established 28-digit canonical decimal context,
 which is isolated from ambient caller precision.
 
-## COR #280 — evidence-contract reconciliation
+## Accepted persisted-v1 evidence scope
 
-**Status: interpretation pending; no methodology amendment or permission to
-publish economics.** Reviewed starting head `531ed562b59e3321f0a560d3f1cef6377afeddfb`.
-The working tree and GitHub PR head agreed before changes. The frozen runner is
-unchanged from Gate C. No private source or result was accessed.
+The [owner decision #6833739363](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6833739363)
+and [implementation handback #6833745159](https://github.com/harishkamathuk/signalforge/issues/278#issuecomment-6833745159)
+resolve the earlier COR interpretation hold. No retrospective per-decision or
+ARMED ledger is required. The earlier claim that v1 cannot pass is superseded.
+The accepted [completeness gates §5.1.1](../validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md#511-predeclared-completeness-gate)
+and mandatory per-window reporting obligations remain unchanged.
 
-### Authority and requirements
+The command emits `INDEPENDENT_VALIDATION_PASS` only when **all four** canonical
+identities, frozen bindings, source labels, replay pairs, counters, failures and
+applicable saved lifecycle checks pass. A matching SHA alone is insufficient.
+Missing mandatory persisted fields, impossible counter types/bounds, contradictory
+runner VALID assertions or saved states are INVALID. Truthfully reported incomplete
+coverage, unsupported cases or budget stops remain INCONCLUSIVE. Rejected entry
+attempts never disable validation of later accepted entries. Terminal OPEN/ARMED
+remains valid unresolved evidence; it is never force-closed.
 
-| Category | Requirement or evidence | Authority |
-|---|---|---|
-| Accepted before execution | Full grid, no early termination, zero unsupported, verified unchanged source, preserved terminal OPEN/ARMED, deterministic repeatability/provenance | [Accepted methodology §5.1.1](../validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md#511-predeclared-completeness-gate), [Gate B](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6703184382) |
-| Accepted before execution | Continuous IS/OOS lifecycle; source/procedure evidence reuse with explicit operator qualification; two process-isolated attempts/profile | [Methodology §2](../validation/btc-momentum-baseline-v0-scenario-validation-v0-proposal.md#2-frozen-strategy-source-and-sample), [Option A](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6727241981), [Gate D R4](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6778010311) |
-| Existing release authority | Independently check coverage, unsupported, truncation, replay, continuity and terminal reporting before point metrics; local approvals are operator attestations | [Bounded OOS release condition 4](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6828627582) |
-| Engineering acceptance | Check canonical identities/receipts, methodology fields and relevant saved invariants; disclose any required invariant not independently checkable; separate conditional summary after pass | [#278](https://github.com/harishkamathuk/signalforge/issues/278) |
-| Added during implementation | Reconstruct all decisions and every ARMED transition from a separately persisted ledger as a mandatory PASS prerequisite | **No explicit acceptance found. Additional assurance, not a frozen requirement.** |
+Every attempt separates four evidence tiers:
 
-The architecture/ADR requires causal traces, immutable identities and fail-closed
-failure provenance. It does not prescribe a separate persisted per-decision
-ledger. Gate C accepted `scenario-result-v1` with aggregate counters and the
-existing trace/outcome schema. The original PR's assertion that this extra
-ledger was a frozen mandatory gate was too strong and is superseded by this COR.
+| Tier | Scope |
+|---|---|
+| Independently checked persisted evidence | Canonical identity/custody/fingerprints, field consistency, saved lifecycle/terminal invariants and repeated result-byte equality |
+| Frozen runner assertions | Full-grid evaluation counters, replay flag, unsupported and failure assertions, checked against the frozen gates |
+| Previously authorised operator evidence | Original source integrity/no substitution and IS-first procedure reused under Gate D R4, the release decision and the new evidence-scope decision; not a new source audit |
+| Not reconstructed | Individual historical decisions and complete unpersisted ARMED causality; hashes do not invent these observations |
 
-### Findings disposition
+`PASS` in an attempt's checks is not by itself a four-artifact independent PASS.
+Synthetic mode is conspicuously `SYNTHETIC_TEST_ONLY`, with no real preregistration.
+No actual private-artifact result is asserted by development tests.
 
-1. **P1 confirmed — mandatory extra assurance:** no cited authority explicitly
-   requires the ledger. The unconditional inconclusive rule is an implementation
-   hold, not a conclusion compelled by the preregistration. **Owner interpretation
-   required before changing the independent-PASS standard:** #278 and the OOS
-   decision still require independent checks of required invariants; they do not
-   precisely delimit artifact-consistency proof versus full independent causal
-   reconstruction. Do not silently treat hashes or runner counters as observations
-   of unpersisted decisions.
-2. **P1 confirmed — summary incomplete:** `--research-summary` always withholds;
-   it is not the requested conditional reporting capability. Existing v1 rows
-   support closed R/exit/holding-span and entry/exit timestamps, plus aggregate
-   unresolved and blocked counts. Expired/rejected outcomes lack signal/expiry
-   timestamps. The cited contracts do not specify entry-, exit- or signal-cohort
-   attribution for positions crossing IS/OOS. Full required per-window lifecycle
-   reporting cannot be obtained by guessing those missing timestamps. No cohort
-   rule, surrogate timestamp or summary bypass is introduced here.
-3. **P2 partially confirmed — compatibility:** real-artifact verification remains
-   pending the operator, as required; synthetic tests cannot replace it. Routine
-   defect confirmed: a REJECTED outcome disabled accepted-entry timestamp and
-   one-OPEN checks globally. The correction consumes ordered ENTRY outcomes,
-   immediately ends rejected attempts without an accepted fill, and keeps the
-   checks active for every accepted entry. New tests feed actual frozen-runner
-   mappings from 1,300 fabricated minutes across the registered split, covering
-   OPEN/ARMED, expiry, rejected entries, blocked decisions and cross-split closure.
-   They neither run nor establish the full historical study.
+## Supported conditional summary and remaining mandatory gaps
 
-### Narrow decision packet for owner 00.01
+`--research-summary` includes a separate sanitized summary only after the entire
+four-artifact set passes. Any identity/replay/gate failure withholds **all** summary
+counts, rather than selectively publishing passing attempts. All four attempt
+summaries remain separately labelled; repeat attempts are never summed together.
 
-**Recommendation:** interpret the existing gate as independent algorithmic
-validation of frozen v1 identity/coverage/replay/lifecycle consistency, combined
-with the already accepted source/IS-first operator attestations and explicit
-limits. Do not add a mandatory ledger retrospectively. This is clarification of
-#278's evidence scope, not an additional research gate or Gate E acceptance.
+The supported non-economic findings are:
 
-**Decision requested before implementing PASS/report eligibility:** confirm
-whether that bounded evidence scope suffices, or identify the specific accepted
-invariant for which independent reconstruction remains mandatory. A refusal or
-unknown invariant remains explicitly inconclusive; unchanged hashes alone never
-supply missing causal observations. Separately identify an already accepted
-per-window attribution rule, or explicitly disposition the v1 fields that cannot
-support the required per-window lifecycle summary. Do not repair private evidence
-or rerun history to force completion.
+- IS/OOS expected decision counts and explicitly runner-reported observed counts;
+- accepted entry events by their persisted one-minute **entry bucket**;
+- exit events by their persisted one-minute **exit bucket**;
+- blocked decisions by their persisted **decision interval start**;
+- dataset-end OPEN/ARMED counts at the frozen measured end;
+- count of closed lifecycles whose persisted entry and exit straddle the split,
+  **without allocating their outcome/R to either window**.
 
-The current code retains its fail-closed interpretation hold and the separate
-`WITHHELD / INDEPENDENT_VALIDATION_PASS_REQUIRED` summary response until this
-material auditability/interpretation issue is settled. It does **not** declare
-that v1 can never pass the accepted scientific gate. Confidence is **high** that
-no separate ledger was explicitly preregistered; evidence-sufficiency for a full
-independent verdict remains ambiguous. #278 stays open; the four-artifact operator
-check and conditional report acceptance remain outstanding.
+Event counts use the registered half-open UTC bounds. An event bucket exactly at
+the split is OOS; a decision interval ending at the split has an IS interval start,
+consistent with the runner's completed-candle counter ordering. These are explicit
+**event time bases, not trade cohorts**. No signal timestamp is inferred for a
+rejected attempt and no ARMED entry/exit is fabricated.
+
+Every mandatory cohort-based win rate, expectancy, profit factor, cumulative-R
+drawdown, trade frequency, R/holding-span/exit distribution and lifecycle count
+without a supported window basis is `UNAVAILABLE`, with a reason distinguishing
+missing signal/expiry times, unpersisted per-window corrupt-source/strict-overlap
+labels and the lack of an approved
+cross-window cohort rule. REFERENCE/ADVERSE and IS/OOS economic comparisons remain
+UNAVAILABLE. No substitute full-window economic aggregate is emitted.
+
+Consequently artifact PASS does **not** complete the research report:
+`research_summary.status=INCONCLUSIVE`, `point_metrics_allowed=false`. The exact
+remaining gap is mandatory per-window lifecycle/performance attribution and any
+required per-window corrupt-source/strict-overlap fields not persisted in v1. This implementation neither
+chooses a post-hoc cohort rule nor presents UNAVAILABLE as a satisfied obligation.
+Gate E and issue completion remain separate.
+
+## One-time operator invocation after code review
+
+Set the six variables below to the **existing** custody root,
+four original OOS records and an existing 0700 report directory outside custody,
+Git and protected source trees. Paths are operator-specific: do not invent new
+approval records or copy private inputs. From the reviewed installed checkout:
+
+```bash
+: "${CUSTODY_ROOT:?Set the existing custody root}"
+: "${REFERENCE_1_OOS_RECORD:?Set the original REFERENCE attempt-1 OOS record}"
+: "${REFERENCE_2_OOS_RECORD:?Set the original REFERENCE attempt-2 OOS record}"
+: "${ADVERSE_1_OOS_RECORD:?Set the original ADVERSE attempt-1 OOS record}"
+: "${ADVERSE_2_OOS_RECORD:?Set the original ADVERSE attempt-2 OOS record}"
+: "${REPORT_DIRECTORY:?Set an existing private report directory outside custody}"
+if python scripts/stage6_validate_released.py \
+  --root "$CUSTODY_ROOT" \
+  --oos-records "$REFERENCE_1_OOS_RECORD" "$REFERENCE_2_OOS_RECORD" \
+                "$ADVERSE_1_OOS_RECORD" "$ADVERSE_2_OOS_RECORD" \
+  --research-summary \
+  --output "$REPORT_DIRECTORY/stage6-persisted-v1-report.json"
+then
+  stage6_report_exit=0
+else
+  stage6_report_exit=$?
+fi
+if [ "$stage6_report_exit" -eq 0 ] || [ "$stage6_report_exit" -eq 2 ]; then
+  sha256sum "$REPORT_DIRECTORY/stage6-persisted-v1-report.json"
+fi
+```
+
+This invokes the validator **once**, reads the four results once each and creates
+one exclusive 0600 combined report. Expected exit 2 for an incomplete requested
+summary is preserved even if artifact validation passes. On exit 1 retain the
+incident/report; a collision never overwrites an older report and must not be
+represented as a new run. Record the actual artifact verdict, summary verdict,
+validator head/code fingerprints and newly created report SHA in #260, with
+operator-attested provenance. No operator invocation occurred in development.
 
 All conclusions remain `SCENARIO_CONDITIONED`, `execution_valid=false`,
 `UNQUALIFIED_HISTORICAL_METADATA`. SF-096 remains `INCONCLUSIVE_DIAGNOSTIC`.

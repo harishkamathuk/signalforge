@@ -67,7 +67,7 @@ def _revision() -> dict[str, object]:
 
 
 def _validate_released(
-    *, root: Path, oos_records: list[Path], synthetic: bool = False
+    *, root: Path, oos_records: list[Path], synthetic: bool = False, research_summary: bool = False
 ) -> dict[str, object]:
     """Authenticate all four released copies and return sanitized rule verdicts.
 
@@ -76,6 +76,7 @@ def _validate_released(
         oos_records: Exactly four existing 0600 operator approval records, in
             REFERENCE attempts 1,2 then ADVERSE attempts 1,2 order.
         synthetic: Explicit test-only mode rejecting protected source identities.
+        research_summary: Include supported counts after all four attempts pass.
 
     Returns:
         Deterministic, non-economic report with every attempt represented.
@@ -98,6 +99,7 @@ def _validate_released(
         "released selection differs from approved four attempts",
     )
     reports: list[dict[str, object]] = []
+    summaries: list[dict[str, object]] = []
     hashes: dict[str, list[str]] = {profile: [] for profile in custody.RUNS}
     index = 0
     for profile in custody.RUNS:
@@ -195,6 +197,14 @@ def _validate_released(
                         **stage6_validation.validate_result(result),
                     }
                 )
+                if research_summary:
+                    summaries.append(
+                        {
+                            "profile": profile,
+                            "attempt": attempt,
+                            **stage6_validation.conditional_summary(result),
+                        }
+                    )
                 # Do not retain four large parsed canonical histories concurrently.
                 del raw, manifest, result
             except (
@@ -228,10 +238,17 @@ def _validate_released(
         or "INVALID" in repeat.values()
         or not distinct
     )
-    return {
+    artifact_status = (
+        "INVALID"
+        if invalid
+        else "INCONCLUSIVE"
+        if any(r["status"] != "PASS" for r in reports)
+        else "INDEPENDENT_VALIDATION_PASS"
+    )
+    report: dict[str, object] = {
         "schema": "stage6-released-validation-v1",
         "validator": _revision(),
-        "status": "INVALID" if invalid else "INCONCLUSIVE",
+        "status": artifact_status,
         "source_kind": "SYNTHETIC_TEST_ONLY" if synthetic else "RELEASED_STAGE6",
         "preregistration_id": None if synthetic else custody.PREREG,
         "certainty": "SCENARIO_CONDITIONED",
@@ -243,11 +260,30 @@ def _validate_released(
         "within_profile_byte_repeatability": repeat,
         "distinct_profile_results": distinct,
         "authority_verification": "OPERATOR_ATTESTED_NOT_GITHUB_AUTHENTICATED",
+        "evidence_scope_decision": (
+            "https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6833739363"
+        ),
+        "independent_scope": "PERSISTED_V1_CONSISTENCY_NOT_HISTORICAL_RECONSTRUCTION",
     }
+    if research_summary:
+        # No partial selection: release supported counts only if the entire
+        # approved four-attempt set passes identity, gates and repeatability.
+        report["research_summary"] = {
+            "status": "INCONCLUSIVE"
+            if artifact_status == "INDEPENDENT_VALIDATION_PASS"
+            else "WITHHELD",
+            "reason": "MANDATORY_WINDOW_METRICS_UNAVAILABLE"
+            if artifact_status == "INDEPENDENT_VALIDATION_PASS"
+            else "ARTIFACT_VALIDATION_PASS_REQUIRED",
+            "point_metrics_allowed": False,
+            "attempts": summaries if artifact_status == "INDEPENDENT_VALIDATION_PASS" else [],
+            "comparison_status": "UNAVAILABLE",
+        }
+    return report
 
 
 def validate_released(
-    *, root: Path, oos_records: list[Path], synthetic: bool = False
+    *, root: Path, oos_records: list[Path], synthetic: bool = False, research_summary: bool = False
 ) -> dict[str, object]:
     """Validate released evidence under the frozen serializer's decimal context.
 
@@ -255,6 +291,7 @@ def validate_released(
         root: Existing private custody root outside Git and source archives.
         oos_records: REFERENCE 1,2 then ADVERSE 1,2 private approval paths.
         synthetic: Explicit synthetic-only test mode; refuses protected identities.
+        research_summary: Include supported counts and explicit unavailable metrics.
 
     Returns:
         Deterministic allowlisted report, with no economics or private paths.
@@ -266,15 +303,20 @@ def validate_released(
     # context precision. Freeze its established default rather than inheriting a
     # caller's ambient decimal context and changing identities across invocations.
     with localcontext(Context(prec=28)):
-        return _validate_released(root=root, oos_records=oos_records, synthetic=synthetic)
+        return _validate_released(
+            root=root,
+            oos_records=oos_records,
+            synthetic=synthetic,
+            research_summary=research_summary,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     """Print deterministic sanitized JSON or exclusively create a private report.
 
-    Exit codes: 0 independent pass (not enabled during the COR interpretation hold),
-    2 inconclusive, 1 invalid/blocked. Summary requests remain withheld when
-    the full independent gate is not satisfied. No point statistics are leaked.
+    Exit codes: 0 bounded artifact PASS; 2 inconclusive validation or incomplete
+    requested research summary; 1 invalid/blocked. No point statistics are released
+    when mandatory window metrics are unsupported, even after artifact PASS.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -291,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--research-summary",
         action="store_true",
-        help="separate gated summary; v1 missing evidence withholds metrics",
+        help="supported event counts plus explicit unavailable mandatory window metrics",
     )
     args = parser.parse_args(argv)
     try:
@@ -299,15 +341,11 @@ def main(argv: list[str] | None = None) -> int:
         # operator's root spelling must not let a report enter custody.
         root = custody._private_directory(args.root)
         report = validate_released(
-            root=root, oos_records=args.oos_records, synthetic=args.synthetic_test_only
+            root=root,
+            oos_records=args.oos_records,
+            synthetic=args.synthetic_test_only,
+            research_summary=args.research_summary,
         )
-        if args.research_summary:
-            report = {
-                "schema": "stage6-research-summary-v1",
-                "status": "WITHHELD",
-                "reason": "INDEPENDENT_VALIDATION_PASS_REQUIRED",
-                "validation": report,
-            }
         raw = (json.dumps(report, sort_keys=True, indent=2) + "\n").encode()
         if args.output is None:
             sys.stdout.buffer.write(raw)
@@ -318,15 +356,14 @@ def main(argv: list[str] | None = None) -> int:
                 "report must be outside existing custody evidence",
             )
             custody._write_once(parent / args.output.name, raw)
+        if report["status"] == "INVALID":
+            return 1
         return (
-            1
-            if (
-                report.get("status") == "INVALID"
-                or report.get("status") == "WITHHELD"
-                and report["validation"]["status"] == "INVALID"
-            )
+            0
+            if report["status"] == "INDEPENDENT_VALIDATION_PASS" and not args.research_summary
             else 2
         )
+
     except (
         ValueError,
         TypeError,
