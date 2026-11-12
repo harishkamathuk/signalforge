@@ -4,10 +4,12 @@ A plain-English, living book for curious readers with no prerequisite trading or
 
 **Editorial workflow:** PREPARE → APG → CREATE → RIA → CURATE → AAS, one chapter at a time.
 
-**Approved editorial chapter:** [Chapter 1 — What Is SignalForge and Why Am I Building It?](Chapters/01-what-is-signalforge.md) (owner AAS: 12 November 2026).
+**Approved editorial chapters:**
+- [Chapter 1 — What Is SignalForge and Why Am I Building It?](Chapters/01-what-is-signalforge.md) (owner AAS: 12 November 2026).
+- [Chapter 2 — Can a Robot Really Trade?](Chapters/02-can-a-robot-really-trade.md) (owner AAS: 12 November 2026).
 
-**Evidence record:** [Chapter 1 sources](References/01-what-is-signalforge-sources.md).
+**Evidence records:** [Chapter 1 sources](References/01-what-is-signalforge-sources.md) · [Chapter 2 sources](References/02-can-a-robot-really-trade-sources.md).
 
-See [Table of contents](Table-of-Contents.md). Other chapters are planned, not approved.
+See [Table of contents](Table-of-Contents.md). Chapters 3–13 are planned, not approved.
 
 This educational book is independent of SignalForge strategy approvals, engineering delivery, research gates and paper/live permissions.

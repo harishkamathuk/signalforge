@@ -3,7 +3,7 @@
 ## Part I — Meet the Trading Robot
 
 1. [What Is SignalForge and Why Am I Building It?](Chapters/01-what-is-signalforge.md) — **Editorially approved, 12 November 2026**
-2. Can a Robot Really Trade? — Planned
+2. [Can a Robot Really Trade?](Chapters/02-can-a-robot-really-trade.md) — **Editorially approved, 12 November 2026**
 3. How Does a Trading Strategy Think? — Planned
 
 ## Part II — Teaching, Testing and Questioning
