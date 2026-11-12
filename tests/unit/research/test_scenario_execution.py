@@ -657,3 +657,54 @@ def test_order_changing_equal_level_tie_fails_closed_defensively():
     assert work.failure_bucket == bar.interval.start
     assert work.outcomes == []
     assert work.trace == []
+
+
+@pytest.mark.parametrize("case", ["open", "closed", "armed", "expired", "rejected"])
+@pytest.mark.parametrize("profile", [
+    HistoricalExecutionAssumptionProfile.reference_raw(),
+    HistoricalExecutionAssumptionProfile.adverse_raw(),
+])
+def test_released_validator_uses_frozen_runner_lifecycle_semantics(case, profile, monkeypatch):
+    """Feed genuine frozen-runner mappings from fabricated source into SF-278.
+
+    Dates overlap the registered split solely to exercise boundary checks. The
+    source and strategy remain conspicuously synthetic, with only 1,300 fabricated
+    minutes; these tests cannot establish real-artifact compatibility/full coverage.
+    """
+    from signalforge.research.stage6_validation import SPLIT, validate_result
+
+    monkeypatch.setitem(globals(), "START", datetime(2026, 6, 30, 2, 55, tzinfo=UTC))
+    prices = {}
+    signals = (260,) if case == "armed" else (251, 252, 253)
+    if case in ("open", "closed", "rejected"):
+        prices = {i: ("100.2", "100.21", "100.1", "100.2") for i in range(1255, MINUTES)}
+    if case == "closed":
+        prices[1266] = ("100.2", "105", "100.1", "100.2")
+    if case == "expired":
+        prices = {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)}
+        signals = (251,)
+    source = _source(overrides=prices)
+    request = replace(_request(source, profile=profile), oos_start=SPLIT)
+    runner = _runner(*signals)
+    if case == "rejected":
+        class RejectSyntheticEntry(_SignalAt):
+            def post_fill_economics(self, fill, setup):
+                return PositionEconomics(fill.fill_price, None)
+        runner = ScenarioResearchRunner(registry=StrategyRegistry((
+            StrategyRegistration(SEL.strategy_id, SEL.strategy_version,
+                                 lambda params: RejectSyntheticEntry((251,))),
+        )))
+    result = runner.run_verified(request)
+    assert result.failure is None
+    states = [outcome.state for outcome in result.outcomes]
+    assert {"open": "OPEN", "closed": "CLOSED", "armed": "ARMED",
+            "expired": "EXPIRED", "rejected": "REJECTED"}[case] in states
+    if case in ("open", "closed"):
+        first = result.outcomes[0]
+        assert first.entry_bucket < SPLIT
+        assert first.exit_bucket is None or first.exit_bucket >= SPLIT
+        assert result.blocked_actionable_count > 0
+    report = validate_result(result.mapping())
+    assert report["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "PASS"
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["point_metrics_allowed"] is False
