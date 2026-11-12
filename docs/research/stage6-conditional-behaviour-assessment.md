@@ -1,10 +1,10 @@
 # Stage 6 — Conditional behaviour and evidence-limitations assessment
 
-**Work item:** [#278](https://github.com/harishkamathuk/signalforge/issues/278)  
-**Evidence checkpoint:** [#260, one-time persisted-v1 operator validation](https://github.com/harishkamathuk/signalforge/issues/260#issuecomment-6835690400)  
-**Authority:** [#253, persisted-v1 evidence scope](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6833739363)  
-**Validator:** merged PR [#280](https://github.com/harishkamathuk/signalforge/pull/280), operator-reported Git revision `93046b01718b7a9fa573a1b88a7fa2b9e85a8be1`  
-**Assessment date:** 2026-11-12  
+**Work item:** [#278](https://github.com/harishkamathuk/signalforge/issues/278)
+**Evidence checkpoint:** [#260, one-time persisted-v1 operator validation](https://github.com/harishkamathuk/signalforge/issues/260#issuecomment-6835690400)
+**Authority:** [#253, persisted-v1 evidence scope](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6833739363)
+**Validator:** merged PR [#280](https://github.com/harishkamathuk/signalforge/pull/280), operator-reported Git revision `93046b01718b7a9fa573a1b88a7fa2b9e85a8be1`
+**Assessment date:** 2026-11-12
 **Status:** `ARTIFACT_VALIDATION_PASS — NON_ECONOMIC_RESEARCH_REPORT_SUPPORTED — MANDATORY_ECONOMIC_REPORT_INCONCLUSIVE`
 
 ## Purpose and evidence boundary
@@ -51,7 +51,7 @@ The merged [Stage 6 validator guide](../engineering/stage6-released-validation.m
 
 A bucket exactly at the IS/OOS split belongs to OOS for entry/exit event counts. A decision interval ending at the split has an IS interval start. These are explicitly declared **event timestamps**, not a retroactive signal-, entry- or exit-cohort convention for trade performance.
 
-For reproducibility display both fixed attempts per profile. If the canonical bytes remain equal within each profile, one **predeclared** attempt (for example attempt 1) may stand for its profile's *descriptive* result; do not add repeated attempts together as independent activity, select the best result or average them as distinct experiments. The two RAW profiles remain separate scenario execution assumptions.
+For reproducibility display both fixed attempts per profile. Because the validator confirmed identical canonical result bytes within each profile, either attempt reproduces the same descriptive event counts. This report uses attempt 1 **only as a presentation convention**, not because it was separately preregistered as a representative or selected based on performance. Do not add repeated attempts together as independent activity, select the best result or average them as distinct experiments. The two RAW profiles remain separate scenario execution assumptions.
 
 ## Operator-extracted numerical findings (non-economic)
 
