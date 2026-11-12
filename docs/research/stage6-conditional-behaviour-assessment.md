@@ -58,7 +58,7 @@ For reproducibility display both fixed attempts per profile. Because the validat
 **Provenance:** On 2026-11-12 the operator locally checked SHA-256 `4bb682e01eeed829eb7d148f2807ee80b651e5e74e4b3eedbd9df5be92b279b5` on the existing sanitized report and supplied the following permitted counts from `research_summary.attempts`. The figures below are **operator-reported sanitized output**, not fresh independently witnessed source bytes or an additional validation run. Decision coverage is runner-reported and checked by the bounded validator.
 
 | Profile | Attempt | IS decisions | IS entry events | IS exit events | IS blocked intervals | OOS decisions | OOS entry events | OOS exit events | OOS blocked intervals |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | REFERENCE_RAW | 1 | 69,984/69,984 | 730 | 730 | 1,616 | 34,848/34,848 | 296 | 296 | 843 |
 | REFERENCE_RAW | 2 | 69,984/69,984 | 730 | 730 | 1,616 | 34,848/34,848 | 296 | 296 | 843 |
 | ADVERSE_RAW | 1 | 69,984/69,984 | 655 | 655 | 1,988 | 34,848/34,848 | 275 | 275 | 980 |
