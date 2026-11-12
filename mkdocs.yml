@@ -51,6 +51,7 @@ nav:
       - Historical Bar Research Boundary: api/historical-bar-research.md
       - Historical Bar Execution: api/historical-execution.md
       - Scenario Research Execution: api/scenario-research.md
+      - Stage 6 Released Validation: engineering/stage6-released-validation.md
       - Historical Source Qualification: api/source-qualification.md
       - Per-Instrument Backtest Runner: api/backtest-runner.md
       - Research Orchestration & Analytics: api/research-orchestration.md
