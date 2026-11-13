@@ -116,6 +116,28 @@ def test_invalid_declared_split_rejected_before_worker(args):
     assert exc.value.code == 2
 
 
+def test_explicit_synthetic_split_real_runner_small_smoke():
+    """Check that the child runner measures the declared split, not merely the CLI."""
+    run = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--minutes", "1320", "--warmup-minutes", "1250",
+            "--is-minutes", "35", "--mode", "quiet",
+            "--max-rss-gib", "1", "--vm-limit-gib", "2",
+            "--timeout-seconds", "120", "--min-free-gib", "0.5",
+        ],
+        capture_output=True, text=True, check=False, timeout=150,
+    )
+    assert run.returncode == 0, (run.stdout[-2000:], run.stderr[-2000:])
+    payload = json.loads(run.stdout)
+    assert payload["synthetic_is_minutes"] == 35
+    assert payload["synthetic_oos_minutes"] == 35
+    child = payload["results"][0]
+    assert child["complete_grid"] is True
+    assert child["expected_is_candles"] == child["measured_is_candles"] == 7
+    assert child["expected_oos_candles"] == child["measured_oos_candles"] == 7
+
+
 def test_low_memory_snapshot_blocks_before_launch(monkeypatch):
     monkeypatch.setattr(probe, "_available_ram", lambda: 1024**3)
     result = probe._run_one(
