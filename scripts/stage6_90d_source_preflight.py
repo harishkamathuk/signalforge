@@ -91,9 +91,11 @@ def git_revision() -> str:
         len(revision) == 40 and all(c in "0123456789abcdef" for c in revision),
         "unbound source-only checkout revision",
     )
-    for args in (["diff", "--quiet"], ["diff", "--cached", "--quiet"]):
-        status = subprocess.run(["git", "-C", str(ROOT), *args], check=False, timeout=10)
-        require(status.returncode == 0, "dirty source-only checkout")
+    status = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=normal"],
+        capture_output=True, text=True, check=True, timeout=10,
+    )
+    require(not status.stdout.strip(), "dirty source-only checkout")
     return revision
 
 
