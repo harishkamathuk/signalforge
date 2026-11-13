@@ -30,6 +30,46 @@ def _write_new(path: Path, payload: dict[str, object]) -> None:
         stream.write("\n")
 
 
+def _require_matching_request(
+    request: ScenarioResearchRequest, result: ScenarioResearchResult,
+) -> None:
+    """Prevent binding one run's source/strict assessment to another run ID.
+
+    Exact source, profile, strategy, window and calculation inputs must agree
+    with the immutable result manifest before any companion is persisted.
+    """
+    manifest = result.manifest.mapping()
+    source = manifest.get("source")
+    strategy = manifest.get("strategy")
+    windows = manifest.get("session_and_window")
+    if not isinstance(source, dict) or not isinstance(strategy, dict) or (
+        not isinstance(windows, dict)
+    ):
+        raise ValueError("Malformed scenario manifest for diagnostic pairing")
+    dataset = request.source.dataset
+    checks = (
+        source.get("dataset_id") == str(dataset.dataset_id),
+        source.get("content_hash") == dataset.content_hash,
+        source.get("source_diagnostic_id") == request.source.source_diagnostic_id,
+        source.get("manifest") == dataset.manifest.semantic_mapping(),
+        windows.get("is_start") == request.is_start.isoformat(),
+        windows.get("oos_start") == request.oos_start.isoformat(),
+        windows.get("measured_end") == request.measured_end.isoformat(),
+        manifest.get("fills") == request.profile.semantic_mapping(),
+        manifest.get("resource_policy") == request.resources.mapping(),
+        strategy.get("id") == request.strategy_selection.strategy_id,
+        strategy.get("version") == request.strategy_selection.strategy_version,
+        strategy.get("engine_calculation_version") == request.engine_calculation_version,
+        strategy.get("synthetic_fixture_identity") == request.synthetic_fixture_identity,
+        manifest.get("implementation", {}).get("revision")
+            == request.repository_revision,
+        manifest.get("assumptions", {}).get("semantic_hash")
+            == request.assumptions.semantic_hash,
+    )
+    if not all(checks):
+        raise ValueError("Request evidence does not match result manifest identity")
+
+
 def write_source_quality_evidence(
     request: ScenarioResearchRequest, result: ScenarioResearchResult, path: Path,
 ) -> None:
@@ -39,6 +79,7 @@ def write_source_quality_evidence(
     attributed to a valid canonical bucket: declare NOT_ASSESSED instead.
     This producer is independent of the scenario outcome/trace simulation.
     """
+    _require_matching_request(request, result)
     source: RawDiagnosticSource = request.source
     ds = source.dataset
     starts = [bar.interval.start for bar in ds.bars]
@@ -98,6 +139,7 @@ def write_strict_reference_evidence(
     No scenario trace is interpreted as historical intraminute order. Explicit
     producer identity is required; an empty assessment is NOT_ASSESSED.
     """
+    _require_matching_request(request, result)
     if not producer_id or producer_id.startswith("scenario-path"):
         raise ValueError("Independent strict-reference producer identity required")
     eligible = set(assessed_intervals)
