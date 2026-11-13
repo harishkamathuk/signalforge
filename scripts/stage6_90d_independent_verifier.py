@@ -267,12 +267,17 @@ def verify_source_only() -> dict[str, object]:
               lineage["derived_five_minute_close_digest"],
               "source five-minute digest drift")
         session = mapping.get("session_and_window")
-        check(isinstance(session, dict)
-              and session.get("pre_roll_start") == SOURCE_START.isoformat()
-              and session.get("is_start") == IS_START.isoformat()
-              and session.get("oos_start") == OOS_START.isoformat()
-              and session.get("measured_end") == MEASURED_END.isoformat(),
-              "approved study window changed")
+        check(
+            session == {
+                "session": {"id": "continuous_utc", "version": "1.0.0"},
+                "pre_roll_start": SOURCE_START.isoformat(),
+                "is_start": IS_START.isoformat(),
+                "oos_start": OOS_START.isoformat(),
+                "measured_end": MEASURED_END.isoformat(),
+                "bounds": "half-open UTC",
+            },
+            "approved study window/session identity changed",
+        )
         strategy = mapping.get("strategy")
         check(
             isinstance(strategy, dict)
