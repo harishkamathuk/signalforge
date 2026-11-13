@@ -20,10 +20,10 @@ from pathlib import Path
 from signalforge.config.identity import canonical_config_json, config_hash
 from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, StrategySelection
 from signalforge.research.audited_source_slice_v1 import (
-    AuditedSourceSliceV1,
     IS_START,
     MEASURED_END,
     OOS_START,
+    AuditedSourceSliceV1,
     derive_audited_source_slice,
 )
 from signalforge.research.btc_raw_diagnostic_input import load_sf095_raw_diagnostic_source
@@ -60,7 +60,7 @@ def require(ok: bool, reason: str) -> None:
 
 def require_limits() -> None:
     """Fail closed before materialising the 525,600-minute authenticated parent."""
-    from scripts.stage6_90d_guarded_launcher import _limits, _available_ram
+    from scripts.stage6_90d_guarded_launcher import _available_ram, _limits
 
     observed = _limits()  # cgroup memory/swap + RLIMIT_AS/CPU/FSIZE
     require(observed["memory_max_bytes"] <= MEMORY_LIMIT, "memory ceiling exceeded")
