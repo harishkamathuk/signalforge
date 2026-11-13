@@ -218,6 +218,8 @@ def verify_source_only() -> dict[str, object]:
         mode = mapping.get("mode_and_schema")
         check(isinstance(mode, dict)
               and mode.get("study_variant") == "SF260_90D_AUDITED_V1"
+              and mode.get("sample_status") == "REPEATED_SAMPLE"
+              and mode.get("window_selection") == "EARLIEST_90_MEASURED_UTC_DAYS"
               and mode.get("schema") == "scenario-manifest-v1",
               "90D variant manifest mode differs")
         source = mapping.get("source")
