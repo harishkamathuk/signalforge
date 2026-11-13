@@ -15,6 +15,7 @@ from signalforge.research.historical_execution import (
     HISTORICAL_EXECUTION_CALCULATION_VERSION,
     HistoricalBarExecutionRunner,
     HistoricalContinuationPolicy,
+    HistoricalOutcomeCertainty,
     HistoricalStrictMinuteAudit,
 )
 from signalforge.research.scenario_execution import (
@@ -164,6 +165,16 @@ def produce_strict_reference_evidence(
             "certainty": last.certainty.value,
             "reasons": sorted(r.value for r in last.ambiguity_reasons),
         }
+    # An unresolved ARMED/OPEN at the dataset end is outcome uncertainty,
+    # never manufactured within-bar ambiguity or a missing source bucket.
+    end_uncertainty: dict[str, object] | None = None
+    if not strict.terminated_early and strict.outcomes:
+        terminal = strict.outcomes[-1]
+        if terminal.certainty is HistoricalOutcomeCertainty.UNRESOLVED:
+            end_uncertainty = {
+                "terminal_state": terminal.terminal_state.value,
+                "reasons": sorted(item.value for item in terminal.ambiguity_reasons),
+            }
     binding = {
         key: manifest[key] for key in (
             "source", "strategy", "fills", "session_and_window", "implementation",
@@ -177,6 +188,7 @@ def produce_strict_reference_evidence(
         "strict_calculation_version": strict.simulator_calculation_version,
         "strict_terminated_early": strict.terminated_early,
         "stop": stop,
+        "end_terminal_uncertainty": end_uncertainty,
         "binding": binding,
         "windows": windows,
     }
