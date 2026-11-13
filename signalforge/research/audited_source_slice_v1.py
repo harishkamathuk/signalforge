@@ -20,6 +20,7 @@ from signalforge.research.btc_raw_diagnostic_input import (
     RawDiagnosticSource,
 )
 from signalforge.research.historical_bars import (
+    HistoricalBar,
     HistoricalBarDataset,
     aggregate_one_minute_to_five_minute,
 )
@@ -39,7 +40,7 @@ DERIVATION_VERSION = "sf260-audited-source-slice-v1"
 _SEAL = object()
 
 
-def ordered_bar_digest(bars: tuple[object, ...]) -> str:
+def ordered_bar_digest(bars: tuple[HistoricalBar, ...]) -> str:
     """Independent-friendly, streaming digest of ordered canonical 1m mappings."""
     digest = hashlib.sha256()
     digest.update(b"sf260-ordered-one-minute-bars-v1\n")
