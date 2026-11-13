@@ -48,7 +48,6 @@ from signalforge.research.delta_historical_evidence_audit import audit_generatio
 from signalforge.research.historical_bars import HistoricalBarDataset
 from signalforge.research.historical_grid import HistoricalBarGrid
 
-
 CONFIG_HASH = "88e90c23cd635248385d820406ef2201badc59bfd9f99043a63e8823227de242"
 ASSUMPTIONS_HASH = "b7d89c3bcdfda94eb7b489ff12c03ab313573445bbf558fa4d10ce58ff081dc6"
 RESOURCE_HASH = "28ecfb2d956a60ffbc33d334aeb379fcbabe61e056e3e254112ec34b0310c9d6"
