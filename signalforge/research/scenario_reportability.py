@@ -153,8 +153,8 @@ def _source_quality(companion: dict[str, Any],
         counts = {k: _count(categories[k]) for k in QUALITY}
         # Canonical grid position, not a summary count, owns each 1m classification.
         sequence = record.get("primary_dispositions_1m")
-        _require(type(sequence) is str and len(sequence) == expected,
-                 "MISSING_SOURCE_INTERVAL_CLASSIFICATIONS")
+        if not isinstance(sequence, str) or len(sequence) != expected:
+            raise ReportabilityError("MISSING_SOURCE_INTERVAL_CLASSIFICATIONS")
         alphabet = dict(zip("VMCRS", QUALITY, strict=True))
         _require(set(sequence).issubset(alphabet), "INVALID_SOURCE_DISPOSITION")
         recomputed = Counter(alphabet[ch] for ch in sequence)
@@ -180,8 +180,9 @@ def _strict_reference(companion: dict[str, Any],
         eligible = _count(row.get("eligible_intervals"))
         expected = int((end - start) / timedelta(minutes=1))
         mask = row.get("assessed_1m_mask")
-        _require(type(mask) is str and len(mask) == expected
-                 and set(mask).issubset({"0", "1"}), "MISSING_STRICT_INTERVAL_MASK")
+        if not isinstance(mask, str) or len(mask) != expected:
+            raise ReportabilityError("MISSING_STRICT_INTERVAL_MASK")
+        _require(set(mask).issubset({"0", "1"}), "INVALID_STRICT_INTERVAL_MASK")
         _require(mask.count("1") == eligible, "STRICT_DENOMINATOR_MISMATCH")
         intervals = row.get("ambiguous_interval_starts")
         if not isinstance(intervals, list) or not all(
