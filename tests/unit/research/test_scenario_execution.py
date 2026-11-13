@@ -1137,3 +1137,17 @@ def test_sf283_s16_semantic_conflict_with_consistent_canonical_hashes(
     document = (canonical_config_json(doc) + "\n").encode()
     with pytest.raises(ReportabilityError, match=reason):
         report_from_saved_bytes(document, source_bytes, strict_bytes)
+
+
+def test_sf283_zero_length_oos_grid_has_typed_undefined_frequency(tmp_path):
+    _, report, *_ = _sf283_roundtrip(
+        tmp_path, signals=(251,), split_minute=MINUTES,
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    assert report["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
+    assert report["windows"]["OOS"]["source_quality"]["expected_intervals"] == 0
+    economics = report["windows"]["OOS"]["economics"]
+    assert economics["expected_completed_5m_decisions"] == 0
+    assert economics["frequency_per_1000_expected_5m_decisions"]["reason"] == (
+        "NO_MEASURED_DECISIONS"
+    )
