@@ -1371,6 +1371,8 @@ def test_sf283_runner_block_and_close_at_same_completed_boundary(tmp_path):
     ("change-target-to-stop", "TRACE_OUTCOME_ACTION_MISMATCH"),
     ("wrong-event-counter", "EVENT_COUNT_MISMATCH"),
     ("wrong-trace-counter", "TRACE_COUNT_MISMATCH"),
+    ("rehashed-exit-price-and-r", "TRACE_EXIT_PRICE_MISMATCH"),
+    ("rehashed-entry-price-and-r", "TRACE_ENTRY_PRICE_MISMATCH"),
 ])
 def test_sf283_s16_saved_trace_contradicts_closed_economics(
     tmp_path, mutation, reason,
@@ -1399,8 +1401,16 @@ def test_sf283_s16_saved_trace_contradicts_closed_economics(
              if row["action"] == "TARGET")["action"] = "STOP"
     elif mutation == "wrong-event-counter":
         result["event_count"] += 1
-    else:
+    elif mutation == "wrong-trace-counter":
         result["attempted_trace_count"] += 1
+    elif mutation == "rehashed-exit-price-and-r":
+        # Preserve the saved gross-R equation, contradict only the crossing
+        # price and modeled result after canonical identity rebinding.
+        result["outcomes"][0]["exit_price"] = Decimal("100.4")
+        result["outcomes"][0]["r"] = Decimal("2")
+    else:
+        result["outcomes"][0]["entry_price"] = Decimal("100.15")
+        result["outcomes"][0]["r"] = Decimal("0.875")
     saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
         doc, source_doc, strict_doc,
     )
@@ -1451,7 +1461,7 @@ def test_sf283_s15_real_runner_saved_bytes_independent_trade_rich_oracle(tmp_pat
     assert is_economics["win_rate"]["value"] == "0.5"
     assert is_economics["average_r_expectancy"]["value"] == "0.25"
     assert is_economics["profit_factor_r"]["value"] == "1.5"
-    assert is_economics["maximum_cumulative_r_drawdown"]["value"] == "1"
+    assert Decimal(is_economics["maximum_cumulative_r_drawdown"]["value"]) == Decimal(1)
     assert is_economics["sum_gross_r"] == "0.5"
     assert is_economics["realised_r_sorted"] == ["-1", "1.5"]
     assert is_economics["exit_reason_counts"] == {"STOP": 1, "TARGET": 1}
@@ -1463,7 +1473,7 @@ def test_sf283_s15_real_runner_saved_bytes_independent_trade_rich_oracle(tmp_pat
     assert oos_economics["win_rate"]["value"] == "0"
     assert oos_economics["average_r_expectancy"]["value"] == "-1"
     assert oos_economics["profit_factor_r"]["value"] == "0"
-    assert oos_economics["maximum_cumulative_r_drawdown"]["value"] == "2"
+    assert Decimal(oos_economics["maximum_cumulative_r_drawdown"]["value"]) == Decimal(2)
     assert oos_economics["sum_gross_r"] == "-2"
     assert oos_economics["realised_r_sorted"] == ["-1", "-1"]
     assert oos_economics["exit_reason_counts"] == {"STOP": 2}
@@ -1485,7 +1495,7 @@ def test_sf283_s15_real_runner_saved_bytes_independent_trade_rich_oracle(tmp_pat
     assert compared["average_r_expectancy"]["value"] == "-1.25"
     assert compared["profit_factor_r"]["value"] == "-1.5"
     assert compared["win_rate"]["value"] == "-0.5"
-    assert compared["maximum_cumulative_r_drawdown"]["value"] == "1"
+    assert Decimal(compared["maximum_cumulative_r_drawdown"]["value"]) == Decimal(1)
     assert compared["sum_gross_r_difference"] == "-2.5"
 
 
