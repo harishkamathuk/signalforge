@@ -171,7 +171,10 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
         missing_interval_count=0, grid=grid,
         limitations=tuple(
             "parent_full_year_" + label
-            if label.startswith(("five_minute_close_sha256=", "frozen_provisional_report_sha256="))
+            if label.startswith((
+                "five_minute_close_sha256=",
+                "frozen_provisional_report_sha256=",
+            ))
             else label
             for label in full.manifest.limitations
         ),
