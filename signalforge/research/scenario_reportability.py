@@ -397,7 +397,7 @@ def compare_profile_reports(reference: dict[str, object],
 
 def _reconcile_saved_actions(
     result: dict[str, Any], outcomes: list[dict[str, Any]],
-    start: datetime, finish: datetime,
+    start: datetime, finish: datetime, fills: dict[str, Any],
 ) -> None:
     """Reconcile modeled event trace with each saved opportunity lifecycle.
 
@@ -408,7 +408,7 @@ def _reconcile_saved_actions(
     observed intraminute chronology.
     """
     rows = _items(result.get("trace"), "trace")
-    actions: list[tuple[datetime, str]] = []
+    actions: list[tuple[datetime, str, Decimal, str]] = []
     previous: datetime | None = None
     for row in rows:
         at = _utc(row.get("bucket_start"))
@@ -430,27 +430,65 @@ def _reconcile_saved_actions(
                      "INVALID_TRACE_ACTION")
             if ordering == "OBSERVED_OPEN":
                 _require(from_level == to_level, "INVALID_OBSERVED_OPEN_ACTION")
-            actions.append((at, str(kind)))
+            actions.append((at, str(kind), to_level, str(ordering)))
 
     _require(_count(result.get("attempted_trace_count")) == len(rows),
              "TRACE_COUNT_MISMATCH")
     _require(_count(result.get("event_count")) == len(actions),
              "EVENT_COUNT_MISMATCH")
 
-    expected: list[tuple[datetime, str]] = []
+    expected: list[tuple[datetime, str, dict[str, Any]]] = []
     for outcome in outcomes:
         state = outcome["state"]
         entry = outcome.get("entry_bucket")
         attempted = outcome.get("attempted_entry_bucket")
         if entry is not None:
-            expected.append((_utc(entry), "ENTRY"))
+            expected.append((_utc(entry), "ENTRY", outcome))
         elif state == "REJECTED" and attempted is not None:
-            expected.append((_utc(attempted), "ENTRY"))
+            expected.append((_utc(attempted), "ENTRY", outcome))
         if state == "CLOSED":
-            expected.append((_utc(outcome["exit_bucket"]), str(outcome["reason"])))
+            expected.append((_utc(outcome["exit_bucket"]), str(outcome["reason"]),
+                             outcome))
         elif state == "EXPIRED" and outcome["reason"] == "PRE_ENTRY_INVALIDATION":
-            expected.append((_utc(outcome["terminal_event_bucket"]), "INVALIDATION"))
-    _require(actions == expected, "TRACE_OUTCOME_ACTION_MISMATCH")
+            expected.append((_utc(outcome["terminal_event_bucket"]), "INVALIDATION",
+                             outcome))
+    _require([(at, kind) for at, kind, _, _ in actions] ==
+             [(at, kind) for at, kind, _ in expected],
+             "TRACE_OUTCOME_ACTION_MISMATCH")
+    # A matching action label/bucket is not enough: the modeled economic
+    # prices must reconcile with that action's saved crossing level and the
+    # exact RAW profile slippage assumptions. Opening gaps use the observed
+    # open level (which may be beyond a stop/target); assumed segment events
+    # cross the barrier itself. No unknown intraminute timing is inferred.
+    entry_bps = _number(fills.get("entry_slippage_bps"))
+    stop_bps = _number(fills.get("stop_slippage_bps"))
+    target_bps = _number(fills.get("target_slippage_bps"))
+    for (_, kind, base, ordering), (_, _, outcome) in zip(
+        actions, expected, strict=True,
+    ):
+        with localcontext() as ctx:
+            ctx.prec = 28
+            if kind == "ENTRY":
+                if outcome.get("entry_bucket") is not None:
+                    expected_fill = base * (
+                        Decimal(1) + entry_bps / Decimal(10000)
+                    )
+                    _require(_number(outcome.get("entry_price")) == expected_fill,
+                             "TRACE_ENTRY_PRICE_MISMATCH")
+            elif kind in ("STOP", "TARGET"):
+                barrier = _number(outcome.get(
+                    "modeled_stop_price" if kind == "STOP" else
+                    "modeled_target_price"
+                ))
+                if ordering == "ASSUMED":
+                    _require(base == barrier, "TRACE_EXIT_BARRIER_MISMATCH")
+                else:
+                    _require(base <= barrier if kind == "STOP" else base >= barrier,
+                             "TRACE_OPEN_GAP_BARRIER_MISMATCH")
+                bps = stop_bps if kind == "STOP" else target_bps
+                modeled_exit = base * (Decimal(1) - bps / Decimal(10000))
+                _require(_number(outcome.get("exit_price")) == modeled_exit,
+                         "TRACE_EXIT_PRICE_MISMATCH")
 
 
 
@@ -670,7 +708,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
              "OUTCOME_COUNT_MISMATCH")
     # Saved result hashes authenticate bytes, not their internal consistency:
     # cross-check trace crossings and counters before any economic reporting.
-    _reconcile_saved_actions(result, outcomes, start, finish)
+    _reconcile_saved_actions(result, outcomes, start, finish, fills)
 
     blocked = _items(result.get("blocked_decisions"), "blocked")
     blocked_counts: Counter[str] = Counter()
