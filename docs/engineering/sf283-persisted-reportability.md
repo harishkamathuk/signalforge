@@ -48,9 +48,14 @@ D3 is conditional: the one-active-state runner accepts at most one active setup 
 
 ## D5. Source/strict evidence
 
-Source-quality units: canonical **one-minute source bucket**; mutually exclusive primary classifications `VALID/MISSING/CORRUPT/REPAIRED/SUBSTITUTED`. Per-window primary counts must sum to the expected one-minute interval grid. An unlocatable corrupt raw row cannot be silently assigned to a source bucket: its assessment is `NOT_ASSESSED` until independently resolved. Any missing/corrupt/repaired/substituted measured source invalidates performance eligibility.
+Source-quality units: canonical **one-minute source bucket**; mutually exclusive primary classifications `VALID/MISSING/CORRUPT/REPAIRED/SUBSTITUTED`. Per-window primary counts must sum to the expected one-minute interval grid.
+Each companion also saves an interval-indexed compact disposition sequence
+(`V/M/C/R/S`), in canonical 1m grid order; the saved-byte reader recomputes
+and reconciles all category counts rather than trusting summary claims. An unlocatable corrupt raw row cannot be silently assigned to a source bucket: its assessment is `NOT_ASSESSED` until independently resolved. Any missing/corrupt/repaired/substituted measured source invalidates performance eligibility.
 
-Five-minute expected/observed decision counts are separate from one-minute source counts. Strict-reference ambiguity is a distinct independently produced classification over canonical one-minute interval IDs; each window reports explicitly assessed eligible intervals, unique ambiguous keys and a denominator. Scenario assumed trace is not proof of observed intraminute sequence. Both companions are independently hash-bound by the result and must be present.
+Five-minute expected/observed decision counts are separate from one-minute source counts. Strict-reference ambiguity is a distinct independently produced classification over canonical one-minute interval IDs; each window reports a canonical 1m assessed-interval mask, explicitly assessed eligible count,
+unique ambiguous keys and denominator. The saved reader rejects inconsistent masks,
+duplicate/out-of-window ambiguity keys and ambiguity outside the assessed set. Scenario assumed trace is not proof of observed intraminute sequence. Both companions are independently hash-bound by the result and must be present.
 
 ## D6. Versioning and safety
 
@@ -69,7 +74,15 @@ python scripts/scenario_report_saved.py \
   --strict-companion /private/prospective/strict-reference.json
 ```
 
-The CLI reads **only these three serialized files**, recomputes their bindings, and prints a complete structured research report to stdout. It does not access runtime bars, source archives, frozen custody, broker systems or a strategy. Exit status `0` is a structurally complete conditional report; exit `2` prints sanitized `WITHHELD`, with no partial metrics or exception/path leakage. Operator control of sensitive output is still required; the CLI does not make protected publication permissible.
+The CLI reads **only these three serialized files**, recomputes their bindings, and prints a complete structured research report to stdout. It does not access runtime bars, source archives, frozen custody, broker systems or a strategy. To compare separate qualified REFERENCE and ADVERSE models, supply all three additional
+`--other-result`, `--other-source-companion`, and
+`--other-strict-companion` arguments. The CLI requires matching non-fill
+scenario provenance, distinct recognized profile identities, individual reporting
+eligibility, and prints `REFERENCE_RAW - ADVERSE_RAW` without pooling repeats.
+The default one-profile report includes `OOS - IS` conditional differences with
+typed undefined propagation.
+
+Exit status `0` is a structurally complete conditional report; exit `2` prints sanitized `WITHHELD`, with no partial metrics or exception/path leakage. Operator control of sensitive output is still required; the CLI does not make protected publication permissible.
 
 **Do not run the above example against protected/historical data without separate owner authorization.**
 
