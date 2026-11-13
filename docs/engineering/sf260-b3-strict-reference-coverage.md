@@ -38,8 +38,14 @@ or unresolved disposition without such traceable bounded alternatives is
 The default strict runner stops at the first unresolved or OPEN-possible
 bounded outcome. All later unprocessed measured buckets are
 **eligibility-indeterminate (?)**, not eligible or ineligible. The producer
-records the stop certainty/reasons and the known prefix. It never chooses
-possible worlds, extends the strict engine or inspects a scenario OHLC path.
+records the stop certainty/reasons and the known prefix. The saved-byte
+reader also requires the canonical stop bucket start to satisfy
+`source_start <= stop.after_bucket < source_end` against the *source manifest's*
+single continuous UTC 1m coverage interval; the final source minute is
+permitted, but the exclusive source end (or any later instant) is not.
+A later claimed stop cannot turn unprocessed measured minutes into a
+fabricated complete E/I prefix. It never chooses possible worlds, extends
+the strict engine or inspects a scenario OHLC path.
 A final unresolved ARMED/OPEN opportunity is separately recorded as
 `end_terminal_uncertainty` (state and reasons), not mistaken for a
 within-minute ambiguity or an early-stop source suffix.
