@@ -1846,3 +1846,53 @@ def test_sf260_b3_observer_cannot_change_strict_result_identity():
     assert seen
     assert prior.result_id == audited.result_id
     assert prior.semantic_mapping() == audited.semantic_mapping()
+
+
+def test_sf260_b3_r01_rehashed_stop_after_source_end_withholds(tmp_path):
+    """A rehashed future stop cannot authenticate a complete strict prefix."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    document = _decode_canonical(result.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    source_end = datetime.fromisoformat(
+        document["manifest"]["source"]["manifest"]["grid"]["coverage"][0]["end"]
+    )
+    proof = strict_doc["strict_coverage_proof"]
+    proof["strict_terminated_early"] = True
+    proof["stop"] = {
+        "after_bucket": (source_end + timedelta(minutes=2)).isoformat(),
+        "certainty": "unresolved",
+        "reasons": ["unsupported_strategy_policy"],
+    }
+    # Fully rehash the forged companion and enclosing result. The attack is
+    # semantic, not a broken SHA or malformed canonical document.
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        document, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match="INVALID_STRICT_STOP"):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+def test_sf260_b3_r01_final_source_minute_stop_is_not_out_of_range(tmp_path):
+    """The final source minute is valid, but its unresolved stop still withholds."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(259,),
+        prices={1299: ("100", "105", "98", "100")},
+    )
+    document = _decode_canonical(strict.read_bytes())
+    source_end = START + timedelta(minutes=MINUTES)
+    proof = document["strict_coverage_proof"]
+    assert proof["strict_terminated_early"] is True
+    assert datetime.fromisoformat(proof["stop"]["after_bucket"]) == (
+        source_end - timedelta(minutes=1)
+    )
+    assert proof["windows"]["OOS"]["eligibility_indeterminate"] == 0
+    # A terminal bounded strict ambiguity is a valid observed boundary, not
+    # grounds for inventing a post-stop minute or changing strict semantics.
+    assert report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )["windows"]["OOS"]["strict_reference"]["ambiguous_count"] == 1
