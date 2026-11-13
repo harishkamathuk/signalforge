@@ -1151,3 +1151,194 @@ def test_sf283_zero_length_oos_grid_has_typed_undefined_frequency(tmp_path):
     assert economics["frequency_per_1000_expected_5m_decisions"]["reason"] == (
         "NO_MEASURED_DECISIONS"
     )
+
+
+def _sf283_mutated_saved_bytes(
+    result_document: dict, source_document: dict, strict_document: dict,
+) -> tuple[bytes, bytes, bytes]:
+    """Rebind every prospective hash to test *semantic* contradictory evidence."""
+    from hashlib import sha256
+
+    from signalforge.config.identity import canonical_config_json
+    from signalforge.research.scenario_reportability import FUTURE_FIELDS
+
+    current = result_document["result"]
+    legacy = dict(current)
+    legacy["schema_version"] = "scenario-result-v1"
+    del legacy["report_contract"]
+    del legacy["companion_sha256"]
+    legacy["outcomes"] = [
+        {k: v for k, v in row.items() if k not in FUTURE_FIELDS}
+        for row in current["outcomes"]
+    ]
+    legacy_id = config_hash({"domain": "scenario-result-v1", "result": legacy})
+    for companion in (source_document, strict_document):
+        companion["scenario_result_v1_id"] = legacy_id
+    source_bytes = (canonical_config_json(source_document) + "\n").encode()
+    strict_bytes = (canonical_config_json(strict_document) + "\n").encode()
+    current["companion_sha256"] = {
+        "source_quality": sha256(source_bytes).hexdigest(),
+        "strict_reference": sha256(strict_bytes).hexdigest(),
+    }
+    result_document["scenario_result_id"] = config_hash({
+        "domain": "scenario-result-v2", "result": current,
+    })
+    saved_bytes = (canonical_config_json(result_document) + "\n").encode()
+    return saved_bytes, source_bytes, strict_bytes
+
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("entry-after-validity", "ENTRY_AFTER_SETUP_EXPIRY"),
+    ("entry-after-cutoff", "ENTRY_AFTER_SETUP_EXPIRY"),
+    ("invalid-pre-entry-expiry", "EXPIRY_REASON_BOUNDARY_MISMATCH"),
+    ("invalid-cutoff-expiry", "EXPIRY_REASON_BOUNDARY_MISMATCH"),
+    ("overlapping-closed", "CONTRADICTORY_ACTIVE_OVERLAP"),
+    ("duplicate-block", "INVALID_BLOCKED_DECISION"),
+    ("wrong-blocking-state", "INVALID_BLOCKER_LIFECYCLE"),
+    ("stale-blocker", "INVALID_BLOCKER_LIFECYCLE"),
+])
+def test_sf283_review_semantic_rebindings_fail_closed(tmp_path, mutation, expected):
+    """Even correctly rehashed saved outcomes cannot invent runner-impossible trades."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    prices = {1255: ("100", "105", "98", "100")}
+    signals = (251,)
+    if mutation.startswith("invalid-"):
+        prices = {i: ("100", "100.05", "100", "100")
+                  for i in range(1255, 1260)}
+    elif mutation == "overlapping-closed":
+        prices[1265] = ("100", "105", "98", "100")
+        signals = (251, 253)
+    elif mutation in ("duplicate-block", "wrong-blocking-state"):
+        prices = {i: ("100.2", "100.21", "100.1", "100.2")
+                  for i in range(1255, MINUTES)}
+        signals = (251, 252)
+    elif mutation == "stale-blocker":
+        prices = {1265: ("100", "105", "98", "100")}
+        signals = (251, 252)
+    _, _, output, source, strict = _sf283_roundtrip(
+        tmp_path, signals=signals, prices=prices,
+    )
+    document = _decode_canonical(output.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    saved = document["result"]
+    first = saved["outcomes"][0]
+    if mutation == "entry-after-validity":
+        first["valid_until_boundary"] = first["entry_bucket"]
+    elif mutation == "entry-after-cutoff":
+        first["strategy_cutoff_boundary"] = first["entry_bucket"]
+    elif mutation == "invalid-pre-entry-expiry":
+        assert first["state"] == "EXPIRED"
+        first["reason"] = "PRE_ENTRY_INVALIDATION"
+    elif mutation == "invalid-cutoff-expiry":
+        assert first["state"] == "EXPIRED"
+        first["reason"] = "STRATEGY_CUTOFF"
+        first["strategy_cutoff_boundary"] = None
+    elif mutation == "overlapping-closed":
+        second = saved["outcomes"][1]
+        assert first["state"] == second["state"] == "CLOSED"
+        delayed_exit = (
+            datetime.fromisoformat(second["entry_bucket"]) + timedelta(minutes=1)
+        )
+        first["exit_bucket"] = delayed_exit.isoformat()
+        first["terminal_event_bucket"] = delayed_exit.isoformat()
+        first["holding_span_1m_buckets"] = 1 + int(
+            (delayed_exit - datetime.fromisoformat(first["entry_bucket"]))
+            / timedelta(minutes=1)
+        )
+    elif mutation == "duplicate-block":
+        row = saved["blocked_decisions"][0]
+        saved["blocked_decisions"].append(dict(row))
+        saved["blocked_actionable_count"] += 1
+    elif mutation == "wrong-blocking-state":
+        assert saved["blocked_decisions"][0]["blocking_state"] == "OPEN"
+        saved["blocked_decisions"][0]["blocking_state"] = "ARMED"
+    else:
+        assert first["state"] == "CLOSED"
+        row = saved["blocked_decisions"][0]
+        row["interval_start"] = (
+            START + timedelta(minutes=1260)
+        ).isoformat()
+        row["interval_end"] = first["terminal_event_bucket"]
+    saved_bytes, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        document, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match=expected):
+        report_from_saved_bytes(saved_bytes, source_bytes, strict_bytes)
+
+
+def test_sf283_review_decimal_sign_changes_ignore_ambient_precision():
+    """Exact sign changes must precede high-precision subtraction and PF."""
+    from decimal import localcontext
+
+    from signalforge.research.scenario_reportability import _difference, _economics
+
+    large = "12345678901234567890123456789.123456789"
+    smaller = "12345678901234567890123456788.123456788"
+    keys = ("win_rate", "average_r_expectancy", "profit_factor_r",
+            "frequency_per_1000_expected_5m_decisions")
+    left = {k: {"status": "DEFINED", "value": large} for k in keys}
+    right = {k: {"status": "DEFINED", "value": smaller} for k in keys}
+    left["sum_gross_r"] = large
+    right["sum_gross_r"] = smaller
+    left["maximum_cumulative_r_drawdown"] = {"value": large}
+    right["maximum_cumulative_r_drawdown"] = {"value": smaller}
+    left["closed_contained"] = 1
+    right["closed_contained"] = 1
+    with localcontext() as ctx:
+        ctx.prec = 6
+        comparison = _difference(left, right)
+        economics = _economics([
+            {"exit_bucket": (START + timedelta(minutes=1260)).isoformat(),
+             "r": "-" + large, "reason": "STOP",
+             "holding_span_1m_buckets": 1}
+        ], expected=2, observed=2)
+    assert comparison["average_r_expectancy"]["value"] == "1.000000001"
+    assert comparison["sum_gross_r_difference"] == "1.000000001"
+    assert comparison["maximum_cumulative_r_drawdown"]["value"] == "1.000000001"
+    assert economics["sum_gross_r"] == "-" + large
+    assert economics["maximum_cumulative_r_drawdown"]["value"] == large
+
+
+@pytest.mark.parametrize("seconds,microseconds", [(1, 0), (0, 1)])
+def test_sf283_strict_producer_rejects_unaligned_timestamp(
+    tmp_path, seconds, microseconds,
+):
+    """An off-bucket strict assessment cannot be saved then fail its own reader."""
+    source = _source()
+    request = _request(source)
+    result = _runner().run_verified(request)
+    instant = request.is_start + timedelta(seconds=seconds, microseconds=microseconds)
+    destination = tmp_path / "misaligned-strict.json"
+    with pytest.raises(ValueError, match="UTC aligned measured 1m"):
+        write_strict_reference_evidence(
+            result, request, destination,
+            assessed_intervals=(instant,),
+            ambiguous_intervals=(instant,),
+            producer_id="independent-synthetic-strict-test",
+        )
+    assert not destination.exists()
+
+
+def test_sf283_cli_deep_json_returns_sanitized_withheld(tmp_path):
+    """Malformed nested saved JSON must not leak a traceback or partial metrics."""
+    import json
+    import subprocess
+    import sys
+
+    _, _, target, source, strict = _sf283_roundtrip(tmp_path, signals=())
+    target.write_bytes(b"[" * 2000 + b"0" + b"]" * 2000)
+    script = Path(__file__).resolve().parents[3] / "scripts/scenario_report_saved.py"
+    run = subprocess.run(
+        [sys.executable, str(script),
+         "--result", str(target),
+         "--source-companion", str(source),
+         "--strict-companion", str(strict)],
+        capture_output=True, text=True, check=False,
+    )
+    assert run.returncode == 2
+    assert run.stderr == ""
+    assert json.loads(run.stdout) == {
+        "status": "WITHHELD", "reason": "SAVED_EVIDENCE_INVALID_OR_UNAVAILABLE",
+    }
