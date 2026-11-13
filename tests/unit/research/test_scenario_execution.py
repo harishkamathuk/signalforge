@@ -1881,12 +1881,18 @@ def test_sf260_b3_r01_rehashed_stop_after_source_end_withholds(
 
 
 def test_sf260_b3_r01_final_source_minute_stop_is_not_out_of_range(tmp_path):
-    """The final source minute is valid, but its unresolved stop still withholds."""
+    """The final source minute is within the accepted strict stop boundary."""
     from signalforge.research.scenario_reportability import _decode_canonical
 
+    # A 5m signal arms at minute 1295. Keep 1295-1298 above invalidation
+    # and below the trigger, so only the final source minute is ambiguous.
+    prices = {
+        minute: ("100", "100.05", "100", "100")
+        for minute in range(1295, 1299)
+    }
+    prices[1299] = ("100", "105", "98", "100")
     result, source, strict = _sf260_strict_roundtrip(
-        tmp_path, signals=(259,),
-        prices={1299: ("100", "105", "98", "100")},
+        tmp_path, signals=(259,), prices=prices,
     )
     document = _decode_canonical(strict.read_bytes())
     source_end = START + timedelta(minutes=MINUTES)
