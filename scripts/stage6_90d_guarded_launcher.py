@@ -25,6 +25,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The guarded child starts by absolute script path; initialise the verified
+# repository import root before the child calls the source-only verifier.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 SCRIPT = Path(__file__).resolve()
 BASELINE = "2dc6faef5aa00ef358f6c539c69aae8ec79493c6"
 OWNER_WINDOW_DECISION = (
