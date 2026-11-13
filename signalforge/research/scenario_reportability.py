@@ -394,6 +394,66 @@ def compare_profile_reports(reference: dict[str, object],
     }
 
 
+
+def _reconcile_saved_actions(
+    result: dict[str, Any], outcomes: list[dict[str, Any]],
+    start: datetime, finish: datetime,
+) -> None:
+    """Reconcile modeled event trace with each saved opportunity lifecycle.
+
+    The frozen runner emits a crossing action (ENTRY/STOP/TARGET/INVALIDATION)
+    once per modeled event, and optionally records intervening assumed OHLC
+    segments. Only crossing actions count toward event_count. Outcome order is
+    terminal order under its one-active-state lifecycle; it is not evidence of
+    observed intraminute chronology.
+    """
+    rows = _items(result.get("trace"), "trace")
+    actions: list[tuple[datetime, str]] = []
+    previous: datetime | None = None
+    for row in rows:
+        at = _utc(row.get("bucket_start"))
+        _require(start <= at < finish and (previous is None or previous <= at),
+                 "INVALID_TRACE_BUCKET_ORDER")
+        previous = at
+        kind = row.get("action")
+        ordering = row.get("ordering")
+        from_level = _number(row.get("from_level"))
+        to_level = _number(row.get("to_level"))
+        base = row.get("modeled_base")
+        if kind == "ASSUMED_SEGMENT":
+            _require(ordering == "ASSUMED" and base is None,
+                     "INVALID_ASSUMED_SEGMENT")
+        else:
+            _require(kind in ("ENTRY", "STOP", "TARGET", "INVALIDATION")
+                     and ordering in ("ASSUMED", "OBSERVED_OPEN")
+                     and base is not None and _number(base) == to_level,
+                     "INVALID_TRACE_ACTION")
+            if ordering == "OBSERVED_OPEN":
+                _require(from_level == to_level, "INVALID_OBSERVED_OPEN_ACTION")
+            actions.append((at, str(kind)))
+
+    _require(_count(result.get("attempted_trace_count")) == len(rows),
+             "TRACE_COUNT_MISMATCH")
+    _require(_count(result.get("event_count")) == len(actions),
+             "EVENT_COUNT_MISMATCH")
+
+    expected: list[tuple[datetime, str]] = []
+    for outcome in outcomes:
+        state = outcome["state"]
+        entry = outcome.get("entry_bucket")
+        attempted = outcome.get("attempted_entry_bucket")
+        if entry is not None:
+            expected.append((_utc(entry), "ENTRY"))
+        elif state == "REJECTED" and attempted is not None:
+            expected.append((_utc(attempted), "ENTRY"))
+        if state == "CLOSED":
+            expected.append((_utc(outcome["exit_bucket"]), str(outcome["reason"])))
+        elif state == "EXPIRED" and outcome["reason"] == "PRE_ENTRY_INVALIDATION":
+            expected.append((_utc(outcome["terminal_event_bucket"]), "INVALIDATION"))
+    _require(actions == expected, "TRACE_OUTCOME_ACTION_MISMATCH")
+
+
+
 def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                             strict_bytes: bytes) -> dict[str, object]:
     """Rebuild a complete qualified conditional report from saved bytes alone.
@@ -467,6 +527,10 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     entry_counts: Counter[str] = Counter()
     exit_counts: Counter[str] = Counter()
     lifecycle: dict[str, Counter[str]] = {"IS": Counter(), "OOS": Counter()}
+    expiry_signal: dict[str, Counter[str]] = {"IS": Counter(), "OOS": Counter()}
+    expiry_terminal: dict[str, Counter[str]] = {
+        "IS": Counter(), "OOS": Counter(), "AT_MEASURED_END": Counter(),
+    }
     seen: set[str] = set()
     seen_signals: set[datetime] = set()
     by_opportunity: dict[str, dict[str, Any]] = {}
@@ -586,6 +650,11 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                     _require(terminal_at < valid_until and
                              (cutoff_at is None or terminal_at < cutoff_at),
                              "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                assert isinstance(reason, str)
+                expiry_signal[sw][reason] += 1
+                event_window = ("AT_MEASURED_END" if terminal_at == finish else
+                                _window_for_bucket(terminal_at, start, split, finish))
+                expiry_terminal[event_window][reason] += 1
             if state == "REJECTED":
                 _require(not entered and outcome.get("reason") ==
                          "NON_POSITIVE_OR_UNSUPPORTED_RISK"
@@ -599,6 +668,9 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
              "CONTRADICTORY_TERMINAL_ACTIVE_STATE")
     _require(_count(result.get("attempted_outcome_count")) == len(outcomes),
              "OUTCOME_COUNT_MISMATCH")
+    # Saved result hashes authenticate bytes, not their internal consistency:
+    # cross-check trace crossings and counters before any economic reporting.
+    _reconcile_saved_actions(result, outcomes, start, finish)
 
     blocked = _items(result.get("blocked_decisions"), "blocked")
     blocked_counts: Counter[str] = Counter()
@@ -653,6 +725,9 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
             "accepted_entry_events": entry_counts[name],
             "modeled_exit_events": exit_counts[name],
             "lifecycle_by_signal_window": dict(sorted(lifecycle[name].items())),
+            "expiry_reasons_by_signal_window": {
+                reason: expiry_signal[name][reason] for reason in EXPIRY
+            },
             "source_quality": quality[name],
             "strict_reference": ambiguity[name],
             "cross_window_closed_excluded": cohort_counts["CROSS_WINDOW"],
@@ -666,6 +741,11 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         "profile_id": profile_id,
         "comparison_base_identity": comparison_base_identity,
         "windows": reports,
+        "expiry_reasons_by_terminal_event_window": {
+            window: {reason: expiry_terminal[window][reason] for reason in EXPIRY}
+            for window in ("IS", "OOS", "AT_MEASURED_END")
+        },
+        "expiry_time_basis": "SAVED_TERMINAL_UTC_BOUNDARY_HALF_OPEN_WINDOWS",
         "closed_cohort_reconciliation": {
             "total_closed": sum(cohort_counts.values()),
             "IS_CONTAINED": cohort_counts["IS"],
