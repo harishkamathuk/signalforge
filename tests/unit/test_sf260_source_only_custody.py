@@ -49,7 +49,7 @@ def test_independent_receipt_has_real_newline_and_0600(monkeypatch, tmp_path):
     path = tmp_path / "independent-verification.json"
     data = path.read_bytes()
     assert data.endswith(b"\n")
-    assert not data.endswith(b"\\n")
+    assert not data.endswith(b"\n")
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     decoded, digest = independent.read_canonical(path)
     assert len(digest) == 64
@@ -66,7 +66,7 @@ def test_independent_receipt_has_real_newline_and_0600(monkeypatch, tmp_path):
 def test_source_only_operator_rejects_unmerged_branch(monkeypatch):
     monkeypatch.setattr(
         preflight.subprocess, "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout="feat/not-reviewed\\n"),
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="feat/not-reviewed\n"),
     )
     with pytest.raises(preflight.PreflightBlocked, match="merged develop"):
         preflight.git_revision()
@@ -78,11 +78,11 @@ def test_source_only_checkout_rejects_untracked_file(monkeypatch):
     def fake_run(args, **_kwargs):
         commands.append(args)
         if "symbolic-ref" in args:
-            return SimpleNamespace(stdout="develop\\n", returncode=0)
+            return SimpleNamespace(stdout="develop\n", returncode=0)
         if "rev-parse" in args:
-            return SimpleNamespace(stdout="a" * 40 + "\\n", returncode=0)
+            return SimpleNamespace(stdout="a" * 40 + "\n", returncode=0)
         if "status" in args:
-            return SimpleNamespace(stdout="?? unexpected.py\\n", returncode=0)
+            return SimpleNamespace(stdout="?? unexpected.py\n", returncode=0)
         pytest.fail("unexpected git command")
 
     monkeypatch.setattr(preflight.subprocess, "run", fake_run)
@@ -103,6 +103,13 @@ def test_absolute_entrypoint_imports_without_operator_pythonpath(script, tmp_pat
     root = Path(__file__).resolve().parents[2]
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
+    # These subprocesses test import bootstrapping, not subprocess coverage.
+    # Prevent pytest-cov from combining incompatible child coverage formats.
+    for name in (
+        "COV_CORE_SOURCE", "COV_CORE_CONFIG", "COV_CORE_DATAFILE",
+        "COVERAGE_PROCESS_START", "COVERAGE_FILE",
+    ):
+        env.pop(name, None)
     result = subprocess.run(
         [sys.executable, str(root / "scripts" / script), "--help"],
         cwd=tmp_path, env=env, capture_output=True, text=True,
