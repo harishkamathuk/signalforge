@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from signalforge.config.identity import canonical_config_json, config_hash
-from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.scenario_execution import (
     ScenarioResearchRequest,
     ScenarioResearchResult,
@@ -83,7 +82,7 @@ def write_source_quality_evidence(
     This producer is independent of the scenario outcome/trace simulation.
     """
     _require_matching_request(request, result)
-    source: RawDiagnosticSource = request.source
+    source = request.source
     ds = source.dataset
     starts = [bar.interval.start for bar in ds.bars]
     observed = Counter(starts)
