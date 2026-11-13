@@ -1214,10 +1214,11 @@ def test_sf283_review_semantic_rebindings_fail_closed(tmp_path, mutation, expect
                   for i in range(1255, MINUTES)}
         signals = (251, 252)
     elif mutation == "stale-blocker":
-        # Entry at 1255, still OPEN at the 1260 blocked decision, closes 1265.
+        # Genuine block at t=1260, then modeled close in bucket starting 1260.
+        # Mutate the block to t=1265, *after* the terminal modeled close.
         prices = {i: ("100.2", "100.21", "100.1", "100.2")
                   for i in range(1255, MINUTES)}
-        prices[1265] = ("100.2", "105", "100.1", "100.2")
+        prices[1260] = ("100.2", "105", "100.1", "100.2")
         signals = (251, 252)
     _, _, output, source, strict = _sf283_roundtrip(
         tmp_path, signals=signals, prices=prices,
@@ -1263,7 +1264,9 @@ def test_sf283_review_semantic_rebindings_fail_closed(tmp_path, mutation, expect
         row["interval_start"] = (
             START + timedelta(minutes=1260)
         ).isoformat()
-        row["interval_end"] = first["terminal_event_bucket"]
+        row["interval_end"] = (
+            START + timedelta(minutes=1265)
+        ).isoformat()
     saved_bytes, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
         document, source_doc, strict_doc,
     )
@@ -1345,3 +1348,19 @@ def test_sf283_cli_deep_json_returns_sanitized_withheld(tmp_path):
     assert json.loads(run.stdout) == {
         "status": "WITHHELD", "reason": "SAVED_EVIDENCE_INVALID_OR_UNAVAILABLE",
     }
+
+
+def test_sf283_runner_block_and_close_at_same_completed_boundary(tmp_path):
+    """A block at decision-end t precedes a close in the next bucket starting t."""
+    prices = {i: ("100.2", "100.21", "100.1", "100.2")
+              for i in range(1255, MINUTES)}
+    prices[1260] = ("100.2", "105", "100.1", "100.2")
+    result, report, *_ = _sf283_roundtrip(
+        tmp_path, signals=(251, 252), prices=prices,
+    )
+    assert result.outcomes[0].state == "CLOSED"
+    assert result.outcomes[0].exit_bucket == START + timedelta(minutes=1260)
+    assert result.blocked_decisions[0].interval_end == result.outcomes[0].exit_bucket
+    assert result.blocked_decisions[0].blocking_state == "OPEN"
+    assert report["windows"]["IS"]["actionable_blocked_signals"] == 1
+    assert report["closed_cohort_reconciliation"]["total_closed"] == 1
