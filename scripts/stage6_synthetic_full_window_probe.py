@@ -216,7 +216,25 @@ def _source(minutes: int, *, mode: str) -> Any:
     )
 
 
-def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[str, object]:
+def _split(minutes: int, *, warmup_minutes: int | None = None,
+           is_minutes: int | None = None) -> tuple[int, int]:
+    """Resolve an explicit synthetic split, preserving historic CLI defaults."""
+    if (warmup_minutes is None) != (is_minutes is None):
+        raise ProbeBlocked("warmup and IS minutes must be supplied together")
+    default_warmup = 1440 if minutes == FULL_MINUTES else 1250
+    default_is = FULL_IS_CANDLES * 5 if minutes == FULL_MINUTES else 5
+    warmup = default_warmup if warmup_minutes is None else warmup_minutes
+    measured_is = default_is if is_minutes is None else is_minutes
+    if (warmup < 1250 or measured_is < 5
+            or warmup % 5 or measured_is % 5
+            or minutes - warmup - measured_is < 5):
+        raise ProbeBlocked("invalid synthetic warmup/IS/OOS split")
+    return warmup, measured_is
+
+
+def _execute(minutes: int, *, mode: str, scratch: Path | None = None,
+             warmup_minutes: int | None = None,
+             is_minutes: int | None = None) -> dict[str, object]:
     """Run the unchanged synthetic runner, optionally measuring canonical output."""
     from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
     from signalforge.config.strategy_registry import (
@@ -273,13 +291,11 @@ def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[st
     else:
         runner = ScenarioResearchRunner()  # Real frozen BTC strategy and indicators.
 
-    warmup = 1440 if minutes == FULL_MINUTES else 1250
-    is_start = START + timedelta(minutes=warmup)
-    oos_start = (
-        is_start + timedelta(minutes=FULL_IS_CANDLES * 5)
-        if minutes == FULL_MINUTES
-        else is_start + timedelta(minutes=5)
+    warmup, measured_is = _split(
+        minutes, warmup_minutes=warmup_minutes, is_minutes=is_minutes,
     )
+    is_start = START + timedelta(minutes=warmup)
+    oos_start = is_start + timedelta(minutes=measured_is)
     request = ScenarioResearchRequest(
         mode=ScenarioMode.SCENARIO_RESEARCH, source=source,
         strategy_selection=strategy_selection,
@@ -333,6 +349,11 @@ def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[st
         "strategy_mode": "frozen_btc_baseline_synthetic_ohlc" if mode == "quiet"
                          else "synthetic_scheduled_signal_override_NOT_frozen_strategy",
         "source_minutes": minutes,
+        "warmup_minutes": warmup,
+        "is_minutes": measured_is,
+        "oos_minutes": minutes - warmup - measured_is,
+        "synthetic_is_start": is_start.isoformat(),
+        "synthetic_oos_start": oos_start.isoformat(),
         "runner_checkout_git_sha": git_head,
         "loaded_runner_file": runner_file,
         "loaded_runner_sha256": runner_sha256,
@@ -360,7 +381,9 @@ def _execute(minutes: int, *, mode: str, scratch: Path | None = None) -> dict[st
 def _child(minutes: int, *, mode: str, vm_limit_gib: int,
            cpu_limit_seconds: int, scratch: Path | None = None,
            max_output_mib: int = 512, handoff_fd: int | None = None,
-           parent_pid: int | None = None) -> int:
+           parent_pid: int | None = None,
+           warmup_minutes: int | None = None,
+           is_minutes: int | None = None) -> int:
     """Contain synthetic computation before importing any SignalForge module."""
     if scratch is not None:
         # Hidden CLI flags are not authority. Only a live parent that passed
@@ -383,7 +406,10 @@ def _child(minutes: int, *, mode: str, vm_limit_gib: int,
     _assert_synthetic_only()
     if scratch is not None:
         _private_scratch(scratch)  # Reject invalid scratch before constructing a source.
-    report = _execute(minutes, mode=mode, scratch=scratch)
+    report = _execute(
+        minutes, mode=mode, scratch=scratch,
+        warmup_minutes=warmup_minutes, is_minutes=is_minutes,
+    )
     print(json.dumps(report, sort_keys=True), flush=True)
     return 0 if report["status"] == "SYNTHETIC_RUNNER_COMPLETED" else 2
 
@@ -391,8 +417,11 @@ def _child(minutes: int, *, mode: str, vm_limit_gib: int,
 def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
              vm_limit_gib: int, timeout_seconds: int,
              min_free_gib: float, serialize_result: bool = False,
-             max_output_mib: int = 512) -> dict[str, object]:
+             max_output_mib: int = 512,
+             warmup_minutes: int | None = None,
+             is_minutes: int | None = None) -> dict[str, object]:
     """Run one bounded child; clean ephemeral result even on a worker safety stop."""
+    _split(minutes, warmup_minutes=warmup_minutes, is_minutes=is_minutes)
     available = _available_ram()
     reserve = int(min_free_gib * GIB)
     if available < max_rss_gib * GIB + reserve:
@@ -405,6 +434,9 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
                "--max-rss-gib", str(max_rss_gib),
                "--vm-limit-gib", str(vm_limit_gib),
                "--timeout-seconds", str(timeout_seconds)]
+    if warmup_minutes is not None and is_minutes is not None:
+        command.extend(["--warmup-minutes", str(warmup_minutes),
+                        "--is-minutes", str(is_minutes)])
     if serialize_result:
         # Never even create a scratch directory inside the Git or evidence trees,
         # including a user-modified TMPDIR on the operator workstation.
@@ -536,6 +568,10 @@ def main(argv: list[str] | None = None) -> int:
     """Run guarded synthetic-only full-window source and runner memory measurement."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--minutes", type=int, default=FULL_MINUTES)
+    parser.add_argument("--warmup-minutes", type=int, default=None,
+                        help="explicit synthetic warm-up minutes (with --is-minutes)")
+    parser.add_argument("--is-minutes", type=int, default=None,
+                        help="explicit synthetic IS minutes (with --warmup-minutes)")
     parser.add_argument("--mode", choices=("quiet", "scheduled", "both"), default="both")
     parser.add_argument("--max-rss-gib", type=int, choices=(1, 2, 3), default=3)
     parser.add_argument("--vm-limit-gib", type=int, choices=(2, 3, 4, 5), default=4)
@@ -562,6 +598,13 @@ def main(argv: list[str] | None = None) -> int:
         or (not (args.child and args.serialize_result) and (
             args.child_handoff_fd is not None or args.child_parent_pid is not None))):
         parser.error("invalid bounded synthetic probe settings")
+    try:
+        warmup, measured_is = _split(
+            args.minutes, warmup_minutes=args.warmup_minutes,
+            is_minutes=args.is_minutes,
+        )
+    except ProbeBlocked as exc:
+        parser.error(str(exc))
     if args.child:
         if args.mode == "both":
             parser.error("internal child requires one mode")
@@ -572,7 +615,9 @@ def main(argv: list[str] | None = None) -> int:
                           scratch=args.child_scratch,
                           max_output_mib=args.max_output_mib,
                           handoff_fd=args.child_handoff_fd,
-                          parent_pid=args.child_parent_pid)
+                          parent_pid=args.child_parent_pid,
+                          warmup_minutes=args.warmup_minutes,
+                          is_minutes=args.is_minutes)
         except (MemoryError, ValueError, OSError) as exc:
             print(json.dumps({"status": "SYNTHETIC_WORKER_BLOCKED",
                               "error_type": type(exc).__name__,
@@ -586,6 +631,7 @@ def main(argv: list[str] | None = None) -> int:
             vm_limit_gib=args.vm_limit_gib,
             timeout_seconds=args.timeout_seconds, min_free_gib=args.min_free_gib,
             serialize_result=args.serialize_result, max_output_mib=args.max_output_mib,
+            warmup_minutes=args.warmup_minutes, is_minutes=args.is_minutes,
         )
         results.append(result)
         if result["status"] != "SYNTHETIC_RUNNER_COMPLETED":
@@ -596,6 +642,13 @@ def main(argv: list[str] | None = None) -> int:
                   else "SYNTHETIC_RUNNER_FEASIBILITY_NOT_ESTABLISHED",
         "full_window_minutes": FULL_MINUTES,
         "requested_minutes": args.minutes,
+        "synthetic_warmup_minutes": warmup,
+        "synthetic_is_minutes": measured_is,
+        "synthetic_oos_minutes": args.minutes - warmup - measured_is,
+        "synthetic_is_start": (START + timedelta(minutes=warmup)).isoformat(),
+        "synthetic_oos_start": (
+            START + timedelta(minutes=warmup + measured_is)
+        ).isoformat(),
         "frozen_caps_unchanged": {"max_bars": FROZEN_BARS,
                                   "max_events": FROZEN_EVENTS,
                                   "max_outcomes": FROZEN_OUTCOMES,

@@ -52,6 +52,106 @@ def test_unsafe_or_invalid_requests_fail_before_worker(args):
     assert e.value.code == 2
 
 
+def test_declared_ninety_day_synthetic_grid_and_legacy_defaults():
+    assert probe._split(probe.FULL_MINUTES) == (1440, 349_920)
+    assert probe._split(1300) == (1250, 5)
+    warmup, measured_is = probe._split(
+        129_600, warmup_minutes=1440, is_minutes=86_400,
+    )
+    assert (warmup, measured_is, 129_600 - warmup - measured_is) == (
+        1440, 86_400, 41_760,
+    )
+    assert measured_is // 5 == 17_280
+    assert (129_600 - warmup - measured_is) // 5 == 8_352
+
+
+@pytest.mark.parametrize("warmup,is_length", [
+    (None, 86_400), (1440, None), (1245, 86_400),
+    (1441, 86_400), (1440, 86_401), (1440, 0),
+    (1440, 128_160), (1440, 200_000),
+])
+def test_declared_synthetic_split_rejects_invalid_inputs(warmup, is_length):
+    with pytest.raises(probe.ProbeBlocked):
+        probe._split(129_600, warmup_minutes=warmup, is_minutes=is_length)
+
+
+def test_direct_worker_launch_rejects_incomplete_split(monkeypatch):
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("invalid split must fail before spawning child")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    with pytest.raises(probe.ProbeBlocked, match="supplied together"):
+        probe._run_one(
+            minutes=129_600, mode="scheduled",
+            max_rss_gib=3, vm_limit_gib=4,
+            timeout_seconds=1200, min_free_gib=0.75,
+            warmup_minutes=1440,
+        )
+
+
+def test_parent_passes_explicit_split_to_child(monkeypatch):
+    captured: list[str] = []
+
+    class CompletedChild:
+        returncode = 0
+        pid = 999999
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=None):
+            return b'{"synthetic_only":true,"status":"SYNTHETIC_RUNNER_COMPLETED"}', b""
+
+    def spawn(command, **_kwargs):
+        captured.extend(command)
+        return CompletedChild()
+
+    monkeypatch.setattr(probe, "_available_ram", lambda: 10 * probe.GIB)
+    monkeypatch.setattr(probe.subprocess, "Popen", spawn)
+    result = probe._run_one(
+        minutes=129_600, mode="scheduled", max_rss_gib=3,
+        vm_limit_gib=4, timeout_seconds=1200, min_free_gib=0.75,
+        warmup_minutes=1440, is_minutes=86_400,
+    )
+    assert result["status"] == "SYNTHETIC_RUNNER_COMPLETED"
+    assert captured[captured.index("--warmup-minutes") + 1] == "1440"
+    assert captured[captured.index("--is-minutes") + 1] == "86400"
+
+
+@pytest.mark.parametrize("args", [
+    ["--minutes", "129600", "--warmup-minutes", "1440"],
+    ["--minutes", "129600", "--is-minutes", "86400"],
+    ["--minutes", "129600", "--warmup-minutes", "1440", "--is-minutes", "86401"],
+    ["--minutes", "129600", "--warmup-minutes", "1440", "--is-minutes", "128160"],
+])
+def test_invalid_declared_split_rejected_before_worker(args):
+    with pytest.raises(SystemExit) as exc:
+        probe.main(args)
+    assert exc.value.code == 2
+
+
+def test_explicit_synthetic_split_real_runner_small_smoke():
+    """Check that the child runner measures the declared split, not merely the CLI."""
+    run = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--minutes", "1320", "--warmup-minutes", "1250",
+            "--is-minutes", "35", "--mode", "quiet",
+            "--max-rss-gib", "1", "--vm-limit-gib", "2",
+            "--timeout-seconds", "120", "--min-free-gib", "0.5",
+        ],
+        capture_output=True, text=True, check=False, timeout=150,
+    )
+    assert run.returncode == 0, (run.stdout[-2000:], run.stderr[-2000:])
+    payload = json.loads(run.stdout)
+    assert payload["synthetic_is_minutes"] == 35
+    assert payload["synthetic_oos_minutes"] == 35
+    child = payload["results"][0]
+    assert child["complete_grid"] is True
+    assert child["expected_is_candles"] == child["measured_is_candles"] == 7
+    assert child["expected_oos_candles"] == child["measured_oos_candles"] == 7
+
+
 def test_low_memory_snapshot_blocks_before_launch(monkeypatch):
     monkeypatch.setattr(probe, "_available_ram", lambda: 1024**3)
     result = probe._run_one(
