@@ -1564,3 +1564,179 @@ def test_sf283_s13_duplicate_close_bucket_in_rehashed_saved_result_is_rejected(
     )
     with pytest.raises(ReportabilityError):
         report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+# SF-260 B3: fully independent ADR-011 strict-coverage provenance.
+def _sf260_strict_roundtrip(
+    tmp_path: Path, *, signals: tuple[int, ...] = (),
+    prices: dict[int, tuple[str, str, str, str]] | None = None,
+    split_minute: int = 1260,
+):
+    """Run synthetic scenario and separate strict engines with the same strategy."""
+    from signalforge.research.strict_reference_producer import (
+        produce_strict_reference_evidence,
+    )
+
+    source = _source(overrides=prices)
+    request = replace(
+        _request(source), oos_start=START + timedelta(minutes=split_minute),
+    )
+    scenario = _runner(*signals).run_verified(request)
+    strict_registry = StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _SignalAt(signals),
+        ),
+    ))
+    source_path = tmp_path / "source-quality.json"
+    strict_path = tmp_path / "strict-reference.json"
+    output = tmp_path / "scenario-result.json"
+    write_source_quality_evidence(request, scenario, source_path)
+    produce_strict_reference_evidence(
+        request, scenario, strict_path,
+        runner=HistoricalBarExecutionRunner(registry=strict_registry),
+    )
+    scenario.write_reportable_new(
+        output, source_companion=source_path, strict_companion=strict_path,
+    )
+    return output, source_path, strict_path
+
+
+def test_sf260_b3_zero_eligible_is_verified_not_missing(tmp_path):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    proof = strict_doc["strict_coverage_proof"]
+    assert strict_doc["assessment"] == "NOT_ASSESSED"
+    for window, expected in (("IS", 10), ("OOS", 40)):
+        row = proof["windows"][window]
+        assert row["status"] == "ASSESSED_ZERO_ELIGIBLE"
+        assert row["expected_eligible"] == 0
+        assert row["known_ineligible"] == expected
+        assert row["eligibility_indeterminate"] == 0
+        assert row["eligibility_1m_mask"] == "I" * expected
+        assert row["assessed_1m_mask"] == "0" * expected
+    report = report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )
+    assert report["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
+    assert report["windows"]["IS"]["strict_reference"]["assessment"] == (
+        "ASSESSED_ZERO_ELIGIBLE"
+    )
+
+
+def test_sf260_b3_terminal_minute_is_eligible_and_next_is_ineligible(tmp_path):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    # Strict ARMED at 1255 sees triggering and invalidation reach.
+    # Synthetic observed-open invalidation resolves before any entry here.
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("98", "100", "97", "98")},
+    )
+    proof = _decode_canonical(strict.read_bytes())["strict_coverage_proof"]
+    row = proof["windows"]["IS"]
+    assert row["eligibility_1m_mask"][5] == "E"
+    assert row["eligibility_1m_mask"][6] == "I"
+    assert row["assessed_1m_mask"][5] == "1"
+    assert row["expected_eligible"] == row["assessed"]
+    assert row["eligibility_indeterminate"] == 0
+    report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )
+
+
+def test_sf260_b3_split_signal_enters_eligibility_only_in_oos(tmp_path):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, _, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(252,), split_minute=1260,
+        prices={1260: ("98", "100", "97", "98")},
+    )
+    proof = _decode_canonical(strict.read_bytes())["strict_coverage_proof"]
+    assert proof["windows"]["IS"]["eligibility_1m_mask"] == "I" * 10
+    assert proof["windows"]["OOS"]["eligibility_1m_mask"][0] == "E"
+
+
+def test_sf260_b3_early_open_possible_stops_and_withholds(tmp_path):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    doc = _decode_canonical(strict.read_bytes())
+    proof = doc["strict_coverage_proof"]
+    assert proof["strict_terminated_early"] is True
+    assert proof["stop"]["certainty"] == "bounded_ambiguous"
+    assert proof["windows"]["IS"]["eligibility_1m_mask"][5] == "E"
+    assert proof["windows"]["IS"]["assessed_1m_mask"][5] == "1"
+    assert proof["windows"]["IS"]["ambiguous"] == 1
+    assert proof["windows"]["IS"]["eligibility_1m_mask"][6:] == "?" * 4
+    assert proof["windows"]["IS"]["expected_eligible"] is None
+    assert proof["windows"]["OOS"]["eligibility_indeterminate"] == 40
+    assert proof["windows"]["OOS"]["known_eligible"] == 0
+    with pytest.raises(ReportabilityError, match="STRICT_COVERAGE_INCOMPLETE_WITHHOLD"):
+        report_from_saved_bytes(
+            result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+        )
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("no-proof", "STRICT_COVERAGE_PROOF_REQUIRED"),
+    ("wrong-binding", "STRICT_PROVENANCE_MISMATCH"),
+    ("wrong-eligible-count", "STRICT_ELIGIBILITY_COUNT_MISMATCH"),
+    ("phantom-eligible", "INVALID_STRICT_ELIGIBILITY_MASK"),
+    ("wrong-expected", "STRICT_EXPECTED_ELIGIBILITY_UNPROVEN"),
+    ("wrong-status", "INVALID_STRICT_SCOPE_STATUS"),
+    ("fabricated-incomplete", "INVALID_STRICT_INCOMPLETE_REASON"),
+])
+def test_sf260_b3_rehashed_contradictions_withhold(
+    tmp_path, mutation, reason,
+):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    doc = _decode_canonical(result.read_bytes())
+    src = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    proof = strict_doc["strict_coverage_proof"]
+    is_row = proof["windows"]["IS"]
+    if mutation == "no-proof":
+        del strict_doc["strict_coverage_proof"]
+    elif mutation == "wrong-binding":
+        proof["binding"]["strategy"]["version"] = "forged"
+    elif mutation == "wrong-eligible-count":
+        is_row["known_eligible"] = 1
+    elif mutation == "phantom-eligible":
+        is_row["assessed_1m_mask"] = "1" + is_row["assessed_1m_mask"][1:]
+    elif mutation == "wrong-expected":
+        is_row["expected_eligible"] = 1
+    elif mutation == "wrong-status":
+        is_row["status"] = "COMPLETE"
+    else:
+        is_row["incomplete_reasons"] = ["fake"]
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        doc, src, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match=reason):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+def test_sf260_b3_repeatable_bytes_and_legacy_identity_unchanged(tmp_path):
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    a = _sf260_strict_roundtrip(first, signals=())
+    b = _sf260_strict_roundtrip(second, signals=())
+    assert [x.read_bytes() for x in a] == [x.read_bytes() for x in b]
+    saved = _decode_canonical(a[0].read_bytes())
+    assert saved["result"]["schema_version"] == "scenario-result-v2"
+    assert saved["result"]["scenario_run_id"] == saved[
+        "manifest"
+    ]["source"]["dataset_id"] or saved["result"]["scenario_run_id"]
+    assert saved["result"]["execution_valid"] is False
