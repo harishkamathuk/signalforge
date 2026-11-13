@@ -1364,3 +1364,193 @@ def test_sf283_runner_block_and_close_at_same_completed_boundary(tmp_path):
     assert result.blocked_decisions[0].blocking_state == "OPEN"
     assert report["windows"]["IS"]["actionable_blocked_signals"] == 1
     assert report["closed_cohort_reconciliation"]["total_closed"] == 1
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("remove-crossing-with-rebalanced-counters", "TRACE_OUTCOME_ACTION_MISMATCH"),
+    ("change-target-to-stop", "TRACE_OUTCOME_ACTION_MISMATCH"),
+    ("wrong-event-counter", "EVENT_COUNT_MISMATCH"),
+    ("wrong-trace-counter", "TRACE_COUNT_MISMATCH"),
+])
+def test_sf283_s16_saved_trace_contradicts_closed_economics(
+    tmp_path, mutation, reason,
+):
+    """Rehashed v2 outcomes must still agree with *saved* crossing events."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, _, target, source, strict = _sf283_roundtrip(
+        tmp_path, prices={1255: ("100", "105", "98", "100")},
+    )
+    doc = _decode_canonical(target.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    result = doc["result"]
+    assert result["outcomes"][0]["state"] == "CLOSED"
+    crossings = [row for row in result["trace"]
+                 if row["action"] in ("ENTRY", "STOP", "TARGET", "INVALIDATION")]
+    assert [row["action"] for row in crossings] == ["ENTRY", "TARGET"]
+    if mutation == "remove-crossing-with-rebalanced-counters":
+        result["trace"] = [row for row in result["trace"]
+                           if row["action"] != "TARGET"]
+        result["attempted_trace_count"] -= 1
+        result["event_count"] -= 1
+    elif mutation == "change-target-to-stop":
+        next(row for row in result["trace"]
+             if row["action"] == "TARGET")["action"] = "STOP"
+    elif mutation == "wrong-event-counter":
+        result["event_count"] += 1
+    else:
+        result["attempted_trace_count"] += 1
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        doc, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match=reason):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+def test_sf283_s15_real_runner_saved_bytes_independent_trade_rich_oracle(tmp_path):
+    """Four actual runner closes; full-window economic oracle is handwritten.
+
+    Complete 5m signals end 1255, 1265, 1275, 1285. The next 1m buckets
+    offer modeled entry at 100.1 with stop 99.95; high 105 yields +1.5R,
+    while high 100.2 then low 98 yields -1R under the real O-H-L-C policy.
+    IS: [+1.5, -1] => +0.25R expectancy, PF 1.5, max DD 1R.
+    OOS: [-1, -1] => -1R expectancy, PF 0, max DD 2R.
+    The oracle is intentionally not derived from the reporting implementation.
+    """
+    prices = {
+        1255: ("100", "105", "98", "100"),
+        1265: ("100", "100.2", "98", "100"),
+        1275: ("100", "100.2", "98", "100"),
+        1285: ("100", "100.2", "98", "100"),
+    }
+    result, report, target, source, strict = _sf283_roundtrip(
+        tmp_path, signals=(251, 253, 255, 257),
+        prices=prices, split_minute=1270,
+    )
+    assert len(result.outcomes) == 4
+    assert [o.state for o in result.outcomes] == ["CLOSED"] * 4
+    assert [str(o.r) for o in result.outcomes] == ["1.5", "-1", "-1", "-1"]
+    assert result.event_count == 8
+    # Discard result and previous report before full saved-byte reconstruction.
+    del result, report
+    rebuilt = report_from_saved_bytes(
+        target.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )
+    assert rebuilt["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
+    assert rebuilt["closed_cohort_reconciliation"] == {
+        "total_closed": 4, "IS_CONTAINED": 2,
+        "OOS_CONTAINED": 2, "CROSS_WINDOW": 0,
+    }
+    is_window = rebuilt["windows"]["IS"]
+    oos_window = rebuilt["windows"]["OOS"]
+    is_economics = is_window["economics"]
+    oos_economics = oos_window["economics"]
+    assert is_economics["closed_contained"] == 2
+    assert is_economics["wins"] == 1
+    assert is_economics["win_rate"]["value"] == "0.5"
+    assert is_economics["average_r_expectancy"]["value"] == "0.25"
+    assert is_economics["profit_factor_r"]["value"] == "1.5"
+    assert is_economics["maximum_cumulative_r_drawdown"]["value"] == "1"
+    assert is_economics["sum_gross_r"] == "0.5"
+    assert is_economics["realised_r_sorted"] == ["-1", "1.5"]
+    assert is_economics["exit_reason_counts"] == {"STOP": 1, "TARGET": 1}
+    assert is_economics["holding_span_1m_buckets_sorted"] == [1, 1]
+    assert is_economics["expected_completed_5m_decisions"] == 4
+    assert is_economics["frequency_per_1000_expected_5m_decisions"]["value"] == "500"
+    assert oos_economics["closed_contained"] == 2
+    assert oos_economics["wins"] == 0
+    assert oos_economics["win_rate"]["value"] == "0"
+    assert oos_economics["average_r_expectancy"]["value"] == "-1"
+    assert oos_economics["profit_factor_r"]["value"] == "0"
+    assert oos_economics["maximum_cumulative_r_drawdown"]["value"] == "2"
+    assert oos_economics["sum_gross_r"] == "-2"
+    assert oos_economics["realised_r_sorted"] == ["-1", "-1"]
+    assert oos_economics["exit_reason_counts"] == {"STOP": 2}
+    assert oos_economics["expected_completed_5m_decisions"] == 6
+    assert oos_economics["frequency_per_1000_expected_5m_decisions"]["value"] == (
+        "333.3333333333333333333333333"
+    )
+    assert is_window["actionable_accepted_signals"] == 2
+    assert oos_window["actionable_accepted_signals"] == 2
+    assert is_window["accepted_entry_events"] == 2
+    assert oos_window["accepted_entry_events"] == 2
+    assert is_window["modeled_exit_events"] == 2
+    assert oos_window["modeled_exit_events"] == 2
+    assert is_window["source_quality"]["expected_intervals"] == 20
+    assert oos_window["source_quality"]["expected_intervals"] == 30
+    assert is_window["strict_reference"]["eligible_intervals"] == 20
+    assert oos_window["strict_reference"]["eligible_intervals"] == 30
+    compared = rebuilt["comparisons"]["OOS_MINUS_IS"]
+    assert compared["average_r_expectancy"]["value"] == "-1.25"
+    assert compared["profit_factor_r"]["value"] == "-1.5"
+    assert compared["win_rate"]["value"] == "-0.5"
+    assert compared["maximum_cumulative_r_drawdown"]["value"] == "1"
+    assert compared["sum_gross_r_difference"] == "-2.5"
+
+
+def test_sf283_s06_all_expiry_reasons_are_reported_by_signal_and_terminal(tmp_path):
+    """Independent event-time and signal cohort expiry tables reconcile S06."""
+    cases = [
+        ("PRE_ENTRY_INVALIDATION",
+         {1255: ("98", "101", "97.9", "100")}, None, "IS"),
+        ("VALIDITY_WINDOW_END",
+         {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)},
+         None, "OOS"),
+        ("STRATEGY_CUTOFF",
+         {i: ("100", "100.05", "100", "100") for i in range(1255, 1260)},
+         ScenarioResearchRunner(registry=StrategyRegistry((
+             StrategyRegistration(
+                 SEL.strategy_id, SEL.strategy_version,
+                 lambda params: _EarlyCutoff((251,)),
+             ),
+         ))), "IS"),
+    ]
+    for index, (reason, prices, runner, event_window) in enumerate(cases):
+        folder = tmp_path / str(index)
+        folder.mkdir()
+        actual, report, *_ = _sf283_roundtrip(
+            folder, prices=prices, runner=runner,
+        )
+        assert actual.outcomes[0].reason == reason
+        assert report["windows"]["IS"]["lifecycle_by_signal_window"] == {
+            "EXPIRED": 1,
+        }
+        assert report["windows"]["IS"]["expiry_reasons_by_signal_window"] == {
+            k: int(k == reason)
+            for k in ("VALIDITY_WINDOW_END", "STRATEGY_CUTOFF",
+                      "PRE_ENTRY_INVALIDATION")
+        }
+        for window, totals in report["expiry_reasons_by_terminal_event_window"].items():
+            for key, value in totals.items():
+                assert value == int(window == event_window and key == reason)
+        assert report["expiry_time_basis"] == (
+            "SAVED_TERMINAL_UTC_BOUNDARY_HALF_OPEN_WINDOWS"
+        )
+
+
+def test_sf283_s13_duplicate_close_bucket_in_rehashed_saved_result_is_rejected(
+    tmp_path,
+):
+    """Real runner produces distinct buckets; invented tie is invalid saved data."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    prices = {
+        1255: ("100", "105", "98", "100"),
+        1265: ("100", "105", "98", "100"),
+    }
+    _, _, target, source, strict = _sf283_roundtrip(
+        tmp_path, signals=(251, 253), prices=prices,
+    )
+    doc = _decode_canonical(target.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    first, second = doc["result"]["outcomes"]
+    assert first["exit_bucket"] != second["exit_bucket"]
+    second["exit_bucket"] = first["exit_bucket"]
+    second["terminal_event_bucket"] = first["terminal_event_bucket"]
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        doc, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
