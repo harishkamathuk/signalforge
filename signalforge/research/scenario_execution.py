@@ -29,6 +29,15 @@ from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
+from signalforge.research.audited_source_slice_v1 import (
+    AuditedSourceSliceV1,
+    IS_CANDLES as SF260_IS_CANDLES,
+    IS_START as SF260_IS_START,
+    MEASURED_END as SF260_END,
+    OOS_CANDLES as SF260_OOS_CANDLES,
+    OOS_START as SF260_OOS_START,
+    SOURCE_START as SF260_SOURCE_START,
+)
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalPriceBasis,
@@ -50,6 +59,10 @@ from signalforge.runtime.strategy import (
     StrategyEntryFillView,
     validate_armed_policy,
 )
+
+
+SF260_90D_VARIANT = "SF260_90D_AUDITED_V1"
+FULL_YEAR_VARIANT = "SF094_FULL_YEAR_V1"
 
 
 class ScenarioMode(StrEnum):
@@ -179,7 +192,7 @@ class ScenarioResearchRequest:
     """Explicit synthetic or audited source plus frozen BTC research parameters."""
 
     mode: ScenarioMode
-    source: RawDiagnosticSource
+    source: RawDiagnosticSource | AuditedSourceSliceV1
     strategy_selection: StrategySelection
     engine_calculation_version: str
     assumptions: ScenarioAssumptionSet
@@ -190,6 +203,7 @@ class ScenarioResearchRequest:
     measured_end: datetime
     repository_revision: str
     synthetic_fixture_identity: str | None = None
+    study_variant: str = FULL_YEAR_VARIANT
 
     def __post_init__(self) -> None:
         if self.mode is not ScenarioMode.SCENARIO_RESEARCH:
@@ -198,7 +212,7 @@ class ScenarioResearchRequest:
             raise TypeError("Registered explicit scenario assumptions required")
         if not isinstance(self.resources, ScenarioResourcePolicy):
             raise TypeError("Explicit finite scenario resource policy required")
-        if not isinstance(self.source, RawDiagnosticSource) or self.source.execution_valid:
+        if not isinstance(self.source, (RawDiagnosticSource, AuditedSourceSliceV1)) or self.source.execution_valid:
             raise ValueError("Scenario requires provenance-bound non-execution-valid source")
         if (
             self.profile.price_mode is not HistoricalPriceMode.RAW_DIAGNOSTIC
@@ -238,6 +252,30 @@ class ScenarioResearchRequest:
                 raise ValueError("Scenario boundaries must align to completed five-minute candles")
         if self.is_start - coverage[0].start < timedelta(minutes=250 * 5):
             raise ValueError("Scenario requires 250 completed warm-up candles")
+        if self.study_variant not in (FULL_YEAR_VARIANT, SF260_90D_VARIANT):
+            raise ValueError("unknown or unversioned scenario study variant")
+        if self.study_variant == SF260_90D_VARIANT:
+            if not isinstance(self.source, AuditedSourceSliceV1):
+                raise ValueError("90D protected variant requires audited source slice v1")
+            if (
+                coverage[0].start != SF260_SOURCE_START
+                or coverage[0].end != SF260_END
+                or self.is_start != SF260_IS_START
+                or self.oos_start != SF260_OOS_START
+                or self.measured_end != SF260_END
+                or self.synthetic_fixture_identity is not None
+                or self.engine_calculation_version != "engine-v1"
+                or self.strategy_selection.parameters
+                or config_hash(self.resources.mapping())
+                != "28ecfb2d956a60ffbc33d334aeb379fcbabe61e056e3e254112ec34b0310c9d6"
+            ):
+                raise ValueError("90D variant input or frozen semantic identity differs")
+            if len(self.repository_revision) != 40 or any(
+                char not in "0123456789abcdef" for char in self.repository_revision
+            ):
+                raise ValueError("90D variant requires exact lowercase Git commit revision")
+        elif isinstance(self.source, AuditedSourceSliceV1):
+            raise ValueError("audited source slice may not impersonate the full-year variant")
         if self.source.source_diagnostic_id.startswith("synthetic-"):
             if (
                 self.synthetic_fixture_identity is None
@@ -262,7 +300,7 @@ class ScenarioResearchRequest:
                 raise ValueError(
                     "Synthetic scenario requires test-only fixture source provenance"
                 )
-        else:
+        elif self.study_variant == FULL_YEAR_VARIANT:
             if self.synthetic_fixture_identity is not None:
                 raise ValueError("Protected runs may not claim synthetic strategy fixtures")
             # The protected-source bridge is the only authority for its source ID.
@@ -782,12 +820,16 @@ def _manifest(request: ScenarioResearchRequest, strategy: Strategy,
         "mode_and_schema": {
             "mode": request.mode.value, "schema": "scenario-manifest-v1",
             "simulator": "btc-ohlc-path-scenario-v1",
+            **({"study_variant": SF260_90D_VARIANT}
+               if request.study_variant == SF260_90D_VARIANT else {}),
         },
         "source": {
             "manifest": ds.manifest.semantic_mapping(),
             "dataset_id": str(ds.dataset_id),
             "content_hash": ds.content_hash,
             "source_diagnostic_id": request.source.source_diagnostic_id,
+            **({"audited_slice_lineage": request.source.lineage_preimage()}
+               if isinstance(request.source, AuditedSourceSliceV1) else {}),
             "five_minute_close_digest": config_hash({
                 "close": [None if c.close is None else c.close.value for c in candles],
             }),
@@ -839,9 +881,13 @@ class ScenarioResearchRunner:
         if first.result_id != second.result_id or first.mapping() != second.mapping():
             raise ValueError("Scenario deterministic replay mismatch")
         ds = request.source.dataset
+        expected_is, expected_oos = (
+            (SF260_IS_CANDLES, SF260_OOS_CANDLES)
+            if request.study_variant == SF260_90D_VARIANT else (69984, 34848)
+        )
         complete = (
             first.failure is None and first.unsupported == 0
-            and first.is_observed == 69984 and first.oos_observed == 34848
+            and first.is_observed == expected_is and first.oos_observed == expected_oos
             and request.measured_end == ds.manifest.effective_grid.coverage[-1].end
             and not request.source.source_diagnostic_id.startswith("synthetic-")
         )
