@@ -440,7 +440,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     window = _map(manifest.get("session_and_window"), "window")
     start, split, finish = (_utc(window[k])
                             for k in ("is_start", "oos_start", "measured_end"))
-    _require(start < split < finish
+    _require(start < split <= finish
              and (split - start) % timedelta(minutes=5) == timedelta(0)
              and (finish - split) % timedelta(minutes=5) == timedelta(0),
              "INVALID_MEASURED_WINDOWS")
