@@ -282,10 +282,14 @@ def main(argv: list[str] | None = None) -> int:
                 "gate_d_approved": False,
                 "execution_valid": False,
             }
-            with (PRIVATE / "independent-verification.json").open(
-                "x", encoding="utf-8",
-            ) as output:
-                output.write(canonical_config_json(receipt) + "\\n")
+            fd = os.open(
+                PRIVATE / "independent-verification.json",
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                output.write(canonical_config_json(receipt) + "\n")
                 output.flush()
                 os.fsync(output.fileno())
     except (OSError, ValueError, VerificationBlocked) as exc:
