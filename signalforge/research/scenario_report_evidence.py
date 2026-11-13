@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from signalforge.config.identity import canonical_config_json
+from signalforge.config.identity import canonical_config_json, config_hash
 from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.scenario_execution import (
     ScenarioResearchRequest,
@@ -55,7 +55,8 @@ def _require_matching_request(
         source.get("dataset_id") == str(dataset.dataset_id),
         source.get("content_hash") == dataset.content_hash,
         source.get("source_diagnostic_id") == request.source.source_diagnostic_id,
-        source.get("manifest") == dataset.manifest.semantic_mapping(),
+        config_hash({"manifest": source.get("manifest")})
+            == config_hash({"manifest": dataset.manifest.semantic_mapping()}),
         windows.get("is_start") == request.is_start.isoformat(),
         windows.get("oos_start") == request.oos_start.isoformat(),
         windows.get("measured_end") == request.measured_end.isoformat(),
