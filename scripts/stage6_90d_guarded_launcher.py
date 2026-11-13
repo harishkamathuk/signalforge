@@ -22,7 +22,6 @@ import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -317,18 +316,26 @@ def _worker(profile: str, attempt: int) -> None:
 
     from signalforge.config.identity import canonical_config_json
     from signalforge.config.strategy_registry import (
-        DEFAULT_STRATEGY_REGISTRY, StrategySelection,
+        DEFAULT_STRATEGY_REGISTRY,
+        StrategySelection,
     )
     from signalforge.research.audited_source_slice_v1 import (
-        IS_START, OOS_START, MEASURED_END, derive_audited_source_slice,
+        IS_START,
+        MEASURED_END,
+        OOS_START,
+        derive_audited_source_slice,
     )
     from signalforge.research.btc_raw_diagnostic_input import load_sf095_raw_diagnostic_source
     from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute
     from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
     from signalforge.research.scenario_execution import (
         SF260_90D_VARIANT,
-        ScenarioAssumptionSet, ScenarioMode, ScenarioResearchRequest,
-        ScenarioResearchRunner, ScenarioResourcePolicy, _manifest,
+        ScenarioAssumptionSet,
+        ScenarioMode,
+        ScenarioResearchRequest,
+        ScenarioResearchRunner,
+        ScenarioResourcePolicy,
+        _manifest,
     )
 
     parent = load_sf095_raw_diagnostic_source(source_dir)
