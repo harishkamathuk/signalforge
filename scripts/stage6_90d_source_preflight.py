@@ -15,21 +15,29 @@ import os
 import resource
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
-from signalforge.config.identity import canonical_config_json, config_hash
-from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, StrategySelection
-from signalforge.research.audited_source_slice_v1 import (
+# Direct absolute-path invocation otherwise exposes scripts/, not its parent.
+# The import root is derived from this checked-out file, never operator input.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+from signalforge.config.identity import canonical_config_json, config_hash  # noqa: E402
+from signalforge.config.strategy_registry import DEFAULT_STRATEGY_REGISTRY, StrategySelection  # noqa: E402
+from signalforge.research.audited_source_slice_v1 import (  # noqa: E402
     IS_START,
     MEASURED_END,
     OOS_START,
     AuditedSourceSliceV1,
     derive_audited_source_slice,
 )
-from signalforge.research.btc_raw_diagnostic_input import load_sf095_raw_diagnostic_source
-from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute
-from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
-from signalforge.research.scenario_execution import (
+from signalforge.research.btc_raw_diagnostic_input import load_sf095_raw_diagnostic_source  # noqa: E402
+from signalforge.research.historical_bars import aggregate_one_minute_to_five_minute  # noqa: E402
+from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile  # noqa: E402
+from signalforge.research.scenario_execution import (  # noqa: E402
     SF260_90D_VARIANT,
     ScenarioAssumptionSet,
     ScenarioMode,
@@ -38,7 +46,6 @@ from signalforge.research.scenario_execution import (
     _manifest,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / ".signalforge-data/sf088/evidence/evidence-only/generation-0001"
 PRIVATE = Path.home() / "signalforge-private/stage6/90d-v1/source-prereg"
 PROFILES = ("REFERENCE_RAW", "ADVERSE_RAW")
