@@ -133,10 +133,13 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
     if type(parent) is not RawDiagnosticSource or parent.execution_valid:
         raise ValueError("expected the original audited RawDiagnosticSource")
     full = parent.dataset
+    # Recompute the audited full-year semantic identity once only. Repeated
+    # 525,600-row canonical mappings materially inflate peak audit RSS.
+    parent_hash = full.content_hash
     coverage = full.manifest.effective_grid.coverage
     if (
         parent.source_diagnostic_id != FROZEN_PROVISIONAL_REPORT_SHA256
-        or full.content_hash != PARENT_DATASET_HASH
+        or parent_hash != PARENT_DATASET_HASH
         or len(coverage) != 1
         or coverage[0].start != SOURCE_START or coverage[0].end != PARENT_END
         or len(full.bars) != PARENT_MINUTES
@@ -172,7 +175,7 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
     digest_5m = five_minute_close_digest(child)
     preimage = {
         "domain": DERIVATION_VERSION,
-        "parent_dataset_hash": full.content_hash,
+        "parent_dataset_hash": parent_hash,
         "parent_diagnostic_id": parent.source_diagnostic_id,
         "source_start": SOURCE_START.isoformat(),
         "source_end": MEASURED_END.isoformat(),
@@ -184,6 +187,6 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
         "execution_valid": False,
     }
     return AuditedSourceSliceV1(
-        child, full.content_hash, parent.source_diagnostic_id,
+        child, parent_hash, parent.source_diagnostic_id,
         digest_1m, digest_5m, config_hash(preimage), _SEAL,
     )
