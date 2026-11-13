@@ -169,6 +169,12 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
         raw_row_count=SOURCE_MINUTES, canonical_row_count=SOURCE_MINUTES,
         duplicate_observation_count=0, corrupt_rejected_count=0,
         missing_interval_count=0, grid=grid,
+        limitations=tuple(
+            "parent_full_year_" + label
+            if label.startswith(("five_minute_close_sha256=", "frozen_provisional_report_sha256="))
+            else label
+            for label in full.manifest.limitations
+        ),
     )
     child = HistoricalBarDataset(manifest, bars)
     digest_1m = ordered_bar_digest(child.bars)
