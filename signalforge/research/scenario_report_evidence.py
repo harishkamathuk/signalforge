@@ -151,6 +151,15 @@ def write_strict_reference_evidence(
         raise ValueError("Duplicate strict diagnostic interval")
     if not ambiguous.issubset(eligible):
         raise ValueError("Ambiguity outside explicitly assessed strict intervals")
+    # Validate before constructing counts and masks: an off-minute timestamp
+    # increments eligible_intervals but cannot occupy any canonical 1m slot.
+    for instant in eligible | ambiguous:
+        if (not isinstance(instant, datetime)
+                or instant.tzinfo is None
+                or instant.utcoffset() != timedelta(0)
+                or instant.second != 0 or instant.microsecond != 0
+                or not request.is_start <= instant < request.measured_end):
+            raise ValueError("Strict intervals must be UTC aligned measured 1m buckets")
     windows: dict[str, object] = {}
     for name, lower, upper in (("IS", request.is_start, request.oos_start),
                                ("OOS", request.oos_start, request.measured_end)):
@@ -166,10 +175,6 @@ def write_strict_reference_evidence(
             "assessed_1m_mask": mask,
             "ambiguous_interval_starts": [instant.isoformat() for instant in bad],
         }
-    if any(t.tzinfo is None or t.utcoffset() != timedelta(0) for t in eligible):
-        raise ValueError("Strict intervals must be UTC")
-    if any(not request.is_start <= t < request.measured_end for t in eligible):
-        raise ValueError("Strict assessment outside measured interval")
     payload: dict[str, object] = {
         "schema_version": "scenario-strict-reference-v1",
         "scenario_run_id": result.manifest.run_id,
