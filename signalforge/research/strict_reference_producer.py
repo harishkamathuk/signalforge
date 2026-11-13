@@ -7,7 +7,7 @@ This producer is code-only until separately authorised protected execution.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from signalforge.research.historical_execution import (
@@ -46,6 +46,8 @@ def produce_strict_reference_evidence(
     _require_matching_request(request, scenario_result)
     dataset = request.source.dataset
     intervals: list[HistoricalStrictMinuteAudit] = []
+    if runner is not None and request.synthetic_fixture_identity is None:
+        raise ValueError("Protected strict assessment requires approved default runner")
     engine = runner if runner is not None else HistoricalBarExecutionRunner()
     strict = engine.run(
         dataset,
@@ -97,12 +99,12 @@ def produce_strict_reference_evidence(
     if strict.terminated_early and len(intervals) >= source_total:
         raise ValueError("Early terminated strict audit has no missing suffix")
 
-    known: dict[object, HistoricalStrictMinuteAudit] = {
+    known: dict[datetime, HistoricalStrictMinuteAudit] = {
         item.bucket_start: item for item in intervals
     }
     windows: dict[str, object] = {}
-    assessed: list[object] = []
-    ambiguous: list[object] = []
+    assessed: list[datetime] = []
+    ambiguous: list[datetime] = []
     for name, low, high in (
         ("IS", request.is_start, request.oos_start),
         ("OOS", request.oos_start, request.measured_end),
