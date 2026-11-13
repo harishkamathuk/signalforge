@@ -42,9 +42,42 @@ Eligible contained CLOSED trades only, finite signed scenario-conditioned **gros
 | Holding-span distribution | sorted inclusive observed one-minute bucket spans, **not** elapsed intraminute duration |
 | Exit distribution | counts for allowed modeled CLOSED STOP/TARGET reasons |
 
+**Saved action/economic reconciliation:** The prospective saved-byte reader validates
+the persisted `trace` (minute bucket, ordered crossing action, opening/assumed
+ordering and modeled base) against the saved lifecycle. Each modeled ENTRY is
+matched with a filled OPEN/CLOSED opportunity or the attempted entry of a
+REJECTED one; STOP/TARGET matches the corresponding CLOSED exit bucket/reason;
+PRE_ENTRY_INVALIDATION matches the EXPIRED terminal bucket. Non-event
+`ASSUMED_SEGMENT` records remain explicitly hypothetical, never observed
+provider event times. `event_count` must equal the number of crossing actions
+and `attempted_trace_count` must equal the full saved trace length. A fully
+rehashed contradictory trace or counter withholds the entire report. This
+establishes *consistency of saved evidence*, not independent verification of
+assumed OHLC prices against unavailable bars.
+
+**Expiry diagnostics:** For each signal cohort the report includes
+`expiry_reasons_by_signal_window` with `VALIDITY_WINDOW_END`,
+`STRATEGY_CUTOFF` and `PRE_ENTRY_INVALIDATION` counts (including zero).
+A separate `expiry_reasons_by_terminal_event_window` report classifies
+their persisted UTC terminal boundary into half-open IS/OOS intervals; an
+expiry exactly at `measured_end` is explicitly `AT_MEASURED_END`, not
+silently assigned to OOS. These are distinct signal-decision and terminal
+boundary counting units, not modeled entry/exit events.
+
 No CLOSED trades makes win rate/expectancy/PF `UNDEFINED:NO_CLOSED_TRADES`; nonempty cohort without negative R makes PF `UNDEFINED:NO_LOSING_R`. Empty otherwise complete cohort has drawdown `0 R` with `EMPTY_COHORT`, zero frequency if expected decisions >0, empty valid distributions. A zero expected-grid denominator yields `UNDEFINED:NO_MEASURED_DECISIONS`. Ratio output uses deterministic Decimal precision 28. Missing mandatory data yields whole-report `WITHHELD`, not point metrics with a guessed zero.
 
-D3 is conditional: the one-active-state runner accepts at most one active setup and only arms a successor after a completed five-minute decision. Synthetic S13 must exercise multiple real exits and separately reject contradictory equal exit bucket evidence. If a feasible modeled tie is ever demonstrated, a new owner-reviewed causal-order field is required; do **not** sort equal exits by arbitrary opportunity ID or assert a subminute observed time.
+D3 **bounded uniqueness proof (current runner):** `ScenarioResearchRunner.run`
+holds one `work.active` opportunity. `_walk_bar` processes that setup before
+the completed five-minute decision; `_step` records a CLOSED outcome and
+clears `work.active`, then returns without rearming during that one-minute
+bar. `_arm` runs only after a later completed five-minute candle is processed,
+so the next opportunity's earliest modeled action is in a subsequent one-minute
+bucket. Consequently two distinct CLOSED opportunities cannot share one exit
+1m bucket under the frozen runner. S13 tests two distinct real-runner closes
+and separately rehashes an invented equal-bucket saved result to demonstrate
+fail-closed rejection. No ordinal is necessary; if the runner's lifecycle
+changes, this D3 argument must be revisited rather than inventing a tie-breaker.
+This is not an assertion about observed intraminute chronology.
 
 ## D5. Source/strict evidence
 
@@ -91,5 +124,16 @@ Exit status `0` is a structurally complete conditional report; exit `2` prints s
 S01–S16 are implemented under `tests/unit/research/test_scenario_execution.py`, including real synthetic runner → two independently saved companions → v2 canonical result → saved-byte-only reconstruction, replay identity, cohort attribution, zero denominators, independently produced strict synthetic diagnostics, invalid source WITHHELD and incompatible saved-data negatives.
 
 S06 must represent `STRATEGY_CUTOFF`, `VALIDITY_WINDOW_END` and `PRE_ENTRY_INVALIDATION` from actual runner outcomes, without modifying the old v1 validator's allowlist.
+
+S15 also uses a supported trade-rich **real-runner** synthetic fixture with
+four modeled closes (IS `+1.5R, -1R`; OOS `-1R, -1R`). After canonical
+serialization and discarding the retained result, the saved-only reader must
+match an independently handwritten expected table for win rate, negative
+expectancy, finite profit factor including a zero-winning cohort, modeled
+drawdown, exit/R/holding distributions, source/strict 1m evidence, 5m frequency,
+lifecycle counts and OOS–IS differences. S16 mutates the trace and counters
+while recomputing every affected canonical hash to prove whole-report
+withholding on contradictory persisted events. S06 verifies all three
+expiry-reason cohorts and their separately classified terminal boundaries.
 
 04 independently reviews research definitions and test oracles. Normal PR DoD requires Ruff, strict mypy, MkDocs, pytest and adversarial/third-party review; this implementation is **not** merge-eligible merely because code was committed.
