@@ -942,10 +942,11 @@ def test_sf283_s14_profile_isolation_repeatability(tmp_path):
 @pytest.mark.parametrize("mutation", ["invalid-result-hash", "absent-companion",
                                      "corrupt-source", "unknown-contract"])
 def test_sf283_s16_missing_or_contradictory_saved_evidence(tmp_path, mutation):
-    import json
+    from signalforge.config.identity import canonical_config_json
+    from signalforge.research.scenario_reportability import _decode_canonical
 
     result, report, output, src, strict = _sf283_roundtrip(tmp_path, signals=())
-    document = json.loads(output.read_text())
+    document = _decode_canonical(output.read_bytes())
     source = src.read_bytes()
     strict_bytes = strict.read_bytes()
     if mutation == "invalid-result-hash":
@@ -957,7 +958,9 @@ def test_sf283_s16_missing_or_contradictory_saved_evidence(tmp_path, mutation):
     else:
         document["result"]["report_contract"] = "unknown"
     with pytest.raises(ReportabilityError):
-        report_from_saved_bytes(json.dumps(document).encode(), source, strict_bytes)
+        report_from_saved_bytes(
+            (canonical_config_json(document) + "\n").encode(), source, strict_bytes,
+        )
 
 
 def test_sf283_s06_strategy_cutoff_from_real_synthetic_runner(tmp_path):
