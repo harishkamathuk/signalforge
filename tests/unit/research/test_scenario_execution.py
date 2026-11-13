@@ -765,8 +765,12 @@ def test_sf283_s01_full_grid_and_s15_saved_byte_report(tmp_path):
     assert report["windows"]["IS"]["economics"]["expected_completed_5m_decisions"] == 2
     assert report["windows"]["OOS"]["economics"]["expected_completed_5m_decisions"] == 8
     assert report["closed_cohort_reconciliation"]["total_closed"] == 0
-    assert result.result_id == config_hash({"domain": "scenario-result-v1", "result": result.mapping()})
-    assert report_from_saved_bytes(target.read_bytes(), src.read_bytes(), strict.read_bytes()) == report
+    assert result.result_id == config_hash({
+        "domain": "scenario-result-v1", "result": result.mapping(),
+    })
+    assert report_from_saved_bytes(
+        target.read_bytes(), src.read_bytes(), strict.read_bytes(),
+    ) == report
     with pytest.raises(FileExistsError):
         result.write_reportable_new(target, source_companion=src, strict_companion=strict)
 
