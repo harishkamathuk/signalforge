@@ -704,7 +704,7 @@ class HistoricalBarExecutionRunner:
                         and terminal.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
                         and bool(terminal.ambiguity_reasons)
                         and bool(terminal.reachability_evidence)
-                        and terminal.reachability_evidence[-1].interval.start == start
+                        and terminal.reachability_evidence[-1].bucket.start == start
                     )
                     unassessed = (
                         terminal is not None
