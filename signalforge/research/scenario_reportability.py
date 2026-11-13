@@ -286,13 +286,24 @@ def _strict_reference(companion: dict[str, Any],
         }, "STRICT_PROVENANCE_MISMATCH")
         _require(type(proof.get("strict_terminated_early")) is bool,
                  "INVALID_STRICT_TERMINATION")
+        stop_at: datetime | None = None
         if proof["strict_terminated_early"]:
             stop = _map(proof.get("stop"), "strict_stop")
-            _require(type(stop.get("reasons")) is list and
-                     type(stop.get("certainty")) is str and
-                     (stop.get("after_bucket") is None or
-                      isinstance(stop.get("after_bucket"), str)),
+            raw_stop = stop.get("after_bucket")
+            _require(type(raw_stop) is str
+                     and type(stop.get("reasons")) is list
+                     and stop.get("certainty") in ("bounded_ambiguous", "unresolved")
+                     and bool(stop["reasons"])
+                     and all(type(reason) is str and bool(reason)
+                             for reason in stop["reasons"]),
                      "INVALID_STRICT_STOP")
+            stop_at = _utc(raw_stop)
+            pre_roll = _utc(_map(manifest.get("session_and_window"),
+                                 "strict_window_binding").get("pre_roll_start"))
+            _require(stop_at.isoformat() == raw_stop
+                     and stop_at >= pre_roll
+                     and (stop_at - pre_roll) % timedelta(minutes=1) ==
+                     timedelta(0), "INVALID_STRICT_STOP")
         else:
             _require(proof.get("stop") is None, "INVALID_STRICT_STOP")
     windows = _map(companion.get("windows"), "strict_windows")
@@ -336,6 +347,16 @@ def _strict_reference(companion: dict[str, Any],
                      and set(membership).issubset({"E", "I", "?"})
                      and checked == mask,
                      "INVALID_STRICT_ELIGIBILITY_MASK")
+            # A strict fail-closed stop censors every *later* source minute:
+            # any E/I after the last visited bucket fabricates a future
+            # opportunity population. The stop minute itself remains known.
+            if stop_at is not None:
+                _require(all(
+                    (member == "?") == (start + timedelta(minutes=i) > stop_at)
+                    for i, member in enumerate(membership)
+                ), "STRICT_STOP_MASK_CONTRADICTION")
+            else:
+                _require("?" not in membership, "STRICT_STOP_MASK_CONTRADICTION")
             known_e = membership.count("E")
             known_i = membership.count("I")
             indeterminate = membership.count("?")
