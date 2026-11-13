@@ -1740,3 +1740,35 @@ def test_sf260_b3_repeatable_bytes_and_legacy_identity_unchanged(tmp_path):
         "domain": "scenario-run-v1", "inputs": saved["manifest"],
     })
     assert saved["result"]["execution_valid"] is False
+
+
+def test_sf260_b3_rehashed_early_stop_suffix_cannot_become_known_ineligible(tmp_path):
+    """An internally rebalanced but fabricated post-stop E/I suffix must withhold."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    result_doc = _decode_canonical(result.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    proof = strict_doc["strict_coverage_proof"]
+    assert proof["strict_terminated_early"]
+    for window in ("IS", "OOS"):
+        row = proof["windows"][window]
+        unknown = row["eligibility_indeterminate"]
+        assert unknown > 0
+        row["eligibility_1m_mask"] = row["eligibility_1m_mask"].replace("?", "I")
+        row["known_ineligible"] += unknown
+        row["eligibility_indeterminate"] = 0
+        row["expected_eligible"] = row["known_eligible"]
+        row["incomplete_reasons"] = []
+        row["status"] = (
+            "COMPLETE" if row["known_eligible"] else "ASSESSED_ZERO_ELIGIBLE"
+        )
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        result_doc, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match="STRICT_STOP_MASK_CONTRADICTION"):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
