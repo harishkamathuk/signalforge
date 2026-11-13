@@ -421,6 +421,7 @@ def _run_one(*, minutes: int, mode: str, max_rss_gib: int,
              warmup_minutes: int | None = None,
              is_minutes: int | None = None) -> dict[str, object]:
     """Run one bounded child; clean ephemeral result even on a worker safety stop."""
+    _split(minutes, warmup_minutes=warmup_minutes, is_minutes=is_minutes)
     available = _available_ram()
     reserve = int(min_free_gib * GIB)
     if available < max_rss_gib * GIB + reserve:
