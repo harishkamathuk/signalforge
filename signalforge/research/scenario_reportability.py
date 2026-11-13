@@ -151,7 +151,15 @@ def _source_quality(companion: dict[str, Any],
                           "quality_counts")
         _require(set(categories) == set(QUALITY), "MISSING_SOURCE_CLASSIFICATION")
         counts = {k: _count(categories[k]) for k in QUALITY}
-        _require(sum(counts.values()) == expected, "SOURCE_COUNT_MISMATCH")
+        # Canonical grid position, not a summary count, owns each 1m classification.
+        sequence = record.get("primary_dispositions_1m")
+        _require(type(sequence) is str and len(sequence) == expected,
+                 "MISSING_SOURCE_INTERVAL_CLASSIFICATIONS")
+        alphabet = dict(zip("VMCRS", QUALITY, strict=True))
+        _require(set(sequence).issubset(alphabet), "INVALID_SOURCE_DISPOSITION")
+        recomputed = Counter(alphabet[ch] for ch in sequence)
+        _require(all(recomputed[k] == counts[k] for k in QUALITY),
+                 "SOURCE_COUNT_MISMATCH")
         _require(all(counts[k] == 0 for k in QUALITY if k != "VALID"),
                  "UNQUALIFIED_SOURCE")
         result[name] = {"unit": "CANONICAL_1M_SOURCE_BUCKET",
@@ -170,8 +178,11 @@ def _strict_reference(companion: dict[str, Any],
     for name, (start, end) in bounds.items():
         row = _map(windows.get(name), "strict_window")
         eligible = _count(row.get("eligible_intervals"))
-        _require(eligible <= int((end - start) / timedelta(minutes=1)),
-                 "STRICT_DENOMINATOR_EXCEEDS_GRID")
+        expected = int((end - start) / timedelta(minutes=1))
+        mask = row.get("assessed_1m_mask")
+        _require(type(mask) is str and len(mask) == expected
+                 and set(mask).issubset({"0", "1"}), "MISSING_STRICT_INTERVAL_MASK")
+        _require(mask.count("1") == eligible, "STRICT_DENOMINATOR_MISMATCH")
         intervals = row.get("ambiguous_interval_starts")
         if not isinstance(intervals, list) or not all(
             type(x) is str for x in intervals
@@ -179,7 +190,9 @@ def _strict_reference(companion: dict[str, Any],
             raise ReportabilityError("INVALID_STRICT_INTERVALS")
         times = [_utc(x) for x in intervals]
         _require(len(set(times)) == len(times) and len(times) <= eligible
-                 and all(start <= t < end for t in times),
+                 and all(start <= t < end and
+                         mask[int((t - start) / timedelta(minutes=1))] == "1"
+                         for t in times),
                  "CONTRADICTORY_STRICT_CLASSIFICATION")
         result[name] = {"assessment": "ASSESSED",
                         "eligible_intervals": eligible,
