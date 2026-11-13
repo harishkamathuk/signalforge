@@ -30,6 +30,7 @@ IS_START = datetime(2025, 10, 31, tzinfo=UTC)
 OOS_START = datetime(2025, 12, 30, tzinfo=UTC)
 MEASURED_END = datetime(2026, 1, 29, tzinfo=UTC)
 SOURCE_MINUTES = 131_040
+PARENT_MINUTES = 525_600
 IS_CANDLES = 17_280
 OOS_CANDLES = 8_640
 PARENT_END = datetime(2026, 10, 30, tzinfo=UTC)
@@ -137,7 +138,7 @@ def derive_audited_source_slice(parent: RawDiagnosticSource) -> AuditedSourceSli
         or full.content_hash != PARENT_DATASET_HASH
         or len(coverage) != 1
         or coverage[0].start != SOURCE_START or coverage[0].end != PARENT_END
-        or len(full.bars) != 525_600
+        or len(full.bars) != PARENT_MINUTES
         or full.manifest.missing_interval_count != 0
     ):
         raise ValueError("frozen parent audit/coverage identity mismatch")
