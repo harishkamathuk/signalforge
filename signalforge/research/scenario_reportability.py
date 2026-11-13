@@ -347,7 +347,7 @@ def _difference(left: dict[str, object],
         a = _map(left[key], "left_drawdown")
         b = _map(right[key], "right_drawdown")
         result[key] = {"status": "DEFINED", "value": str(
-            _sum([_number(a["value"]), -_number(b["value"])])
+            _sum([_number(a["value"]), _number(b["value"]).copy_negate()])
         )}
     result["closed_contained_difference"] = (
         _count(left["closed_contained"]) - _count(right["closed_contained"])
