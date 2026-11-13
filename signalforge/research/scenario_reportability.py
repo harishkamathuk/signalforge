@@ -427,12 +427,25 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
             all_close.add(exit_at)
             _require(_utc(outcome["entry_bucket"]) <= exit_at,
                      "REVERSED_TRADE_LIFECYCLE")
-            _require(_number(outcome["entry_price"]) > 0
-                     and _number(outcome["exit_price"]) > 0
-                     and _number(outcome["modeled_stop_price"]) > 0
-                     and _number(outcome["modeled_target_price"]) > 0,
-                     "INVALID_MODELED_ECONOMICS")
-            _number(outcome["r"])
+            entry_price = _number(outcome["entry_price"])
+            exit_price = _number(outcome["exit_price"])
+            stop_price = _number(outcome["modeled_stop_price"])
+            target_price = _number(outcome["modeled_target_price"])
+            _require(entry_price > stop_price > 0 and target_price > entry_price
+                     and exit_price > 0, "INVALID_MODELED_RISK_OR_PRICE")
+            # Match the frozen scenario R formula under fixed prospective
+            # precision; do not trust an authenticated but contradictory R.
+            with localcontext() as ctx:
+                ctx.prec = 28
+                expected_r = (exit_price - entry_price) / (entry_price - stop_price)
+            _require(_number(outcome["r"]) == expected_r,
+                     "CONTRADICTORY_MODELED_R")
+            expected_span = 1 + int(
+                (_utc(outcome["exit_bucket"]) - _utc(outcome["entry_bucket"]))
+                / timedelta(minutes=1)
+            )
+            _require(_count(outcome["holding_span_1m_buckets"]) == expected_span,
+                     "CONTRADICTORY_HOLDING_SPAN")
             cohort = (sw if entry_window == sw and exit_window == sw
                       else "CROSS_WINDOW")
             cohort_counts[cohort] += 1
