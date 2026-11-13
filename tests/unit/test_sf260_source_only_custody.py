@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+from types import SimpleNamespace
 
 import pytest
 
@@ -56,3 +57,12 @@ def test_independent_receipt_has_real_newline_and_0600(monkeypatch, tmp_path):
             "--independent-source-only-verify", "--write-private-receipt",
         ])
     assert error.value.code == 2
+
+
+def test_source_only_operator_rejects_unmerged_branch(monkeypatch):
+    monkeypatch.setattr(
+        preflight.subprocess, "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="feat/not-reviewed\\n"),
+    )
+    with pytest.raises(preflight.PreflightBlocked, match="merged develop"):
+        preflight.git_revision()
