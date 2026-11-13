@@ -153,6 +153,25 @@ def planned_manifests(source: AuditedSourceSliceV1, revision: str
     return records, prereg
 
 
+def _write_private_payloads(payloads: list[tuple[str, bytes]]) -> None:
+    """Exclusive, no-follow, 0600 source-only receipts. Never overwrite."""
+    for name, payload in payloads:
+        fd = os.open(
+            PRIVATE / name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            # Interrupted evidence stays quarantined, never retried by overwrite.
+            raise
+
+
 def source_only_preflight() -> dict[str, object]:
     require_limits()
     revision = git_revision()
@@ -184,21 +203,7 @@ def source_only_preflight() -> dict[str, object]:
         "source-only-readiness.json",
         (canonical_config_json(summary) + "\n").encode("utf-8"),
     ))
-    for name, payload in payloads:
-        fd = os.open(
-            PRIVATE / name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-        except BaseException:
-            # An interrupted attestation is quarantined; no overwrite/retry.
-            raise
+    _write_private_payloads(payloads)
     return summary
 
 
