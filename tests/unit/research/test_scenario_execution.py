@@ -994,3 +994,52 @@ def test_sf283_s13_duplicate_close_bucket_fails_closed_math():
     ]
     with pytest.raises(ReportabilityError, match="DUPLICATE_MODELED_CLOSE_BUCKET"):
         _economics(closed, 2, 2)
+
+
+def test_sf283_s14_two_hash_bound_profiles_do_not_pool(tmp_path):
+    from signalforge.research.scenario_reportability import compare_profile_reports
+
+    reference_dir = tmp_path / "reference"
+    adverse_dir = tmp_path / "adverse"
+    reference_dir.mkdir()
+    adverse_dir.mkdir()
+    price = {1255: ("100", "105", "98", "100")}
+    _, ref, *_ = _sf283_roundtrip(
+        reference_dir, prices=price,
+        profile=HistoricalExecutionAssumptionProfile.reference_raw(),
+    )
+    _, adv, *_ = _sf283_roundtrip(
+        adverse_dir, prices=price,
+        profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    )
+    combined = compare_profile_reports(ref, adv)
+    assert combined["status"] == "SCENARIO_CONDITIONED_PROFILE_COMPARISON"
+    assert combined["basis"] == "REFERENCE_RAW_MINUS_ADVERSE_RAW"
+    assert ref["scenario_run_id"] != adv["scenario_run_id"]
+    assert combined["windows"]["IS"]["closed_contained_difference"] == 0
+    with pytest.raises(ReportabilityError, match="PROFILE_ISOLATION_REQUIRED"):
+        compare_profile_reports(ref, ref)
+
+
+def test_sf283_saved_byte_cli_synthetic_only(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    _, report, result, source, strict = _sf283_roundtrip(tmp_path, signals=())
+    script = Path(__file__).resolve().parents[3] / "scripts/scenario_report_saved.py"
+    command = [
+        sys.executable, str(script),
+        "--result", str(result),
+        "--source-companion", str(source),
+        "--strict-companion", str(strict),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout) == report
+    blocked = subprocess.run(
+        [*command[:-1], str(tmp_path / "missing.json")],
+        capture_output=True, text=True, check=False,
+    )
+    assert blocked.returncode == 2
+    assert json.loads(blocked.stdout)["status"] == "WITHHELD"
