@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 
@@ -352,6 +353,29 @@ class ScenarioOutcome:
     exit_price: Decimal | None
     r: Decimal | None
     holding_span_1m_buckets: int | None
+    # Future-only reporting evidence; deliberately excluded from v1 mapping/hash.
+    signal_interval_start: datetime | None = None
+    signal_interval_end: datetime | None = None
+    valid_until_boundary: datetime | None = None
+    strategy_cutoff_boundary: datetime | None = None
+    terminal_event_bucket: datetime | None = None
+    attempted_entry_bucket: datetime | None = None
+    modeled_stop_price: Decimal | None = None
+    modeled_target_price: Decimal | None = None
+
+    def prospective_mapping(self) -> dict[str, object]:
+        """Return v2-only evidence without changing legacy v1 serialization."""
+        legacy = self.mapping()
+        for name in (
+            "signal_interval_start", "signal_interval_end", "valid_until_boundary",
+            "strategy_cutoff_boundary", "terminal_event_bucket",
+            "attempted_entry_bucket",
+        ):
+            value = getattr(self, name)
+            legacy[name] = None if value is None else value.isoformat()
+        legacy["modeled_stop_price"] = self.modeled_stop_price
+        legacy["modeled_target_price"] = self.modeled_target_price
+        return legacy
 
     def mapping(self) -> dict[str, object]:
         """Return explicitly scenario-conditioned and UTC-referenced economics."""
@@ -457,6 +481,46 @@ class ScenarioResearchResult:
             "blocked_decisions": [item.mapping() for item in self.blocked_decisions],
         }
 
+    def reportable_mapping(self) -> dict[str, object]:
+        """Future-only reportable result; v1 mapping and identity remain unchanged."""
+        result = self.mapping()
+        result["schema_version"] = "scenario-result-v2"
+        result["report_contract"] = "sf283-contained-gross-r-v1"
+        result["outcomes"] = [item.prospective_mapping() for item in self.outcomes]
+        return result
+
+    def write_reportable_new(
+        self, destination: Path, *, source_companion: Path, strict_companion: Path,
+    ) -> None:
+        """Exclusively persist v2 with exact hash-bound diagnostic companions.
+
+        Companion evidence must be produced independently before this operation.
+        It cannot be inferred from scenario traces or synthesized by this writer.
+        """
+        if destination.suffix != ".json" or not destination.parent.is_dir():
+            raise ValueError("Scenario destination must be JSON in an existing directory")
+        parent = destination.parent.resolve(strict=True)
+        if any(part in (".signalforge-data", "sf088", "sf096") for part in parent.parts):
+            raise ValueError("Cannot write future reportable output into protected evidence")
+        result = self.reportable_mapping()
+        companions: dict[str, str] = {}
+        for label, path in (
+            ("source_quality", source_companion),
+            ("strict_reference", strict_companion),
+        ):
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("Required independently produced companion is missing or unsafe")
+            companions[label] = sha256(path.read_bytes()).hexdigest()
+        result["companion_sha256"] = companions
+        result_id = config_hash({"domain": "scenario-result-v2", "result": result})
+        with destination.open("x", encoding="utf-8") as stream:
+            stream.write(canonical_config_json({
+                "manifest": self.manifest.mapping(),
+                "result": result,
+                "scenario_result_id": result_id,
+            }))
+            stream.write("\n")
+
     def write_new(self, destination: Path) -> None:
         """Write canonical result exclusively; never overwrite protected or prior output."""
         if destination.suffix != ".json" or not destination.parent.is_dir():
@@ -499,7 +563,9 @@ class _Work:
 
 
 def _outcome(active: _Active, state: str, reason: str, bar: HistoricalBar | None = None,
-             exit_price: Price | None = None) -> ScenarioOutcome:
+             exit_price: Price | None = None, *,
+             terminal_at: datetime | None = None,
+             attempted_at: datetime | None = None) -> ScenarioOutcome:
     if exit_price is not None and active.entry_price is None:
         raise ValueError("Exit without modeled entry")
     exit_bucket = None if bar is None else bar.interval.start
@@ -515,6 +581,12 @@ def _outcome(active: _Active, state: str, reason: str, bar: HistoricalBar | None
         active.opportunity_id, state, reason, active.entry_bucket, exit_bucket,
         None if active.entry_price is None else active.entry_price.value,
         None if exit_price is None else exit_price.value, r, span,
+        active.signal.interval.start, active.signal.interval.end,
+        active.view.valid_until, active.policy.strategy_entry_cutoff_at,
+        terminal_at if terminal_at is not None else exit_bucket,
+        attempted_at,
+        active.view.stop_price.value,
+        None if active.target is None else active.target.value,
     )
 
 
@@ -593,7 +665,10 @@ def _step(
             not opening, level,
         ))
         if action == "INVALIDATION":
-            work.outcomes.append(_outcome(active, "EXPIRED", "PRE_ENTRY_INVALIDATION"))
+            work.outcomes.append(_outcome(
+                active, "EXPIRED", "PRE_ENTRY_INVALIDATION",
+                terminal_at=bar.interval.start,
+            ))
             work.active = None
             return
         if action == "ENTRY":
@@ -610,7 +685,8 @@ def _step(
                 or economics.raw_target_price.value <= fill.value
             ):
                 work.outcomes.append(
-                    _outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK")
+                    _outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK",
+                             terminal_at=bar.interval.start, attempted_at=bar.interval.start)
                 )
                 work.active = None
                 return
@@ -651,11 +727,15 @@ def _walk_bar(
             work.failure_bucket = bar.interval.start
             return
         if cutoff <= bar.interval.start:
-            work.outcomes.append(_outcome(active, "EXPIRED", "STRATEGY_CUTOFF"))
+            work.outcomes.append(_outcome(
+                active, "EXPIRED", "STRATEGY_CUTOFF", terminal_at=bar.interval.start,
+            ))
             work.active = None
             return
     if active.entry_price is None and active.view.valid_until <= bar.interval.start:
-        work.outcomes.append(_outcome(active, "EXPIRED", "VALIDITY_WINDOW_END"))
+        work.outcomes.append(_outcome(
+            active, "EXPIRED", "VALIDITY_WINDOW_END", terminal_at=bar.interval.start,
+        ))
         work.active = None
         return
     levels = (bar.open.value, bar.high.value, bar.low.value, bar.close.value)
@@ -902,7 +982,8 @@ class ScenarioResearchRunner:
                 and work.active.view.valid_until <= completed_candle.interval.end
             ):
                 work.outcomes.append(
-                    _outcome(work.active, "EXPIRED", "VALIDITY_WINDOW_END")
+                    _outcome(work.active, "EXPIRED", "VALIDITY_WINDOW_END",
+                             terminal_at=completed_candle.interval.end)
                 )
                 work.active = None
                 if len(work.outcomes) > request.resources.max_outcomes:
@@ -942,6 +1023,6 @@ class ScenarioResearchRunner:
         if work.active is not None:
             work.outcomes.append(_outcome(
                 work.active, "OPEN" if work.active.entry_price is not None else "ARMED",
-                "DATASET_END_CONDITIONAL",
+                "DATASET_END_CONDITIONAL", terminal_at=request.measured_end,
             ))
         return finish()
