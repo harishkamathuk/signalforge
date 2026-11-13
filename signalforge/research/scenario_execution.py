@@ -52,7 +52,6 @@ from signalforge.runtime.strategy import (
     validate_armed_policy,
 )
 
-
 SF260_90D_VARIANT = "SF260_90D_AUDITED_V1"
 FULL_YEAR_VARIANT = "SF094_FULL_YEAR_V1"
 
