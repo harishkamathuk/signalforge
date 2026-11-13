@@ -129,10 +129,10 @@ For the **separately authorised, fictional fixed-90-day pilot only**, first
 use the reviewed and merged version of the probe:
 
 ```bash
-python scripts/stage6_synthetic_full_window_probe.py \\
-  --minutes 129600 --warmup-minutes 1440 --is-minutes 86400 \\
-  --mode scheduled --serialize-result \\
-  --max-rss-gib 3 --vm-limit-gib 4 --max-output-mib 512 \\
+python scripts/stage6_synthetic_full_window_probe.py \
+  --minutes 129600 --warmup-minutes 1440 --is-minutes 86400 \
+  --mode scheduled --serialize-result \
+  --max-rss-gib 3 --vm-limit-gib 4 --max-output-mib 512 \
   --min-free-gib 0.75 --timeout-seconds 1200
 ```
 
