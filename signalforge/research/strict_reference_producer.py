@@ -96,9 +96,6 @@ def produce_strict_reference_evidence(
             raise ValueError("Contradictory strict audit state or minute order")
     if not strict.terminated_early and len(intervals) != source_total:
         raise ValueError("Strict audit unexpectedly lacks completed source minutes")
-    if strict.terminated_early and len(intervals) >= source_total:
-        raise ValueError("Early terminated strict audit has no missing suffix")
-
     known: dict[datetime, HistoricalStrictMinuteAudit] = {
         item.bucket_start: item for item in intervals
     }
