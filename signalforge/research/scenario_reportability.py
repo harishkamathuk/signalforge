@@ -430,7 +430,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     fills = _map(manifest.get("fills"), "fill_profile")
     profile_id = fills.get("profile_id")
     _require(profile_id in ("REFERENCE_RAW", "ADVERSE_RAW")
-             and fills.get("price_mode") == "RAW_DIAGNOSTIC",
+             and fills.get("price_mode") == "raw_diagnostic",
              "UNSUPPORTED_SCENARIO_PROFILE")
     comparative = dict(manifest)
     del comparative["fills"]
