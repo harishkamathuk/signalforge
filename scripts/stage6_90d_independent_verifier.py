@@ -49,6 +49,15 @@ from signalforge.research.historical_bars import HistoricalBarDataset
 from signalforge.research.historical_grid import HistoricalBarGrid
 
 
+CONFIG_HASH = "88e90c23cd635248385d820406ef2201badc59bfd9f99043a63e8823227de242"
+ASSUMPTIONS_HASH = "b7d89c3bcdfda94eb7b489ff12c03ab313573445bbf558fa4d10ce58ff081dc6"
+RESOURCE_HASH = "28ecfb2d956a60ffbc33d334aeb379fcbabe61e056e3e254112ec34b0310c9d6"
+RAW_PROFILE_HASHES = {
+    "REFERENCE_RAW": "617e9e7698cc563c014e2b37699f704d863e7ae83a7bc5341ba2631f81574905",
+    "ADVERSE_RAW": "2461fb0042083d97cdac511312ade824990f7965c68bc34f726fdf4a80bba875",
+}
+
+
 class VerificationBlocked(ValueError):
     """Source and/or canonical prereg cannot be independently reconciled."""
 
@@ -248,16 +257,56 @@ def verify_source_only() -> dict[str, object]:
               and session.get("oos_start") == OOS_START.isoformat()
               and session.get("measured_end") == MEASURED_END.isoformat(),
               "approved study window changed")
+        strategy = mapping.get("strategy")
+        check(
+            isinstance(strategy, dict)
+            and strategy.get("id") == "btc_momentum_baseline_v0"
+            and strategy.get("version") == "0.1.0-experimental"
+            and strategy.get("config_id") == CONFIG_HASH
+            and strategy.get("config_hash") == CONFIG_HASH
+            and strategy.get("engine_calculation_version") == "engine-v1"
+            and strategy.get("synthetic_fixture_identity") is None,
+            "frozen strategy/config identity mismatch",
+        )
+        assumptions = mapping.get("assumptions")
+        check(
+            isinstance(assumptions, dict)
+            and assumptions.get("scenario_id") == "BTC_OHLC_PATH_V1"
+            and assumptions.get("scenario_version") == "0.1.0-proposal"
+            and assumptions.get("semantic_hash") == ASSUMPTIONS_HASH
+            and config_hash({
+                key: value for key, value in assumptions.items()
+                if key != "semantic_hash"
+            }) == ASSUMPTIONS_HASH,
+            "scenario assumption preimage changed",
+        )
         fills = mapping.get("fills")
-        check(isinstance(fills, dict) and fills.get("profile_id") == profile
-              and fills.get("price_mode") == "raw_diagnostic",
-              "raw profile identity mismatch")
+        check(
+            isinstance(fills, dict)
+            and fills.get("profile_id") == profile
+            and fills.get("version") == "1.0.0"
+            and fills.get("price_mode") == "raw_diagnostic"
+            and fills.get("tick_rule_version") == "unresolved"
+            and config_hash(fills) == RAW_PROFILE_HASHES[profile],
+            "frozen RAW profile semantics mismatch",
+        )
         impl = mapping.get("implementation")
-        check(isinstance(impl, dict) and impl.get("revision") == revision,
-              "source-only execution revision drift")
-        check(mapping.get("resource_policy_semantic_hash") ==
-              "28ecfb2d956a60ffbc33d334aeb379fcbabe61e056e3e254112ec34b0310c9d6",
-              "finite resource contract differs")
+        check(
+            isinstance(impl, dict)
+            and impl == {
+                "revision": revision,
+                "canonical_serializer": "canonical-config-json-v1",
+                "scenario_calculation_version": "btc-ohlc-path-scenario-v1",
+            },
+            "source-only execution revision/serializer drift",
+        )
+        policy = mapping.get("resource_policy")
+        check(
+            isinstance(policy, dict)
+            and config_hash(policy) == RESOURCE_HASH
+            and mapping.get("resource_policy_semantic_hash") == RESOURCE_HASH,
+            "finite resource contract differs",
+        )
         run_rows.append([profile, str(record["scenario_run_id"]), content_sha])
     candidate = config_hash({
         "domain": "sf260-90d-source-only-prereg-v1",
