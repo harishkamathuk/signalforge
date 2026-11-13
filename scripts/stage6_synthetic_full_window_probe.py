@@ -221,8 +221,10 @@ def _split(minutes: int, *, warmup_minutes: int | None = None,
     """Resolve an explicit synthetic split, preserving historic CLI defaults."""
     if (warmup_minutes is None) != (is_minutes is None):
         raise ProbeBlocked("warmup and IS minutes must be supplied together")
-    warmup = (1440 if minutes == FULL_MINUTES else 1250) if warmup_minutes is None else warmup_minutes
-    measured_is = (FULL_IS_CANDLES * 5 if minutes == FULL_MINUTES else 5) if is_minutes is None else is_minutes
+    default_warmup = 1440 if minutes == FULL_MINUTES else 1250
+    default_is = FULL_IS_CANDLES * 5 if minutes == FULL_MINUTES else 5
+    warmup = default_warmup if warmup_minutes is None else warmup_minutes
+    measured_is = default_is if is_minutes is None else is_minutes
     if (warmup < 1250 or measured_is < 5
             or warmup % 5 or measured_is % 5
             or minutes - warmup - measured_is < 5):
