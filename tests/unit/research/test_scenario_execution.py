@@ -708,3 +708,234 @@ def test_released_validator_uses_frozen_runner_lifecycle_semantics(case, profile
     assert report["checks"]["SAVED_LIFECYCLE_CONSISTENCY"] == "PASS"
     assert report["status"] == "INCONCLUSIVE"
     assert report["point_metrics_allowed"] is False
+
+
+# SF-283: prospective v2 saved-byte reconstruction; v1 semantics remain frozen.
+from signalforge.config.identity import config_hash  # noqa: E402
+from signalforge.research.scenario_report_evidence import (  # noqa: E402
+    write_source_quality_evidence,
+    write_strict_reference_evidence,
+)
+from signalforge.research.scenario_reportability import (  # noqa: E402
+    ReportabilityError,
+    report_from_saved_bytes,
+)
+
+
+def _sf283_roundtrip(
+    tmp_path: Path, *, signals: tuple[int, ...] = (251,),
+    prices: dict[int, tuple[str, str, str, str]] | None = None,
+    split_minute: int = 1260,
+    profile: HistoricalExecutionAssumptionProfile | None = None,
+    runner: ScenarioResearchRunner | None = None,
+    ambiguous_minutes: tuple[int, ...] = (),
+):
+    """Actual synthetic runner -> canonical bytes -> detached saved-only report."""
+    source = _source(overrides=prices)
+    request = replace(
+        _request(source, profile=profile),
+        oos_start=START + timedelta(minutes=split_minute),
+    )
+    result = (runner or _runner(*signals)).run_verified(request)
+    src = tmp_path / "source-quality.json"
+    strict = tmp_path / "strict-reference.json"
+    target = tmp_path / "result-v2.json"
+    write_source_quality_evidence(request, result, src)
+    assessed = tuple(
+        request.is_start + timedelta(minutes=n)
+        for n in range(int((request.measured_end - request.is_start) / timedelta(minutes=1)))
+    )
+    ambiguous = tuple(START + timedelta(minutes=n) for n in ambiguous_minutes)
+    write_strict_reference_evidence(
+        result, request, strict,
+        assessed_intervals=assessed, ambiguous_intervals=ambiguous,
+        producer_id="synthetic-independent-strict-diagnostic-v1",
+    )
+    result.write_reportable_new(target, source_companion=src, strict_companion=strict)
+    # Reporting has no access to source, request or runner objects.
+    report = report_from_saved_bytes(target.read_bytes(), src.read_bytes(), strict.read_bytes())
+    return result, report, target, src, strict
+
+
+def test_sf283_s01_full_grid_and_s15_saved_byte_report(tmp_path):
+    result, report, target, src, strict = _sf283_roundtrip(tmp_path, signals=())
+    assert report["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
+    assert report["execution_valid"] is False
+    assert report["certainty"] == "SCENARIO_CONDITIONED"
+    assert report["windows"]["IS"]["economics"]["expected_completed_5m_decisions"] == 2
+    assert report["windows"]["OOS"]["economics"]["expected_completed_5m_decisions"] == 8
+    assert report["closed_cohort_reconciliation"]["total_closed"] == 0
+    assert result.result_id == config_hash({"domain": "scenario-result-v1", "result": result.mapping()})
+    assert report_from_saved_bytes(target.read_bytes(), src.read_bytes(), strict.read_bytes()) == report
+    with pytest.raises(FileExistsError):
+        result.write_reportable_new(target, source_companion=src, strict_companion=strict)
+
+
+def test_sf283_s02_is_contained(tmp_path):
+    prices = {1255: ("100", "105", "98", "100")}
+    _, report, *_ = _sf283_roundtrip(tmp_path, prices=prices)
+    assert report["closed_cohort_reconciliation"]["IS_CONTAINED"] == 1
+    assert report["closed_cohort_reconciliation"]["OOS_CONTAINED"] == 0
+    assert report["windows"]["IS"]["economics"]["closed_contained"] == 1
+
+
+def test_sf283_s03_oos_contained(tmp_path):
+    prices = {1265: ("100", "105", "98", "100")}
+    _, report, *_ = _sf283_roundtrip(tmp_path, prices=prices, signals=(253,))
+    assert report["closed_cohort_reconciliation"]["OOS_CONTAINED"] == 1
+
+
+def test_sf283_s04_split_signal_and_cross_window(tmp_path):
+    prices = {1255: ("100", "105", "98", "100")}
+    _, report, *_ = _sf283_roundtrip(tmp_path, prices=prices, split_minute=1255)
+    counts = report["closed_cohort_reconciliation"]
+    assert counts["CROSS_WINDOW"] == 1
+    assert counts["IS_CONTAINED"] == 0 and counts["OOS_CONTAINED"] == 0
+    assert report["windows"]["IS"]["actionable_accepted_signals"] == 1
+    assert report["windows"]["OOS"]["accepted_entry_events"] == 1
+
+
+def test_sf283_s05_rejected_and_attempt_boundary(tmp_path):
+    class RejectSyntheticEntry(_SignalAt):
+        def post_fill_economics(self, fill, setup):
+            return PositionEconomics(fill.fill_price, None)
+
+    registry = StrategyRegistry((
+        StrategyRegistration(SEL.strategy_id, SEL.strategy_version,
+                             lambda params: RejectSyntheticEntry((251,))),
+    ))
+    runner = ScenarioResearchRunner(registry=registry)
+    result, report, *_ = _sf283_roundtrip(
+        tmp_path, runner=runner, prices={1255: ("100", "105", "98", "100")},
+    )
+    assert result.outcomes[0].state == "REJECTED"
+    assert result.outcomes[0].attempted_entry_bucket is not None
+    assert report["windows"]["IS"]["lifecycle_by_signal_window"]["REJECTED"] == 1
+    assert report["closed_cohort_reconciliation"]["total_closed"] == 0
+
+
+@pytest.mark.parametrize("prices,expected", [
+    ({1255: ("98", "101", "97.9", "100")}, "PRE_ENTRY_INVALIDATION"),
+    ({i: ("100", "100.05", "100", "100") for i in range(1255, 1260)},
+     "VALIDITY_WINDOW_END"),
+])
+def test_sf283_s06_expiry_provenance(tmp_path, prices, expected):
+    result, report, *_ = _sf283_roundtrip(tmp_path, prices=prices)
+    assert result.outcomes[0].reason == expected
+    assert result.outcomes[0].terminal_event_bucket is not None
+    assert report["windows"]["IS"]["lifecycle_by_signal_window"]["EXPIRED"] == 1
+
+
+def test_sf283_s07_terminal_open(tmp_path):
+    prices = {i: ("100.2", "100.21", "100.1", "100.2")
+              for i in range(1255, MINUTES)}
+    result, report, *_ = _sf283_roundtrip(tmp_path, prices=prices)
+    assert result.outcomes[-1].state == "OPEN"
+    assert report["windows"]["IS"]["lifecycle_by_signal_window"]["OPEN"] == 1
+    assert report["closed_cohort_reconciliation"]["total_closed"] == 0
+
+
+def test_sf283_s08_terminal_armed(tmp_path):
+    result, report, *_ = _sf283_roundtrip(tmp_path, signals=(260,))
+    assert result.outcomes[-1].state == "ARMED"
+    assert report["windows"]["OOS"]["lifecycle_by_signal_window"]["ARMED"] == 1
+
+
+def test_sf283_s09_invalid_source_withholds(tmp_path):
+    source = _source()
+    bars = source.dataset.bars[:1255] + source.dataset.bars[1256:]
+    manifest = replace(
+        source.dataset.manifest, raw_row_count=MINUTES - 1,
+        canonical_row_count=MINUTES - 1, missing_interval_count=1,
+    )
+    missing = RawDiagnosticSource(
+        HistoricalBarDataset(manifest, bars), "synthetic-sf283-source-missing",
+    )
+    request = replace(_request(missing), oos_start=START + timedelta(minutes=1260))
+    result = _runner(251).run_verified(request)
+    assert result.failure is not None
+    src = tmp_path / "source.json"
+    strict = tmp_path / "strict.json"
+    output = tmp_path / "result.json"
+    write_source_quality_evidence(request, result, src)
+    assessed = tuple(
+        request.is_start + timedelta(minutes=i)
+        for i in range(int((request.measured_end - request.is_start) /
+                           timedelta(minutes=1)))
+    )
+    write_strict_reference_evidence(
+        result, request, strict, assessed_intervals=assessed,
+        ambiguous_intervals=(), producer_id="synthetic-strict-fixture-v1",
+    )
+    result.write_reportable_new(output, source_companion=src, strict_companion=strict)
+    with pytest.raises(ReportabilityError):
+        report_from_saved_bytes(output.read_bytes(), src.read_bytes(), strict.read_bytes())
+
+
+def test_sf283_s10_independent_strict_ambiguity(tmp_path):
+    _, report, *_ = _sf283_roundtrip(tmp_path, signals=(), ambiguous_minutes=(1252,))
+    assert report["windows"]["IS"]["strict_reference"]["ambiguous_count"] == 1
+    assert report["windows"]["OOS"]["strict_reference"]["ambiguous_count"] == 0
+
+
+def test_sf283_s11_no_closes_undefined_ratios_and_zero_frequency(tmp_path):
+    _, report, *_ = _sf283_roundtrip(tmp_path, signals=())
+    economics = report["windows"]["IS"]["economics"]
+    assert economics["win_rate"]["reason"] == "NO_CLOSED_TRADES"
+    assert economics["average_r_expectancy"]["reason"] == "NO_CLOSED_TRADES"
+    assert economics["profit_factor_r"]["reason"] == "NO_CLOSED_TRADES"
+    assert economics["maximum_cumulative_r_drawdown"]["reason"] == "EMPTY_COHORT"
+    assert economics["frequency_per_1000_expected_5m_decisions"]["value"] == "0"
+
+
+def test_sf283_s12_winner_without_losses_undefined_profit_factor(tmp_path):
+    _, report, *_ = _sf283_roundtrip(
+        tmp_path, prices={1255: ("100", "105", "98", "100")},
+    )
+    assert report["windows"]["IS"]["economics"]["profit_factor_r"]["reason"] == "NO_LOSING_R"
+
+
+def test_sf283_s13_unique_real_runner_exit_buckets(tmp_path):
+    prices = {1255: ("100", "105", "98", "100"),
+              1265: ("100", "105", "98", "100")}
+    result, report, *_ = _sf283_roundtrip(
+        tmp_path, signals=(251, 253), prices=prices,
+    )
+    exited = [o.exit_bucket for o in result.outcomes if o.state == "CLOSED"]
+    assert len(exited) == 2 and len(set(exited)) == 2
+    assert report["closed_cohort_reconciliation"]["total_closed"] == 2
+
+
+def test_sf283_s14_profile_isolation_repeatability(tmp_path):
+    prices = {1255: ("100", "105", "98", "100")}
+    source = _source(overrides=prices)
+    base = replace(_request(source), oos_start=START + timedelta(minutes=1260))
+    a = _runner(251).run_verified(base)
+    again = _runner(251).run_verified(base)
+    b = _runner(251).run_verified(replace(
+        base, profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    ))
+    assert a.mapping() == again.mapping()
+    assert a.reportable_mapping() == again.reportable_mapping()
+    assert a.manifest.run_id != b.manifest.run_id
+
+
+@pytest.mark.parametrize("mutation", ["invalid-result-hash", "absent-companion",
+                                     "corrupt-source", "unknown-contract"])
+def test_sf283_s16_missing_or_contradictory_saved_evidence(tmp_path, mutation):
+    import json
+
+    result, report, output, src, strict = _sf283_roundtrip(tmp_path, signals=())
+    document = json.loads(output.read_text())
+    source = src.read_bytes()
+    strict_bytes = strict.read_bytes()
+    if mutation == "invalid-result-hash":
+        document["scenario_result_id"] = "invalid"
+    elif mutation == "absent-companion":
+        strict_bytes = b"{}"
+    elif mutation == "corrupt-source":
+        source = b"{}"
+    else:
+        document["result"]["report_contract"] = "unknown"
+    with pytest.raises(ReportabilityError):
+        report_from_saved_bytes(json.dumps(document).encode(), source, strict_bytes)
