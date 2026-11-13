@@ -1043,3 +1043,27 @@ def test_sf283_saved_byte_cli_synthetic_only(tmp_path):
     )
     assert blocked.returncode == 2
     assert json.loads(blocked.stdout)["status"] == "WITHHELD"
+
+
+def test_sf283_companion_producers_reject_wrong_source_or_profile(tmp_path):
+    source = _source()
+    req = replace(_request(source), oos_start=START + timedelta(minutes=1260))
+    result = _runner(251).run_verified(req)
+    mismatched_source = replace(
+        req, source=_source(overrides={1255: ("100", "105", "98", "100")}),
+    )
+    with pytest.raises(ValueError, match="does not match result manifest"):
+        write_source_quality_evidence(
+            mismatched_source, result, tmp_path / "wrong-source.json",
+        )
+    mismatched_profile = replace(
+        req, profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    )
+    with pytest.raises(ValueError, match="does not match result manifest"):
+        write_strict_reference_evidence(
+            result, mismatched_profile, tmp_path / "wrong-strict.json",
+            assessed_intervals=(), ambiguous_intervals=(),
+            producer_id="synthetic-independent-strict-diagnostic-v1",
+        )
+    assert not (tmp_path / "wrong-source.json").exists()
+    assert not (tmp_path / "wrong-strict.json").exists()
