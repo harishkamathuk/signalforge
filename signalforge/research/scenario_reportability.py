@@ -41,10 +41,11 @@ def _map(value: object, name: str) -> dict[str, Any]:
 
 
 def _items(value: object, name: str) -> list[dict[str, Any]]:
-    _require(type(value) is list, "INVALID_" + name.upper())
-    rows = value
-    _require(all(type(x) is dict for x in rows), "INVALID_" + name.upper())
-    return rows  # type: ignore[return-value]
+    if not isinstance(value, list):
+        raise ReportabilityError("INVALID_" + name.upper())
+    if not all(type(x) is dict for x in value):
+        raise ReportabilityError("INVALID_" + name.upper())
+    return value
 
 
 def _utc(value: object) -> datetime:
@@ -172,8 +173,10 @@ def _strict_reference(companion: dict[str, Any],
         _require(eligible <= int((end - start) / timedelta(minutes=1)),
                  "STRICT_DENOMINATOR_EXCEEDS_GRID")
         intervals = row.get("ambiguous_interval_starts")
-        _require(type(intervals) is list and all(type(x) is str for x in intervals),
-                 "INVALID_STRICT_INTERVALS")
+        if not isinstance(intervals, list) or not all(
+            type(x) is str for x in intervals
+        ):
+            raise ReportabilityError("INVALID_STRICT_INTERVALS")
         times = [_utc(x) for x in intervals]
         _require(len(set(times)) == len(times) and len(times) <= eligible
                  and all(start <= t < end for t in times),
@@ -306,7 +309,8 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     for outcome in outcomes:
         _require(set(FUTURE_FIELDS).issubset(outcome), "MISSING_LIFECYCLE_PROVENANCE")
         oid = outcome.get("opportunity_id")
-        _require(type(oid) is str and oid not in seen, "DUPLICATE_OPPORTUNITY")
+        if not isinstance(oid, str) or oid in seen:
+            raise ReportabilityError("DUPLICATE_OPPORTUNITY")
         seen.add(oid)
         state = outcome.get("state")
         _require(state in STATES and outcome.get("certainty") == "SCENARIO_CONDITIONED",
