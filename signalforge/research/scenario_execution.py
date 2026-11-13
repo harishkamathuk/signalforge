@@ -28,16 +28,8 @@ from signalforge.domain.market import CandleQuality, CompletedCandle
 from signalforge.domain.money import Price
 from signalforge.domain.provenance import RunIdentity
 from signalforge.domain.signals import Signal
+from signalforge.research import audited_source_slice_v1 as sf260_slice
 from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
-from signalforge.research.audited_source_slice_v1 import (
-    AuditedSourceSliceV1,
-    IS_CANDLES as SF260_IS_CANDLES,
-    IS_START as SF260_IS_START,
-    MEASURED_END as SF260_END,
-    OOS_CANDLES as SF260_OOS_CANDLES,
-    OOS_START as SF260_OOS_START,
-    SOURCE_START as SF260_SOURCE_START,
-)
 from signalforge.research.historical_bars import (
     HistoricalBar,
     HistoricalPriceBasis,
@@ -192,7 +184,7 @@ class ScenarioResearchRequest:
     """Explicit synthetic or audited source plus frozen BTC research parameters."""
 
     mode: ScenarioMode
-    source: RawDiagnosticSource | AuditedSourceSliceV1
+    source: RawDiagnosticSource | sf260_slice.AuditedSourceSliceV1
     strategy_selection: StrategySelection
     engine_calculation_version: str
     assumptions: ScenarioAssumptionSet
@@ -212,7 +204,10 @@ class ScenarioResearchRequest:
             raise TypeError("Registered explicit scenario assumptions required")
         if not isinstance(self.resources, ScenarioResourcePolicy):
             raise TypeError("Explicit finite scenario resource policy required")
-        if not isinstance(self.source, (RawDiagnosticSource, AuditedSourceSliceV1)) or self.source.execution_valid:
+        if (
+            not isinstance(self.source, (RawDiagnosticSource, sf260_slice.AuditedSourceSliceV1))
+            or self.source.execution_valid
+        ):
             raise ValueError("Scenario requires provenance-bound non-execution-valid source")
         if (
             self.profile.price_mode is not HistoricalPriceMode.RAW_DIAGNOSTIC
@@ -255,14 +250,14 @@ class ScenarioResearchRequest:
         if self.study_variant not in (FULL_YEAR_VARIANT, SF260_90D_VARIANT):
             raise ValueError("unknown or unversioned scenario study variant")
         if self.study_variant == SF260_90D_VARIANT:
-            if not isinstance(self.source, AuditedSourceSliceV1):
+            if not isinstance(self.source, sf260_slice.AuditedSourceSliceV1):
                 raise ValueError("90D protected variant requires audited source slice v1")
             if (
-                coverage[0].start != SF260_SOURCE_START
-                or coverage[0].end != SF260_END
-                or self.is_start != SF260_IS_START
-                or self.oos_start != SF260_OOS_START
-                or self.measured_end != SF260_END
+                coverage[0].start != sf260_slice.SOURCE_START
+                or coverage[0].end != sf260_slice.MEASURED_END
+                or self.is_start != sf260_slice.IS_START
+                or self.oos_start != sf260_slice.OOS_START
+                or self.measured_end != sf260_slice.MEASURED_END
                 or self.synthetic_fixture_identity is not None
                 or self.engine_calculation_version != "engine-v1"
                 or self.strategy_selection.parameters
@@ -274,7 +269,7 @@ class ScenarioResearchRequest:
                 char not in "0123456789abcdef" for char in self.repository_revision
             ):
                 raise ValueError("90D variant requires exact lowercase Git commit revision")
-        elif isinstance(self.source, AuditedSourceSliceV1):
+        elif isinstance(self.source, sf260_slice.AuditedSourceSliceV1):
             raise ValueError("audited source slice may not impersonate the full-year variant")
         if self.source.source_diagnostic_id.startswith("synthetic-"):
             if (
@@ -829,7 +824,7 @@ def _manifest(request: ScenarioResearchRequest, strategy: Strategy,
             "content_hash": ds.content_hash,
             "source_diagnostic_id": request.source.source_diagnostic_id,
             **({"audited_slice_lineage": request.source.lineage_preimage()}
-               if isinstance(request.source, AuditedSourceSliceV1) else {}),
+               if isinstance(request.source, sf260_slice.AuditedSourceSliceV1) else {}),
             "five_minute_close_digest": config_hash({
                 "close": [None if c.close is None else c.close.value for c in candles],
             }),
@@ -882,7 +877,7 @@ class ScenarioResearchRunner:
             raise ValueError("Scenario deterministic replay mismatch")
         ds = request.source.dataset
         expected_is, expected_oos = (
-            (SF260_IS_CANDLES, SF260_OOS_CANDLES)
+            (sf260_slice.IS_CANDLES, sf260_slice.OOS_CANDLES)
             if request.study_variant == SF260_90D_VARIANT else (69984, 34848)
         )
         complete = (
