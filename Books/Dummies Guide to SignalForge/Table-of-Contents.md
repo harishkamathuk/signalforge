@@ -9,7 +9,7 @@
 ## Part II — Teaching, Testing and Questioning
 
 4. [Teaching the Robot About Markets](Chapters/04-teaching-the-robot-about-markets.md) — **Editorially approved, 13 November 2026**
-5. The Trading Time Machine — Planned
+5. [The Trading Time Machine](Chapters/05-the-trading-time-machine.md) — **Editorially approved, 13 November 2026**
 6. Can We Trust the Results? — Planned
 7. The Exam Nobody Should Cheat On — Planned
 8. What Happens Between Two Prices? — Planned
