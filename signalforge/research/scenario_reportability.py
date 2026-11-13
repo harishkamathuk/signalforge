@@ -243,9 +243,95 @@ def _source_quality(companion: dict[str, Any],
 
 
 def _strict_reference(companion: dict[str, Any],
-                      bounds: dict[str, tuple[datetime, datetime]]) -> dict[str, object]:
-    _require(companion.get("unit") == "CANONICAL_1M_SOURCE_BUCKET"
-             and companion.get("assessment") == "ASSESSED", "STRICT_NOT_ASSESSED")
+                      bounds: dict[str, tuple[datetime, datetime]],
+                      manifest: dict[str, Any]) -> dict[str, object]:
+    _require(companion.get("unit") == "CANONICAL_1M_SOURCE_BUCKET",
+             "INVALID_STRICT_UNIT")
+    coverage = companion.get("strict_coverage_proof")
+    synthetic = _map(manifest.get("strategy"), "strict_strategy").get(
+        "synthetic_fixture_identity"
+    ) is not None
+    legacy_fixture = (
+        synthetic and coverage is None and
+        companion.get("producer_id") == "synthetic-independent-strict-diagnostic-v1"
+    )
+    # Preserve the original explicitly synthetic SF-283 fixture tests: their
+    # caller-supplied masks never establish protected historical B3 readiness.
+    # Any protected or B3-producer companion must carry independently produced
+    # full-window causal eligibility evidence. No missing proof can publish
+    # prospective historical gross-R metrics.
+    _require(coverage is not None or legacy_fixture, "STRICT_COVERAGE_PROOF_REQUIRED")
+    if coverage is None:
+        _require(companion.get("assessment") == "ASSESSED", "STRICT_NOT_ASSESSED")
+    else:
+        proof = _map(coverage, "strict_coverage_proof")
+        _require(proof.get("version") == "adr011-strict-eligible-1m-v1"
+                 and proof.get("producer_id") ==
+                 "adr011-fail-closed-independent-strict-v1"
+                 and proof.get("producer_id") == companion.get("producer_id")
+                 and proof.get("continuation_policy") == "FAIL_CLOSED_V1"
+                 and proof.get("strict_calculation_version") ==
+                 "historical-bar-execution-v1",
+                 "INVALID_STRICT_PROOF_PRODUCER")
+        strict_id = proof.get("strict_result_id")
+        _require(type(strict_id) is str and len(strict_id) == 64 and
+                 all(c in "0123456789abcdef" for c in strict_id),
+                 "INVALID_STRICT_RESULT_ID")
+        binding = _map(proof.get("binding"), "strict_binding")
+        _require(binding == {
+            key: manifest[key] for key in (
+                "source", "strategy", "fills", "session_and_window",
+                "implementation",
+            )
+        }, "STRICT_PROVENANCE_MISMATCH")
+        _require(type(proof.get("strict_terminated_early")) is bool,
+                 "INVALID_STRICT_TERMINATION")
+        stop_at: datetime | None = None
+        if proof["strict_terminated_early"]:
+            stop = _map(proof.get("stop"), "strict_stop")
+            raw_stop = stop.get("after_bucket")
+            _require(type(raw_stop) is str
+                     and type(stop.get("reasons")) is list
+                     and stop.get("certainty") in ("bounded_ambiguous", "unresolved")
+                     and bool(stop["reasons"])
+                     and all(type(reason) is str and bool(reason)
+                             for reason in stop["reasons"]),
+                     "INVALID_STRICT_STOP")
+            stop_at = _utc(raw_stop)
+            pre_roll = _utc(_map(manifest.get("session_and_window"),
+                                 "strict_window_binding").get("pre_roll_start"))
+            # The strict runner cannot process a source minute at/after the
+            # exclusive source end. A forged future stop otherwise makes all
+            # E/I masks appear to be a complete assessed prefix.
+            source_manifest = _map(_map(manifest.get("source"), "strict_source").get(
+                "manifest"), "strict_source_manifest")
+            source_grid = _map(source_manifest.get("grid"), "strict_source_grid")
+            source_coverage = _items(source_grid.get("coverage"),
+                                     "strict_source_coverage")
+            _require(len(source_coverage) == 1, "INVALID_STRICT_SOURCE_GRID")
+            source_start = _utc(source_coverage[0].get("start"))
+            source_end = _utc(source_coverage[0].get("end"))
+            _require(
+                stop_at.isoformat() == raw_stop
+                and source_start == pre_roll
+                and source_start <= stop_at < source_end
+                and (stop_at - source_start) % timedelta(minutes=1) ==
+                timedelta(0),
+                "INVALID_STRICT_STOP",
+            )
+        else:
+            _require(proof.get("stop") is None, "INVALID_STRICT_STOP")
+        terminal = proof.get("end_terminal_uncertainty")
+        if terminal is not None:
+            record = _map(terminal, "strict_end_terminal")
+            _require(
+                not proof["strict_terminated_early"]
+                and record.get("terminal_state") == "unresolved"
+                and record.get("reasons") in (
+                    ["dataset_end_open"], ["dataset_end_armed"],
+                ),
+                "INVALID_STRICT_END_TERMINAL",
+            )
     windows = _map(companion.get("windows"), "strict_windows")
     result: dict[str, object] = {}
     for name, (start, end) in bounds.items():
@@ -264,14 +350,87 @@ def _strict_reference(companion: dict[str, Any],
             raise ReportabilityError("INVALID_STRICT_INTERVALS")
         times = [_utc(x) for x in intervals]
         _require(len(set(times)) == len(times) and len(times) <= eligible
-                 and all(start <= t < end and
+                 and all(start <= t < end and t.second == 0 and
+                         t.microsecond == 0 and
                          mask[int((t - start) / timedelta(minutes=1))] == "1"
                          for t in times),
                  "CONTRADICTORY_STRICT_CLASSIFICATION")
-        result[name] = {"assessment": "ASSESSED",
-                        "eligible_intervals": eligible,
-                        "ambiguous_count": len(times),
-                        "unit": "CANONICAL_1M_SOURCE_BUCKET"}
+        row_out: dict[str, object] = {
+            "assessment": "ASSESSED" if eligible else "NOT_ASSESSED",
+            "eligible_intervals": eligible,
+            "ambiguous_count": len(times),
+            "unit": "CANONICAL_1M_SOURCE_BUCKET",
+        }
+        if coverage is not None:
+            proof = _map(coverage, "strict_coverage_proof")
+            per_window = _map(_map(proof.get("windows"), "strict_proof_windows").get(name),
+                              "strict_proof_window")
+            membership = per_window.get("eligibility_1m_mask")
+            checked = per_window.get("assessed_1m_mask")
+            if not isinstance(membership, str):
+                raise ReportabilityError("INVALID_STRICT_ELIGIBILITY_MASK")
+            _require(len(membership) == expected
+                     and set(membership).issubset({"E", "I", "?"})
+                     and checked == mask,
+                     "INVALID_STRICT_ELIGIBILITY_MASK")
+            # A strict fail-closed stop censors every *later* source minute:
+            # any E/I after the last visited bucket fabricates a future
+            # opportunity population. The stop minute itself remains known.
+            if stop_at is not None:
+                _require(all(
+                    (member == "?") == (start + timedelta(minutes=i) > stop_at)
+                    for i, member in enumerate(membership)
+                ), "STRICT_STOP_MASK_CONTRADICTION")
+            else:
+                _require("?" not in membership, "STRICT_STOP_MASK_CONTRADICTION")
+            known_e = membership.count("E")
+            known_i = membership.count("I")
+            indeterminate = membership.count("?")
+            unassessed = known_e - eligible
+            _require(
+                _count(per_window.get("window_1m_expected")) == expected
+                and _count(per_window.get("known_eligible")) == known_e
+                and _count(per_window.get("known_ineligible")) == known_i
+                and _count(per_window.get("eligibility_indeterminate")) == indeterminate
+                and _count(per_window.get("assessed")) == eligible
+                and _count(per_window.get("unassessed")) == unassessed
+                and _count(per_window.get("ambiguous")) == len(times)
+                and all(mask[i] == "0" or membership[i] == "E"
+                        for i in range(expected)),
+                "STRICT_ELIGIBILITY_COUNT_MISMATCH",
+            )
+            expected_eligible = per_window.get("expected_eligible")
+            _require(
+                (expected_eligible is None if indeterminate else
+                 type(expected_eligible) is int and expected_eligible == known_e),
+                "STRICT_EXPECTED_ELIGIBILITY_UNPROVEN",
+            )
+            expected_status = (
+                "ELIGIBILITY_INDETERMINATE" if indeterminate else
+                "ELIGIBLE_UNASSESSED" if unassessed else
+                "ASSESSED_ZERO_ELIGIBLE" if not known_e else "COMPLETE"
+            )
+            _require(per_window.get("status") == expected_status,
+                     "INVALID_STRICT_SCOPE_STATUS")
+            reasons = per_window.get("incomplete_reasons")
+            _require(isinstance(reasons, list) and
+                     all(type(item) is str and bool(item) for item in reasons)
+                     and len(set(reasons)) == len(reasons)
+                     and (bool(reasons) == bool(indeterminate or unassessed)),
+                     "INVALID_STRICT_INCOMPLETE_REASON")
+            _require(
+                indeterminate == 0 and unassessed == 0,
+                "STRICT_COVERAGE_INCOMPLETE_WITHHOLD",
+            )
+            row_out.update({
+                "assessment": expected_status,
+                "expected_eligible_intervals": known_e,
+                "assessed_intervals": eligible,
+                "known_ineligible_intervals": known_i,
+                "indeterminate_intervals": indeterminate,
+                "unassessed_eligible_intervals": unassessed,
+            })
+        result[name] = row_out
     return result
 
 
@@ -547,7 +706,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
              "INVALID_MEASURED_WINDOWS")
     bounds = {"IS": (start, split), "OOS": (split, finish)}
     quality = _source_quality(source, bounds)
-    ambiguity = _strict_reference(strict, bounds)
+    ambiguity = _strict_reference(strict, bounds, manifest)
     expected = {name: int((end - lower) / timedelta(minutes=5))
                 for name, (lower, end) in bounds.items()}
     observed = {name: _count(result.get("is_observed" if name == "IS"

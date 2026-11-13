@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -526,6 +526,21 @@ class _Active:
         return self.entry_fill is not None
 
 
+@dataclass(frozen=True, slots=True)
+class HistoricalStrictMinuteAudit:
+    """A single ADR-011 state-before-bucket strict assessment observation.
+
+    This optional audit channel is not an execution result or observed
+    intraminute chronology. Existing historical result identities exclude it.
+    """
+
+    bucket_start: datetime
+    eligible: bool
+    assessed: bool
+    ambiguous: bool
+    reason: str
+
+
 class HistoricalBarExecutionRunner:
     """Single-security historical lifecycle using only canonical one-minute evidence."""
 
@@ -546,10 +561,15 @@ class HistoricalBarExecutionRunner:
         continuation_policy: HistoricalContinuationPolicy = (
             HistoricalContinuationPolicy.FAIL_CLOSED_V1
         ),
+        strict_minute_observer: Callable[[HistoricalStrictMinuteAudit], None] | None = None,
     ) -> HistoricalExecutionRunResult:
         if not isinstance(continuation_policy, HistoricalContinuationPolicy):
             raise TypeError("Historical continuation policy must be explicitly versioned")
         raw = execution_profile.price_mode is HistoricalPriceMode.RAW_DIAGNOSTIC
+        if strict_minute_observer is not None and (
+            not raw or continuation_policy is not HistoricalContinuationPolicy.FAIL_CLOSED_V1
+        ):
+            raise ValueError("Strict minute audit requires FAIL_CLOSED_V1 RAW_DIAGNOSTIC")
         # Evidence and bars travel as one audited bundle, never as caller-paired IDs.
         source_diagnostic_id = None if raw_source is None else raw_source.source_diagnostic_id
         if not raw and continuation_policy is not HistoricalContinuationPolicy.FAIL_CLOSED_V1:
@@ -642,6 +662,10 @@ class HistoricalBarExecutionRunner:
             bar = bar_by_start.get(start)
             if bar is None:
                 if active is not None:
+                    if strict_minute_observer is not None:
+                        strict_minute_observer(HistoricalStrictMinuteAudit(
+                            start, True, False, False, "MISSING_EXECUTION_EVIDENCE",
+                        ))
                     outcomes.append(_missing(active, start))
                     return _result(
                         dataset,
@@ -662,6 +686,9 @@ class HistoricalBarExecutionRunner:
                 raise HistoricalContinuityError(candle)
 
             if active is not None:
+                # Audit causal eligibility before processing this minute.
+                # Arming at a completed 5m boundary cannot retroactively
+                # make the just-finished bar an eligible strict minute.
                 terminal = _process_bar(
                     active,
                     bar,
@@ -671,6 +698,23 @@ class HistoricalBarExecutionRunner:
                     market_session_policy,
                     continuation_policy,
                 )
+                if strict_minute_observer is not None:
+                    bounded_here = (
+                        terminal is not None
+                        and terminal.certainty is HistoricalOutcomeCertainty.BOUNDED_AMBIGUOUS
+                        and bool(terminal.ambiguity_reasons)
+                        and bool(terminal.reachability_evidence)
+                        and terminal.reachability_evidence[-1].bucket.start == start
+                    )
+                    unassessed = (
+                        terminal is not None
+                        and terminal.certainty is HistoricalOutcomeCertainty.UNRESOLVED
+                    )
+                    strict_minute_observer(HistoricalStrictMinuteAudit(
+                        start, True, not unassessed, bounded_here,
+                        ("BOUNDED_AMBIGUOUS" if bounded_here else
+                         "UNRESOLVED" if unassessed else "ASSESSED"),
+                    ))
                 if terminal is not None:
                     outcomes.append(terminal)
                     if _requires_run_termination(terminal):
@@ -689,6 +733,10 @@ class HistoricalBarExecutionRunner:
                             continuation_policy,
                         )
                     active = None
+            elif strict_minute_observer is not None:
+                strict_minute_observer(HistoricalStrictMinuteAudit(
+                    start, False, False, False, "KNOWN_INELIGIBLE",
+                ))
 
             completed_candle = candle_by_end.get(bar.interval.end)
             if completed_candle is None:
