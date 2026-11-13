@@ -878,10 +878,17 @@ class ScenarioResearchRunner:
         if first.result_id != second.result_id or first.mapping() != second.mapping():
             raise ValueError("Scenario deterministic replay mismatch")
         ds = request.source.dataset
-        expected_is, expected_oos = (
-            (sf260_slice.IS_CANDLES, sf260_slice.OOS_CANDLES)
-            if request.study_variant == SF260_90D_VARIANT else (69984, 34848)
-        )
+        if request.study_variant == SF260_90D_VARIANT:
+            # This variant's exact UTC boundaries were validated by the typed
+            # request; derive counts rather than silently reuse year constants.
+            expected_is = int(
+                (request.oos_start - request.is_start) / timedelta(minutes=5)
+            )
+            expected_oos = int(
+                (request.measured_end - request.oos_start) / timedelta(minutes=5)
+            )
+        else:
+            expected_is, expected_oos = 69984, 34848
         complete = (
             first.failure is None and first.unsupported == 0
             and first.is_observed == expected_is and first.oos_observed == expected_oos
