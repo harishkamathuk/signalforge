@@ -91,7 +91,7 @@ def _decode_canonical(raw: bytes) -> dict[str, Any]:
         raise ReportabilityError("CANONICAL_ROOT_NOT_MAPPING")
     with localcontext() as ctx:
         ctx.prec = 28
-        expected = (canonical_config_json(decoded) + "\\n").encode("utf-8")
+        expected = (canonical_config_json(decoded) + "\n").encode("utf-8")
     if raw != expected:
         raise ReportabilityError("NONCANONICAL_SAVED_BYTES")
     return decoded
