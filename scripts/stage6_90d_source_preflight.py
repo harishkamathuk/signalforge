@@ -185,10 +185,20 @@ def source_only_preflight() -> dict[str, object]:
         (canonical_config_json(summary) + "\n").encode("utf-8"),
     ))
     for name, payload in payloads:
-        with (PRIVATE / name).open("xb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+        fd = os.open(
+            PRIVATE / name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            # An interrupted attestation is quarantined; no overwrite/retry.
+            raise
     return summary
 
 
