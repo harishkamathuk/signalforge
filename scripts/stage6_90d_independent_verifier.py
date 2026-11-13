@@ -233,18 +233,27 @@ def verify_source_only() -> dict[str, object]:
               and row.get("canonical_sha256") == content_sha,
               "source-only profile hash/readback mismatch")
         mode = mapping.get("mode_and_schema")
-        check(isinstance(mode, dict)
-              and mode.get("study_variant") == "SF260_90D_AUDITED_V1"
-              and mode.get("sample_status") == "REPEATED_SAMPLE"
-              and mode.get("window_selection") == "EARLIEST_90_MEASURED_UTC_DAYS"
-              and mode.get("schema") == "scenario-manifest-v1",
-              "90D variant manifest mode differs")
+        check(
+            mode == {
+                "mode": "SCENARIO_RESEARCH",
+                "schema": "scenario-manifest-v1",
+                "simulator": "btc-ohlc-path-scenario-v1",
+                "study_variant": "SF260_90D_AUDITED_V1",
+                "sample_status": "REPEATED_SAMPLE",
+                "window_selection": "EARLIEST_90_MEASURED_UTC_DAYS",
+            },
+            "90D variant manifest mode differs",
+        )
         source = mapping.get("source")
         check(isinstance(source, dict) and source.get("audited_slice_lineage") == lineage
               and source.get("dataset_id") == lineage["child_dataset_hash"]
               and source.get("content_hash") == lineage["child_dataset_hash"]
               and source.get("source_diagnostic_id") == derived_id,
               "profile source lineage/hash mismatch")
+        check(
+            source.get("manifest") == lineage["child_manifest"],
+            "profile source manifest differs from independently audited child",
+        )
         # Source-bound digest is independently recomputed from verified 1m closes.
         check(source.get("five_minute_close_digest") ==
               lineage["derived_five_minute_close_digest"],
