@@ -190,6 +190,8 @@ def source_only_preflight() -> dict[str, object]:
         "execution_valid": False, "historical_metadata_status":
             "UNQUALIFIED_HISTORICAL_METADATA",
         "revision": revision, "source_lineage": child.lineage_preimage(),
+        "sample_status": "REPEATED_SAMPLE",
+        "window_selection": "EARLIEST_90_MEASURED_UTC_DAYS",
         "derivation_id": child.derivation_id, "input_preregistration_id": prereg,
         "source_only_peak_rss_bytes": peak,
         "profiles": [
