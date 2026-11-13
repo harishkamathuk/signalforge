@@ -1,9 +1,9 @@
 # Chapter 4 — Source Verification Record
 
-**Chapter:** [Teaching the Robot About Markets](../Chapters/04-teaching-the-robot-about-markets.md)  
-**Editorial stage:** Owner AAS approved — 13 November 2026  
-**Verification date:** 13 November 2026  
-**Repository:** `harishkamathuk/signalforge`  
+**Chapter:** [Teaching the Robot About Markets](../Chapters/04-teaching-the-robot-about-markets.md)
+**Editorial stage:** Owner AAS approved — 13 November 2026
+**Verification date:** 13 November 2026
+**Repository:** `harishkamathuk/signalforge`
 **Immutable Git revision:** [`79ebf2e5296d71dc75f492743e056206ef4f4f4c`](https://github.com/harishkamathuk/signalforge/commit/79ebf2e5296d71dc75f492743e056206ef4f4f4c)
 
 ## Source-to-claim register
