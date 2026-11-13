@@ -465,6 +465,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     exit_counts: Counter[str] = Counter()
     lifecycle: dict[str, Counter[str]] = {"IS": Counter(), "OOS": Counter()}
     seen: set[str] = set()
+    seen_signals: set[datetime] = set()
     all_close: set[datetime] = set()
     for outcome in outcomes:
         _require(set(FUTURE_FIELDS).issubset(outcome), "MISSING_LIFECYCLE_PROVENANCE")
@@ -478,13 +479,17 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         signal_start = _utc(outcome["signal_interval_start"])
         signal_end = _utc(outcome["signal_interval_end"])
         _require(signal_end - signal_start == timedelta(minutes=5)
-                 and signal_start >= start, "INVALID_SIGNAL_INTERVAL")
+                 and signal_start >= start and signal_end not in seen_signals,
+                 "INVALID_SIGNAL_INTERVAL")
+        seen_signals.add(signal_end)
         sw = _window_for_signal(signal_end, start, split, finish)
         _require(_utc(outcome["valid_until_boundary"]) >= signal_end,
                  "INVALID_VALIDITY_BOUNDARY")
         cutoff = outcome["strategy_cutoff_boundary"]
         if cutoff is not None:
             _utc(cutoff)
+        terminal_at = _utc(outcome["terminal_event_bucket"])
+        _require(signal_end <= terminal_at <= finish, "INVALID_TERMINAL_BOUNDARY")
         signal_counts[sw] += 1
         lifecycle[sw][str(state)] += 1
         entered = outcome.get("entry_bucket") is not None
@@ -493,6 +498,9 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                                            split, finish) if entered else None)
         exit_window = (_window_for_bucket(_utc(outcome["exit_bucket"]), start,
                                           split, finish) if exited else None)
+        if entered:
+            _require(_utc(outcome["entry_bucket"]) >= signal_end,
+                     "ENTRY_BEFORE_COMPLETED_SIGNAL")
         if entry_window:
             entry_counts[entry_window] += 1
         if exit_window:
@@ -502,6 +510,9 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                      and outcome.get("reason") in ("STOP", "TARGET"),
                      "INVALID_CLOSED_OUTCOME")
             exit_at = _utc(outcome["exit_bucket"])
+            _require(terminal_at == exit_at and
+                     outcome.get("attempted_entry_bucket") is None,
+                     "INVALID_CLOSED_TERMINATION")
             _require(exit_at not in all_close, "DUPLICATE_MODELED_CLOSE_BUCKET")
             all_close.add(exit_at)
             _require(_utc(outcome["entry_bucket"]) <= exit_at,
@@ -534,10 +545,12 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
             _require(not exited and outcome.get("r") is None,
                      "NONCLOSED_WITH_REALIZED_ECONOMICS")
             if state == "OPEN":
-                _require(entered and outcome.get("reason") == "DATASET_END_CONDITIONAL",
+                _require(entered and outcome.get("reason") == "DATASET_END_CONDITIONAL"
+                         and terminal_at == finish,
                          "INVALID_TERMINAL_OPEN")
             if state == "ARMED":
-                _require(not entered and outcome.get("reason") == "DATASET_END_CONDITIONAL",
+                _require(not entered and outcome.get("reason") == "DATASET_END_CONDITIONAL"
+                         and terminal_at == finish,
                          "INVALID_TERMINAL_ARMED")
             if state == "EXPIRED":
                 _require(not entered and outcome.get("reason") in EXPIRY
@@ -546,10 +559,16 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
             if state == "REJECTED":
                 _require(not entered and outcome.get("reason") ==
                          "NON_POSITIVE_OR_UNSUPPORTED_RISK"
-                         and outcome["attempted_entry_bucket"] is not None,
+                         and outcome["attempted_entry_bucket"] is not None
+                         and _utc(outcome["attempted_entry_bucket"]) == terminal_at,
                          "INVALID_REJECTED_OUTCOME")
-        _require(outcome["terminal_event_bucket"] is not None,
-                 "MISSING_TERMINAL_BOUNDARY")
+    active = [o for o in outcomes if o["state"] in ("OPEN", "ARMED")]
+    _require(len(active) <= 1 and (not active or active[0] is outcomes[-1])
+             and result.get("terminal_active_state") ==
+             (active[0]["state"] if active else None),
+             "CONTRADICTORY_TERMINAL_ACTIVE_STATE")
+    _require(_count(result.get("attempted_outcome_count")) == len(outcomes),
+             "OUTCOME_COUNT_MISMATCH")
 
     blocked = _items(result.get("blocked_decisions"), "blocked")
     blocked_counts: Counter[str] = Counter()
@@ -557,7 +576,8 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         begin = _utc(row.get("interval_start"))
         end = _utc(row.get("interval_end"))
         _require(end - begin == timedelta(minutes=5)
-                 and row.get("blocking_opportunity_id") in seen,
+                 and row.get("blocking_opportunity_id") in seen
+                 and end not in seen_signals,
                  "INVALID_BLOCKED_DECISION")
         blocked_counts[_window_for_signal(end, start, split, finish)] += 1
     _require(sum(cohort_counts.values()) == sum(o["state"] == "CLOSED" for o in outcomes),
