@@ -13,13 +13,23 @@ import hashlib
 import json
 import os
 import resource
-from decimal import Decimal
 from dataclasses import replace
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from scripts.stage6_90d_source_preflight import (
+    MEMORY_LIMIT,
+    PRIVATE,
+    PROFILES,
+    SOURCE,
+    git_revision,
+    require_limits,
+)
+
 from signalforge.config.identity import canonical_config_json, config_hash
+from signalforge.domain.time import CandleInterval
 from signalforge.research.audited_source_slice_v1 import (
     DERIVATION_VERSION,
     IS_CANDLES,
@@ -38,11 +48,6 @@ from signalforge.research.btc_raw_diagnostic_input import (
 from signalforge.research.delta_historical_evidence_audit import audit_generation
 from signalforge.research.historical_bars import HistoricalBarDataset
 from signalforge.research.historical_grid import HistoricalBarGrid
-from signalforge.domain.time import CandleInterval
-
-from scripts.stage6_90d_source_preflight import (
-    MEMORY_LIMIT, PRIVATE, PROFILES, SOURCE, git_revision, require_limits,
-)
 
 
 class VerificationBlocked(ValueError):
