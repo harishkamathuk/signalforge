@@ -1736,7 +1736,7 @@ def test_sf260_b3_repeatable_bytes_and_legacy_identity_unchanged(tmp_path):
     assert [x.read_bytes() for x in a] == [x.read_bytes() for x in b]
     saved = _decode_canonical(a[0].read_bytes())
     assert saved["result"]["schema_version"] == "scenario-result-v2"
-    assert saved["result"]["scenario_run_id"] == saved[
-        "manifest"
-    ]["source"]["dataset_id"] or saved["result"]["scenario_run_id"]
+    assert saved["result"]["scenario_run_id"] == config_hash({
+        "domain": "scenario-run-v1", "inputs": saved["manifest"],
+    })
     assert saved["result"]["execution_valid"] is False
