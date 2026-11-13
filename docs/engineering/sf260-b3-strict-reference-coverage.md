@@ -40,6 +40,9 @@ bounded outcome. All later unprocessed measured buckets are
 **eligibility-indeterminate (?)**, not eligible or ineligible. The producer
 records the stop certainty/reasons and the known prefix. It never chooses
 possible worlds, extends the strict engine or inspects a scenario OHLC path.
+A final unresolved ARMED/OPEN opportunity is separately recorded as
+`end_terminal_uncertainty` (state and reasons), not mistaken for a
+within-minute ambiguity or an early-stop source suffix.
 
 ## Additive canonical companion proof
 
