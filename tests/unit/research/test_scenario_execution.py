@@ -1848,7 +1848,10 @@ def test_sf260_b3_observer_cannot_change_strict_result_identity():
     assert prior.semantic_mapping() == audited.semantic_mapping()
 
 
-def test_sf260_b3_r01_rehashed_stop_after_source_end_withholds(tmp_path):
+@pytest.mark.parametrize("minutes_past_end", [0, 2])
+def test_sf260_b3_r01_rehashed_stop_after_source_end_withholds(
+    tmp_path, minutes_past_end,
+):
     """A rehashed future stop cannot authenticate a complete strict prefix."""
     from signalforge.research.scenario_reportability import _decode_canonical
 
@@ -1862,7 +1865,9 @@ def test_sf260_b3_r01_rehashed_stop_after_source_end_withholds(tmp_path):
     proof = strict_doc["strict_coverage_proof"]
     proof["strict_terminated_early"] = True
     proof["stop"] = {
-        "after_bucket": (source_end + timedelta(minutes=2)).isoformat(),
+        "after_bucket": (
+            source_end + timedelta(minutes=minutes_past_end)
+        ).isoformat(),
         "certainty": "unresolved",
         "reasons": ["unsupported_strategy_policy"],
     }
