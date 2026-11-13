@@ -13,13 +13,21 @@ import hashlib
 import json
 import os
 import resource
+import sys
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from scripts.stage6_90d_source_preflight import (
+# Direct absolute-path invocation otherwise exposes scripts/, not its parent.
+# The import root is derived from this checked-out file, never operator input.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+from scripts.stage6_90d_source_preflight import (  # noqa: E402
     MEMORY_LIMIT,
     PRIVATE,
     PROFILES,
@@ -27,9 +35,9 @@ from scripts.stage6_90d_source_preflight import (
     git_revision,
     require_limits,
 )
-from signalforge.config.identity import canonical_config_json, config_hash
-from signalforge.domain.time import CandleInterval
-from signalforge.research.audited_source_slice_v1 import (
+from signalforge.config.identity import canonical_config_json, config_hash  # noqa: E402
+from signalforge.domain.time import CandleInterval  # noqa: E402
+from signalforge.research.audited_source_slice_v1 import (  # noqa: E402
     DERIVATION_VERSION,
     IS_CANDLES,
     IS_START,
@@ -40,13 +48,13 @@ from signalforge.research.audited_source_slice_v1 import (
     SOURCE_MINUTES,
     SOURCE_START,
 )
-from signalforge.research.btc_raw_diagnostic_input import (
+from signalforge.research.btc_raw_diagnostic_input import (  # noqa: E402
     FROZEN_PROVISIONAL_REPORT_SHA256,
     load_sf095_raw_diagnostic_source,
 )
-from signalforge.research.delta_historical_evidence_audit import audit_generation
-from signalforge.research.historical_bars import HistoricalBarDataset
-from signalforge.research.historical_grid import HistoricalBarGrid
+from signalforge.research.delta_historical_evidence_audit import audit_generation  # noqa: E402
+from signalforge.research.historical_bars import HistoricalBarDataset  # noqa: E402
+from signalforge.research.historical_grid import HistoricalBarGrid  # noqa: E402
 
 CONFIG_HASH = "88e90c23cd635248385d820406ef2201badc59bfd9f99043a63e8823227de242"
 ASSUMPTIONS_HASH = "b7d89c3bcdfda94eb7b489ff12c03ab313573445bbf558fa4d10ce58ff081dc6"
