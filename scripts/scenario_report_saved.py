@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             reference = report if report["profile_id"] == "REFERENCE_RAW" else other
             adverse = other if report["profile_id"] == "REFERENCE_RAW" else report
             report = compare_profile_reports(reference, adverse)
-    except (ReportabilityError, OSError, TypeError, KeyError, OverflowError):
+    except (ReportabilityError, OSError, TypeError, KeyError, OverflowError, RecursionError):
         # Never echo exception messages, source paths or partially computed metrics.
         print(json.dumps({"status": "WITHHELD", "reason": "SAVED_EVIDENCE_INVALID_OR_UNAVAILABLE"},
                          sort_keys=True))
