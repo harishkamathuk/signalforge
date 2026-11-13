@@ -71,6 +71,11 @@ def require_limits() -> None:
 
 
 def git_revision() -> str:
+    branch_name = subprocess.run(
+        ["git", "-C", str(ROOT), "symbolic-ref", "--short", "HEAD"],
+        capture_output=True, text=True, check=True, timeout=10,
+    ).stdout.strip()
+    require(branch_name == "develop", "source-only attestation requires merged develop")
     revision = subprocess.run(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
         capture_output=True, text=True, check=True, timeout=10,
