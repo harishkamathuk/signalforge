@@ -780,7 +780,22 @@ def test_sf283_s02_is_contained(tmp_path):
     _, report, *_ = _sf283_roundtrip(tmp_path, prices=prices)
     assert report["closed_cohort_reconciliation"]["IS_CONTAINED"] == 1
     assert report["closed_cohort_reconciliation"]["OOS_CONTAINED"] == 0
-    assert report["windows"]["IS"]["economics"]["closed_contained"] == 1
+    is_window = report["windows"]["IS"]
+    economics = is_window["economics"]
+    assert economics["closed_contained"] == 1
+    # Independently derived oracle from synthetic strategy: trigger=100.1,
+    # stop=99.95, target=100.325, so modeled gross R=1.5.
+    assert economics["wins"] == 1
+    assert economics["win_rate"]["value"] == "1"
+    assert Decimal(economics["average_r_expectancy"]["value"]) == Decimal("1.5")
+    assert Decimal(economics["sum_gross_r"]) == Decimal("1.5")
+    assert economics["frequency_per_1000_expected_5m_decisions"]["value"] == "500"
+    assert economics["holding_span_1m_buckets_sorted"] == [1]
+    assert economics["exit_reason_counts"] == {"TARGET": 1}
+    assert economics["maximum_cumulative_r_drawdown"]["value"] == "0"
+    assert is_window["source_quality"]["expected_intervals"] == 10
+    assert is_window["source_quality"]["primary_disposition_counts"]["VALID"] == 10
+    assert is_window["strict_reference"]["eligible_intervals"] == 10
 
 
 def test_sf283_s03_oos_contained(tmp_path):
@@ -943,3 +958,36 @@ def test_sf283_s16_missing_or_contradictory_saved_evidence(tmp_path, mutation):
         document["result"]["report_contract"] = "unknown"
     with pytest.raises(ReportabilityError):
         report_from_saved_bytes(json.dumps(document).encode(), source, strict_bytes)
+
+
+def test_sf283_s06_strategy_cutoff_from_real_synthetic_runner(tmp_path):
+    registry = StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _EarlyCutoff((251,)),
+        ),
+    ))
+    no_fill = {
+        i: ("100", "100.05", "100", "100") for i in range(1255, 1260)
+    }
+    result, report, *_ = _sf283_roundtrip(
+        tmp_path, runner=ScenarioResearchRunner(registry=registry),
+        prices=no_fill,
+    )
+    assert result.outcomes[0].state == "EXPIRED"
+    assert result.outcomes[0].reason == "STRATEGY_CUTOFF"
+    assert report["windows"]["IS"]["lifecycle_by_signal_window"]["EXPIRED"] == 1
+
+
+def test_sf283_s13_duplicate_close_bucket_fails_closed_math():
+    from signalforge.research.scenario_reportability import _economics
+
+    same_exit = (START + timedelta(minutes=1255)).isoformat()
+    closed = [
+        {"exit_bucket": same_exit, "r": "1", "reason": "TARGET",
+         "holding_span_1m_buckets": 1},
+        {"exit_bucket": same_exit, "r": "-1", "reason": "STOP",
+         "holding_span_1m_buckets": 1},
+    ]
+    with pytest.raises(ReportabilityError, match="DUPLICATE_MODELED_CLOSE_BUCKET"):
+        _economics(closed, 2, 2)
