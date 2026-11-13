@@ -606,7 +606,8 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     for row in blocked:
         begin = _utc(row.get("interval_start"))
         end = _utc(row.get("interval_end"))
-        blocker = by_opportunity.get(row.get("blocking_opportunity_id"))
+        blocker_id = row.get("blocking_opportunity_id")
+        blocker = by_opportunity.get(blocker_id) if isinstance(blocker_id, str) else None
         _require(end - begin == timedelta(minutes=5)
                  and begin >= start and (begin - start) % timedelta(minutes=5)
                  == timedelta(0) and end <= finish
