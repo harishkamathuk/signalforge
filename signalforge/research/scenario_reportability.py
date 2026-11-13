@@ -306,6 +306,17 @@ def _strict_reference(companion: dict[str, Any],
                      timedelta(0), "INVALID_STRICT_STOP")
         else:
             _require(proof.get("stop") is None, "INVALID_STRICT_STOP")
+        terminal = proof.get("end_terminal_uncertainty")
+        if terminal is not None:
+            record = _map(terminal, "strict_end_terminal")
+            _require(
+                not proof["strict_terminated_early"]
+                and record.get("terminal_state") == "unresolved"
+                and record.get("reasons") in (
+                    ["dataset_end_open"], ["dataset_end_armed"],
+                ),
+                "INVALID_STRICT_END_TERMINAL",
+            )
     windows = _map(companion.get("windows"), "strict_windows")
     result: dict[str, object] = {}
     for name, (start, end) in bounds.items():
