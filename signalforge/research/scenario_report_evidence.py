@@ -42,8 +42,12 @@ def _require_matching_request(
     source = manifest.get("source")
     strategy = manifest.get("strategy")
     windows = manifest.get("session_and_window")
-    if not isinstance(source, dict) or not isinstance(strategy, dict) or (
-        not isinstance(windows, dict)
+    implementation = manifest.get("implementation")
+    assumptions = manifest.get("assumptions")
+    if (
+        not isinstance(source, dict) or not isinstance(strategy, dict)
+        or not isinstance(windows, dict) or not isinstance(implementation, dict)
+        or not isinstance(assumptions, dict)
     ):
         raise ValueError("Malformed scenario manifest for diagnostic pairing")
     dataset = request.source.dataset
@@ -61,10 +65,8 @@ def _require_matching_request(
         strategy.get("version") == request.strategy_selection.strategy_version,
         strategy.get("engine_calculation_version") == request.engine_calculation_version,
         strategy.get("synthetic_fixture_identity") == request.synthetic_fixture_identity,
-        manifest.get("implementation", {}).get("revision")
-            == request.repository_revision,
-        manifest.get("assumptions", {}).get("semantic_hash")
-            == request.assumptions.semantic_hash,
+        implementation.get("revision") == request.repository_revision,
+        assumptions.get("semantic_hash") == request.assumptions.semantic_hash,
     )
     if not all(checks):
         raise ValueError("Request evidence does not match result manifest identity")
