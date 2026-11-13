@@ -68,6 +68,8 @@ def _synthetic_prereg(
                 "five_minute_close_digest": "d" * 64,
             },
             "session_and_window": {
+                "session": {"id": "continuous_utc", "version": "1.0.0"},
+                "bounds": "half-open UTC",
                 "pre_roll_start": independent.SOURCE_START.isoformat(),
                 "is_start": independent.IS_START.isoformat(),
                 "oos_start": independent.OOS_START.isoformat(),
@@ -144,6 +146,10 @@ def _synthetic_prereg(
         (("mode_and_schema", "mode", "STRICT_EXECUTION"), "manifest mode differs"),
         (("mode_and_schema", "simulator", "alternative-simulator"), "manifest mode differs"),
         (("mode_and_schema", "extra", "unexpected"), "manifest mode differs"),
+        (("session_and_window", "session", {"id": "different", "version": "1.0.0"}),
+         "study window/session identity changed"),
+        (("session_and_window", "extra", "unexpected"),
+         "study window/session identity changed"),
     ],
 )
 def test_forged_self_consistent_prereg_is_rejected(
