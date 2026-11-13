@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -66,3 +70,42 @@ def test_source_only_operator_rejects_unmerged_branch(monkeypatch):
     )
     with pytest.raises(preflight.PreflightBlocked, match="merged develop"):
         preflight.git_revision()
+
+
+def test_source_only_checkout_rejects_untracked_file(monkeypatch):
+    commands: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        commands.append(args)
+        if "symbolic-ref" in args:
+            return SimpleNamespace(stdout="develop\\n", returncode=0)
+        if "rev-parse" in args:
+            return SimpleNamespace(stdout="a" * 40 + "\\n", returncode=0)
+        if "status" in args:
+            return SimpleNamespace(stdout="?? unexpected.py\\n", returncode=0)
+        pytest.fail("unexpected git command")
+
+    monkeypatch.setattr(preflight.subprocess, "run", fake_run)
+    with pytest.raises(preflight.PreflightBlocked, match="dirty source-only checkout"):
+        preflight.git_revision()
+    assert any("--untracked-files=normal" in args for args in commands)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "stage6_90d_guarded_launcher.py",
+        "stage6_90d_source_preflight.py",
+        "stage6_90d_independent_verifier.py",
+    ],
+)
+def test_absolute_entrypoint_imports_without_operator_pythonpath(script, tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(root / "scripts" / script), "--help"],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+        check=False, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
