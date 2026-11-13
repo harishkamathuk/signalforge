@@ -504,7 +504,10 @@ class ScenarioResearchResult:
             raise ValueError("Cannot write future reportable output into protected evidence")
         result = self.reportable_mapping()
         companions: dict[str, str] = {}
-        for label, path in (("source_quality", source_companion), ("strict_reference", strict_companion)):
+        for label, path in (
+            ("source_quality", source_companion),
+            ("strict_reference", strict_companion),
+        ):
             if not path.is_file() or path.is_symlink():
                 raise ValueError("Required independently produced companion is missing or unsafe")
             companions[label] = sha256(path.read_bytes()).hexdigest()
@@ -662,7 +665,10 @@ def _step(
             not opening, level,
         ))
         if action == "INVALIDATION":
-            work.outcomes.append(_outcome(active, "EXPIRED", "PRE_ENTRY_INVALIDATION", terminal_at=bar.interval.start))
+            work.outcomes.append(_outcome(
+                active, "EXPIRED", "PRE_ENTRY_INVALIDATION",
+                terminal_at=bar.interval.start,
+            ))
             work.active = None
             return
         if action == "ENTRY":
@@ -679,7 +685,8 @@ def _step(
                 or economics.raw_target_price.value <= fill.value
             ):
                 work.outcomes.append(
-                    _outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK",\n                             terminal_at=bar.interval.start, attempted_at=bar.interval.start)
+                    _outcome(active, "REJECTED", "NON_POSITIVE_OR_UNSUPPORTED_RISK",
+                             terminal_at=bar.interval.start, attempted_at=bar.interval.start)
                 )
                 work.active = None
                 return
@@ -720,11 +727,15 @@ def _walk_bar(
             work.failure_bucket = bar.interval.start
             return
         if cutoff <= bar.interval.start:
-            work.outcomes.append(_outcome(active, "EXPIRED", "STRATEGY_CUTOFF", terminal_at=bar.interval.start))
+            work.outcomes.append(_outcome(
+                active, "EXPIRED", "STRATEGY_CUTOFF", terminal_at=bar.interval.start,
+            ))
             work.active = None
             return
     if active.entry_price is None and active.view.valid_until <= bar.interval.start:
-        work.outcomes.append(_outcome(active, "EXPIRED", "VALIDITY_WINDOW_END", terminal_at=bar.interval.start))
+        work.outcomes.append(_outcome(
+            active, "EXPIRED", "VALIDITY_WINDOW_END", terminal_at=bar.interval.start,
+        ))
         work.active = None
         return
     levels = (bar.open.value, bar.high.value, bar.low.value, bar.close.value)
@@ -971,7 +982,8 @@ class ScenarioResearchRunner:
                 and work.active.view.valid_until <= completed_candle.interval.end
             ):
                 work.outcomes.append(
-                    _outcome(work.active, "EXPIRED", "VALIDITY_WINDOW_END",\n                             terminal_at=completed_candle.interval.end)
+                    _outcome(work.active, "EXPIRED", "VALIDITY_WINDOW_END",
+                             terminal_at=completed_candle.interval.end)
                 )
                 work.active = None
                 if len(work.outcomes) > request.resources.max_outcomes:
@@ -1011,5 +1023,6 @@ class ScenarioResearchRunner:
         if work.active is not None:
             work.outcomes.append(_outcome(
                 work.active, "OPEN" if work.active.entry_price is not None else "ARMED",
-                "DATASET_END_CONDITIONAL", terminal_at=request.measured_end,\n            ))
+                "DATASET_END_CONDITIONAL", terminal_at=request.measured_end,
+            ))
         return finish()
