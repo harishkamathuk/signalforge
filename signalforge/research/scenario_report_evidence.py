@@ -49,17 +49,22 @@ def write_source_quality_evidence(
         expected = int((high - low) / timedelta(minutes=1))
         counts = {"VALID": 0, "MISSING": 0, "CORRUPT": 0,
                   "REPAIRED": 0, "SUBSTITUTED": 0}
+        codes: list[str] = []
         for i in range(expected):
             instant = low + timedelta(minutes=i)
             if observed[instant] == 0:
                 counts["MISSING"] += 1
+                codes.append("M")
             elif observed[instant] == 1:
                 counts["VALID"] += 1
+                codes.append("V")
             else:
                 counts["CORRUPT"] += 1
+                codes.append("C")
         windows[name] = {
             "expected_intervals": expected,
             "primary_disposition_counts": counts,
+            "primary_dispositions_1m": "".join(codes),
         }
     # Rejected unlocatable raw rows cannot establish every exact 1m class.
     uncertain = ds.manifest.corrupt_rejected_count > 0 or any(
@@ -106,8 +111,14 @@ def write_strict_reference_evidence(
                                ("OOS", request.oos_start, request.measured_end)):
         selected = {instant for instant in eligible if lower <= instant < upper}
         bad = sorted(instant for instant in ambiguous if lower <= instant < upper)
+        expected = int((upper - lower) / timedelta(minutes=1))
+        mask = "".join(
+            "1" if lower + timedelta(minutes=i) in selected else "0"
+            for i in range(expected)
+        )
         windows[name] = {
             "eligible_intervals": len(selected),
+            "assessed_1m_mask": mask,
             "ambiguous_interval_starts": [instant.isoformat() for instant in bad],
         }
     if any(t.tzinfo is None or t.utcoffset() != timedelta(0) for t in eligible):
