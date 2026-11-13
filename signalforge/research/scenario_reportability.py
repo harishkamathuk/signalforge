@@ -84,14 +84,17 @@ def _decode_canonical(raw: bytes) -> dict[str, Any]:
 
     try:
         parsed = json.loads(raw)
-    except (UnicodeError, ValueError) as exc:
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise ReportabilityError("INVALID_CANONICAL_JSON") from exc
-    decoded = untag(parsed)
-    if not isinstance(decoded, dict):
-        raise ReportabilityError("CANONICAL_ROOT_NOT_MAPPING")
-    with localcontext() as ctx:
-        ctx.prec = 28
-        expected = (canonical_config_json(decoded) + "\n").encode("utf-8")
+    try:
+        decoded = untag(parsed)
+        if not isinstance(decoded, dict):
+            raise ReportabilityError("CANONICAL_ROOT_NOT_MAPPING")
+        with localcontext() as ctx:
+            ctx.prec = 28
+            expected = (canonical_config_json(decoded) + "\n").encode("utf-8")
+    except RecursionError as exc:
+        raise ReportabilityError("INVALID_CANONICAL_NESTING") from exc
     if raw != expected:
         raise ReportabilityError("NONCANONICAL_SAVED_BYTES")
     return decoded
@@ -281,7 +284,7 @@ def _economics(closed: list[dict[str, Any]], expected: int,
     rs = [_number(o["r"]) for o in ordered]
     n = len(rs)
     profit = _sum([r for r in rs if r > 0])
-    loss = -_sum([r for r in rs if r < 0])
+    loss = _sum([r for r in rs if r < 0]).copy_negate()
     total = _sum(rs)
     with localcontext() as ctx:
         ctx.prec = max(64, len(rs) * 3 + 32)
@@ -338,7 +341,7 @@ def _difference(left: dict[str, object],
                            "reason": "CONSTITUENT_UNDEFINED"}
             continue
         result[key] = {"status": "DEFINED", "value": str(
-            _sum([_number(a["value"]), -_number(b["value"])])
+            _sum([_number(a["value"]), _number(b["value"]).copy_negate()])
         )}
     for key in ("maximum_cumulative_r_drawdown",):
         a = _map(left[key], "left_drawdown")
@@ -350,7 +353,7 @@ def _difference(left: dict[str, object],
         _count(left["closed_contained"]) - _count(right["closed_contained"])
     )
     result["sum_gross_r_difference"] = str(_sum([
-        _number(left["sum_gross_r"]), -_number(right["sum_gross_r"])
+        _number(left["sum_gross_r"]), _number(right["sum_gross_r"]).copy_negate()
     ]))
     return result
 
@@ -466,13 +469,17 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     lifecycle: dict[str, Counter[str]] = {"IS": Counter(), "OOS": Counter()}
     seen: set[str] = set()
     seen_signals: set[datetime] = set()
+    by_opportunity: dict[str, dict[str, Any]] = {}
     all_close: set[datetime] = set()
+    last_signal_end: datetime | None = None
+    last_terminal: datetime | None = None
     for outcome in outcomes:
         _require(set(FUTURE_FIELDS).issubset(outcome), "MISSING_LIFECYCLE_PROVENANCE")
         oid = outcome.get("opportunity_id")
         if not isinstance(oid, str) or oid in seen:
             raise ReportabilityError("DUPLICATE_OPPORTUNITY")
         seen.add(oid)
+        by_opportunity[oid] = outcome
         state = outcome.get("state")
         _require(state in STATES and outcome.get("certainty") == "SCENARIO_CONDITIONED",
                  "INVALID_LIFECYCLE")
@@ -483,13 +490,20 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                  "INVALID_SIGNAL_INTERVAL")
         seen_signals.add(signal_end)
         sw = _window_for_signal(signal_end, start, split, finish)
-        _require(_utc(outcome["valid_until_boundary"]) >= signal_end,
-                 "INVALID_VALIDITY_BOUNDARY")
+        valid_until = _utc(outcome["valid_until_boundary"])
+        _require(valid_until >= signal_end, "INVALID_VALIDITY_BOUNDARY")
         cutoff = outcome["strategy_cutoff_boundary"]
-        if cutoff is not None:
-            _utc(cutoff)
+        cutoff_at = _utc(cutoff) if cutoff is not None else None
         terminal_at = _utc(outcome["terminal_event_bucket"])
         _require(signal_end <= terminal_at <= finish, "INVALID_TERMINAL_BOUNDARY")
+        # Outcomes are appended at termination by the one-active-state runner.
+        # Once the previous setup is terminal, a new completed signal may arm
+        # at the *same* boundary, but never while the previous setup is active.
+        if last_signal_end is not None:
+            _require(last_signal_end < signal_end and
+                     last_terminal is not None and last_terminal <= signal_end,
+                     "CONTRADICTORY_ACTIVE_OVERLAP")
+        last_signal_end, last_terminal = signal_end, terminal_at
         signal_counts[sw] += 1
         lifecycle[sw][str(state)] += 1
         entered = outcome.get("entry_bucket") is not None
@@ -499,8 +513,13 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         exit_window = (_window_for_bucket(_utc(outcome["exit_bucket"]), start,
                                           split, finish) if exited else None)
         if entered:
-            _require(_utc(outcome["entry_bucket"]) >= signal_end,
-                     "ENTRY_BEFORE_COMPLETED_SIGNAL")
+            entry_at = _utc(outcome["entry_bucket"])
+            _require(entry_at >= signal_end, "ENTRY_BEFORE_COMPLETED_SIGNAL")
+            # The runner expires an unfilled setup before inspecting the 1m
+            # bucket at either boundary. Saved CLOSED/OPEN cannot override it.
+            _require(entry_at < valid_until and
+                     (cutoff_at is None or entry_at < cutoff_at),
+                     "ENTRY_AFTER_SETUP_EXPIRY")
         if entry_window:
             entry_counts[entry_window] += 1
         if exit_window:
@@ -553,9 +572,20 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                          and terminal_at == finish,
                          "INVALID_TERMINAL_ARMED")
             if state == "EXPIRED":
-                _require(not entered and outcome.get("reason") in EXPIRY
+                reason = outcome.get("reason")
+                _require(not entered and reason in EXPIRY
                          and outcome["terminal_event_bucket"] is not None,
                          "INVALID_EXPIRED_OUTCOME")
+                if reason == "VALIDITY_WINDOW_END":
+                    _require(terminal_at >= valid_until,
+                             "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                elif reason == "STRATEGY_CUTOFF":
+                    _require(cutoff_at is not None and terminal_at >= cutoff_at,
+                             "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                else:
+                    _require(terminal_at < valid_until and
+                             (cutoff_at is None or terminal_at < cutoff_at),
+                             "EXPIRY_REASON_BOUNDARY_MISMATCH")
             if state == "REJECTED":
                 _require(not entered and outcome.get("reason") ==
                          "NON_POSITIVE_OR_UNSUPPORTED_RISK"
@@ -572,13 +602,35 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
 
     blocked = _items(result.get("blocked_decisions"), "blocked")
     blocked_counts: Counter[str] = Counter()
+    seen_blocked: set[datetime] = set()
     for row in blocked:
         begin = _utc(row.get("interval_start"))
         end = _utc(row.get("interval_end"))
+        blocker = by_opportunity.get(row.get("blocking_opportunity_id"))
         _require(end - begin == timedelta(minutes=5)
-                 and row.get("blocking_opportunity_id") in seen
-                 and end not in seen_signals,
+                 and begin >= start and (begin - start) % timedelta(minutes=5)
+                 == timedelta(0) and end <= finish
+                 and end not in seen_signals and end not in seen_blocked
+                 and blocker is not None,
                  "INVALID_BLOCKED_DECISION")
+        seen_blocked.add(end)
+        assert blocker is not None
+        blocker_signal = _utc(blocker["signal_interval_end"])
+        blocker_terminal = _utc(blocker["terminal_event_bucket"])
+        # A decision is blocked only by a setup that existed at its completed
+        # boundary. Expired/CLOSED/REJECTED states terminate *before* the
+        # boundary decision; terminal OPEN/ARMED may block at measured_end.
+        blocker_active = (
+            blocker_signal <= begin
+            and (end <= blocker_terminal if blocker["state"] in ("OPEN", "ARMED")
+                 else end < blocker_terminal)
+        )
+        entered_at = (None if blocker.get("entry_bucket") is None
+                      else _utc(blocker["entry_bucket"]))
+        expected_state = ("OPEN" if entered_at is not None and entered_at < end
+                          else "ARMED")
+        _require(blocker_active and row.get("blocking_state") == expected_state,
+                 "INVALID_BLOCKER_LIFECYCLE")
         blocked_counts[_window_for_signal(end, start, split, finish)] += 1
     _require(sum(cohort_counts.values()) == sum(o["state"] == "CLOSED" for o in outcomes),
              "UNRECONCILED_CLOSED_COHORT")
