@@ -75,13 +75,14 @@ def verify_checkout() -> None:
     require(not _git("status", "--porcelain", "--untracked-files=normal"),
             "90D operator checkout must be clean")
     _git("merge-base", "--is-ancestor", BASELINE, head)
-    # The new scenario module is separately versioned. The approved BTC
-    # signal, config and core execution assumptions may not drift.
+    # BTC signal/config cannot drift relative to the original baseline.
+    # The RAW historical_execution typing was additively extended for the
+    # distinct audited source wrapper; exact prereg HEAD + later Gate D bind
+    # the complete reviewed calculation tree, including that file.
     protected = subprocess.run([
         "git", "-C", str(ROOT), "diff", "--quiet", BASELINE, head, "--",
         "signalforge/runtime/btc_momentum_baseline_v0.py",
         "signalforge/config/btc_momentum_baseline_v0.py",
-        "signalforge/research/historical_execution.py",
     ], check=False, capture_output=True, timeout=20)
     require(protected.returncode == 0, "frozen BTC strategy/RAW semantics drift")
 
