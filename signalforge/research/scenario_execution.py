@@ -814,8 +814,11 @@ def _manifest(request: ScenarioResearchRequest, strategy: Strategy,
         "mode_and_schema": {
             "mode": request.mode.value, "schema": "scenario-manifest-v1",
             "simulator": "btc-ohlc-path-scenario-v1",
-            **({"study_variant": SF260_90D_VARIANT}
-               if request.study_variant == SF260_90D_VARIANT else {}),
+            **({
+                "study_variant": SF260_90D_VARIANT,
+                "sample_status": "REPEATED_SAMPLE",
+                "window_selection": "EARLIEST_90_MEASURED_UTC_DAYS",
+            } if request.study_variant == SF260_90D_VARIANT else {}),
         },
         "source": {
             "manifest": ds.manifest.semantic_mapping(),
