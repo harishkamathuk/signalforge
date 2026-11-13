@@ -1067,3 +1067,73 @@ def test_sf283_companion_producers_reject_wrong_source_or_profile(tmp_path):
         )
     assert not (tmp_path / "wrong-source.json").exists()
     assert not (tmp_path / "wrong-strict.json").exists()
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("wrong-r", "CONTRADICTORY_MODELED_R"),
+    ("wrong-holding-span", "CONTRADICTORY_HOLDING_SPAN"),
+    ("entry-before-signal", "ENTRY_BEFORE_COMPLETED_SIGNAL"),
+    ("terminal-outside", "INVALID_TERMINAL_BOUNDARY"),
+    ("source-count", "SOURCE_COUNT_MISMATCH"),
+    ("strict-mask", "STRICT_DENOMINATOR_MISMATCH"),
+])
+def test_sf283_s16_semantic_conflict_with_consistent_canonical_hashes(
+    tmp_path, mutation, reason,
+):
+    """Even rehashed, mutually bound contradictory saved bytes must fail."""
+    from hashlib import sha256
+
+    from signalforge.config.identity import canonical_config_json
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, _, output, source, strict = _sf283_roundtrip(
+        tmp_path, prices={1255: ("100", "105", "98", "100")},
+    )
+    doc = _decode_canonical(output.read_bytes())
+    result = doc["result"]
+    evidence = _decode_canonical(source.read_bytes())
+    strict_evidence = _decode_canonical(strict.read_bytes())
+    row = result["outcomes"][0]
+    if mutation == "wrong-r":
+        row["r"] = Decimal("-1")
+    elif mutation == "wrong-holding-span":
+        row["holding_span_1m_buckets"] = 5
+    elif mutation == "entry-before-signal":
+        row["entry_bucket"] = row["signal_interval_start"]
+    elif mutation == "terminal-outside":
+        row["terminal_event_bucket"] = (
+            START + timedelta(minutes=MINUTES + 1)
+        ).isoformat()
+    elif mutation == "source-count":
+        evidence["windows"]["IS"]["primary_disposition_counts"]["VALID"] -= 1
+    else:
+        strict_evidence["windows"]["IS"]["eligible_intervals"] -= 1
+
+    legacy = dict(result)
+    legacy["schema_version"] = "scenario-result-v1"
+    legacy.pop("report_contract")
+    legacy.pop("companion_sha256")
+    future = (
+        "signal_interval_start", "signal_interval_end", "valid_until_boundary",
+        "strategy_cutoff_boundary", "terminal_event_bucket",
+        "attempted_entry_bucket", "modeled_stop_price", "modeled_target_price",
+    )
+    legacy["outcomes"] = [
+        {key: value for key, value in outcome.items() if key not in future}
+        for outcome in result["outcomes"]
+    ]
+    legacy_id = config_hash({"domain": "scenario-result-v1", "result": legacy})
+    for companion in (evidence, strict_evidence):
+        companion["scenario_result_v1_id"] = legacy_id
+    source_bytes = (canonical_config_json(evidence) + "\n").encode()
+    strict_bytes = (canonical_config_json(strict_evidence) + "\n").encode()
+    result["companion_sha256"] = {
+        "source_quality": sha256(source_bytes).hexdigest(),
+        "strict_reference": sha256(strict_bytes).hexdigest(),
+    }
+    doc["scenario_result_id"] = config_hash({
+        "domain": "scenario-result-v2", "result": result,
+    })
+    document = (canonical_config_json(doc) + "\n").encode()
+    with pytest.raises(ReportabilityError, match=reason):
+        report_from_saved_bytes(document, source_bytes, strict_bytes)
