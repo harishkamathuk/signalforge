@@ -118,6 +118,43 @@ not establish a statistical worst-case upper bound for protected history
 or grant Gate D. A failed case should be routed to 02/04 for mitigation
 or explicit risk disposition without modifying frozen execution semantics.
 
+### SF-260 B4: expressly split 90-day synthetic capacity pilot
+
+The original CLI behaviour is unchanged. Full-year runs use the original
+1,440-minute warm-up and frozen IS/OOS division; shorter runs without
+explicit split options retain the original 1,250-minute warm-up and
+one-five-minute-candle IS smoke split.
+
+For the **separately authorised, fictional fixed-90-day pilot only**, first
+use the reviewed and merged version of the probe:
+
+```bash
+python scripts/stage6_synthetic_full_window_probe.py \\
+  --minutes 129600 --warmup-minutes 1440 --is-minutes 86400 \\
+  --mode scheduled --serialize-result \\
+  --max-rss-gib 3 --vm-limit-gib 4 --max-output-mib 512 \\
+  --min-free-gib 0.75 --timeout-seconds 1200
+```
+
+The fabricated start is 2027-01-01 00:00 UTC; warm-up ends
+2027-01-02 00:00 UTC, IS ends 2027-03-03 00:00 UTC, and OOS ends
+2027-04-01 00:00 UTC. This gives exactly 129,600 one-minute
+source buckets, 17,280 completed IS five-minute decisions and 8,352
+completed OOS five-minute decisions. These are **fictional source
+bounds, never a historical date selection**.
+
+The two CLI split fields must be supplied together, must be whole
+multiples of five minutes, must leave at least one five-minute OOS
+candle, and must retain a minimum 1,250-minute warm-up. Parent and
+isolated child both validate the split. The unchanged `scheduled`
+override maintains the established stress signal frequency. No
+strategy, assumption, resource ceiling, full-year manifest or
+protected source changes are authorised by this probe.
+
+**Do not execute this pilot under IMP or before FIN/04 custody checks.**
+A synthetic PASS is only resource feasibility evidence; B2/B4 readiness
+and a separate 00.01 decision remain required for protected execution.
+
 ### Safety boundaries
 
 The default command starts only when Linux `MemAvailable` is at least **3.75 GiB**
