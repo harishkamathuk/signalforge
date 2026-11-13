@@ -27,7 +27,6 @@ from scripts.stage6_90d_source_preflight import (
     git_revision,
     require_limits,
 )
-
 from signalforge.config.identity import canonical_config_json, config_hash
 from signalforge.domain.time import CandleInterval
 from signalforge.research.audited_source_slice_v1 import (
