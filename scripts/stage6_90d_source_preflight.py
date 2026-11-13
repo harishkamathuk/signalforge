@@ -60,7 +60,7 @@ def require(ok: bool, reason: str) -> None:
 
 def require_limits() -> None:
     """Fail closed before materialising the 525,600-minute authenticated parent."""
-    from scripts.stage6_guarded_launcher import _limits, _available_ram
+    from scripts.stage6_90d_guarded_launcher import _limits, _available_ram
 
     observed = _limits()  # cgroup memory/swap + RLIMIT_AS/CPU/FSIZE
     require(observed["memory_max_bytes"] <= MEMORY_LIMIT, "memory ceiling exceeded")
@@ -106,6 +106,7 @@ def private_destination(path: Path) -> Path:
     free = os.statvfs(path)
     require(free.f_bavail * free.f_frsize >= FILE_LIMIT + 256 * 1024**2,
             "insufficient private free disk")
+    return actual
 
 
 def planned_manifests(source: AuditedSourceSliceV1, revision: str
