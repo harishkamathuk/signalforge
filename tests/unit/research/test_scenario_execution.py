@@ -1772,3 +1772,23 @@ def test_sf260_b3_rehashed_early_stop_suffix_cannot_become_known_ineligible(tmp_
     )
     with pytest.raises(ReportabilityError, match="STRICT_STOP_MASK_CONTRADICTION"):
         report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+def test_sf260_b3_dataset_end_armed_uncertainty_is_not_1m_ambiguity(tmp_path):
+    """A final completed-candle arm is an outcome, never a fabricated 1m reach."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(260,),
+    )
+    proof = _decode_canonical(strict.read_bytes())["strict_coverage_proof"]
+    assert proof["strict_terminated_early"] is False
+    assert proof["end_terminal_uncertainty"] == {
+        "terminal_state": "unresolved",
+        "reasons": ["dataset_end_armed"],
+    }
+    assert proof["windows"]["OOS"]["ambiguous"] == 0
+    assert proof["windows"]["OOS"]["expected_eligible"] == 0
+    assert report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
