@@ -135,6 +135,7 @@ def write_strict_reference_evidence(
     assessed_intervals: tuple[datetime, ...],
     ambiguous_intervals: tuple[datetime, ...],
     producer_id: str,
+    coverage_proof: dict[str, object] | None = None,
 ) -> None:
     """Persist independently produced strict diagnostic interval classifications.
 
@@ -184,4 +185,10 @@ def write_strict_reference_evidence(
         "assessment": "ASSESSED" if eligible else "NOT_ASSESSED",
         "windows": windows,
     }
+    # B3 is additive: existing v1 eligible_intervals/ASSESSED retain their
+    # original meaning (supplied *assessed* keys). A separate independently
+    # derived proof distinguishes eligible, ineligible and indeterminate keys.
+    # Missing proof is deliberately ineligible for future gross-R reporting.
+    if coverage_proof is not None:
+        payload["strict_coverage_proof"] = coverage_proof
     _write_new(path, payload)
