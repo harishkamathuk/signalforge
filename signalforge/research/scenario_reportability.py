@@ -13,7 +13,7 @@ from decimal import Decimal, localcontext
 from hashlib import sha256
 from typing import Any
 
-from signalforge.config.identity import config_hash
+from signalforge.config.identity import canonical_config_json, config_hash
 
 CONTRACT = "sf283-contained-gross-r-v1"
 QUALITY = ("VALID", "MISSING", "CORRUPT", "REPAIRED", "SUBSTITUTED")
@@ -28,6 +28,80 @@ EXPIRY = ("VALIDITY_WINDOW_END", "STRATEGY_CUTOFF", "PRE_ENTRY_INVALIDATION")
 
 class ReportabilityError(ValueError):
     """Missing, invalid or unbound persisted evidence prevents whole-report use."""
+
+
+def _decode_canonical(raw: bytes) -> dict[str, Any]:
+    """Decode the repository's type-tagged JSON, verifying exact bytes.
+
+    Type tags preserve Decimal, integer, null and boolean distinctions. Plain
+    JSON decoding is not sufficient and would destroy canonical identity.
+    """
+    def untag(node: object) -> object:
+        if not isinstance(node, list) or len(node) not in (1, 2):
+            raise ReportabilityError("INVALID_CANONICAL_NODE")
+        if not isinstance(node[0], str):
+            raise ReportabilityError("INVALID_CANONICAL_TAG")
+        kind = node[0]
+        if kind == "null":
+            if len(node) != 1:
+                raise ReportabilityError("INVALID_CANONICAL_NULL")
+            return None
+        if len(node) != 2:
+            raise ReportabilityError("INVALID_CANONICAL_ARITY")
+        value = node[1]
+        if kind == "bool" and type(value) is bool:
+            return value
+        if kind == "str" and type(value) is str:
+            return value
+        if kind == "int" and type(value) is str:
+            try:
+                return int(value)
+            except ValueError as exc:
+                raise ReportabilityError("INVALID_CANONICAL_INT") from exc
+        if kind == "decimal" and type(value) is str:
+            try:
+                number = Decimal(value)
+            except ArithmeticError as exc:
+                raise ReportabilityError("INVALID_CANONICAL_DECIMAL") from exc
+            if not number.is_finite():
+                raise ReportabilityError("NONFINITE_CANONICAL_DECIMAL")
+            return number
+        if kind == "list" and isinstance(value, list):
+            return [untag(item) for item in value]
+        if kind == "map" and isinstance(value, list):
+            out: dict[str, object] = {}
+            previous: str | None = None
+            for entry in value:
+                if not isinstance(entry, list) or len(entry) != 2:
+                    raise ReportabilityError("INVALID_CANONICAL_MAP_ENTRY")
+                key = entry[0]
+                if not isinstance(key, str) or (previous is not None and key <= previous):
+                    raise ReportabilityError("DUPLICATE_OR_UNSORTED_CANONICAL_KEY")
+                previous = key
+                out[key] = untag(entry[1])
+            return out
+        raise ReportabilityError("UNKNOWN_CANONICAL_TAG")
+
+    try:
+        parsed = json.loads(raw)
+    except (UnicodeError, ValueError) as exc:
+        raise ReportabilityError("INVALID_CANONICAL_JSON") from exc
+    decoded = untag(parsed)
+    if not isinstance(decoded, dict):
+        raise ReportabilityError("CANONICAL_ROOT_NOT_MAPPING")
+    with localcontext() as ctx:
+        ctx.prec = 28
+        expected = (canonical_config_json(decoded) + "\\n").encode("utf-8")
+    if raw != expected:
+        raise ReportabilityError("NONCANONICAL_SAVED_BYTES")
+    return decoded
+
+
+def _identity(mapping: dict[str, object]) -> str:
+    """Keep future identity verification independent of ambient Decimal context."""
+    with localcontext() as ctx:
+        ctx.prec = 28
+        return config_hash(mapping)
 
 
 def _require(ok: bool, reason: str) -> None:
@@ -60,7 +134,7 @@ def _utc(value: object) -> datetime:
 
 
 def _number(value: object) -> Decimal:
-    _require(type(value) in (str, int, float), "INVALID_DECIMAL")
+    _require(type(value) in (str, int, float, Decimal), "INVALID_DECIMAL")
     try:
         result = Decimal(str(value))
     except ArithmeticError as exc:
@@ -120,11 +194,7 @@ def _companion(raw: bytes, digest: object, kind: str, run_id: str,
                legacy_id: str) -> dict[str, Any]:
     _require(type(digest) is str and sha256(raw).hexdigest() == digest,
              "COMPANION_HASH_MISMATCH")
-    try:
-        decoded = json.loads(raw, parse_float=Decimal)
-    except (UnicodeError, ValueError) as exc:
-        raise ReportabilityError("INVALID_COMPANION_JSON") from exc
-    evidence = _map(decoded, "companion")
+    evidence = _decode_canonical(raw)
     _require(evidence.get("schema_version") == "scenario-" + kind + "-v1",
              "COMPANION_VERSION_MISMATCH")
     _require(evidence.get("scenario_run_id") == run_id
@@ -260,10 +330,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         ReportabilityError: Any mandatory data or evidence binding is absent,
             contradictory or unqualified. No partial metrics are returned.
     """
-    try:
-        envelope = _map(json.loads(document, parse_float=Decimal), "envelope")
-    except (UnicodeError, ValueError) as exc:
-        raise ReportabilityError("INVALID_RESULT_JSON") from exc
+    envelope = _decode_canonical(document)
     manifest = _map(envelope.get("manifest"), "manifest")
     result = _map(envelope.get("result"), "result")
     _require(result.get("schema_version") == "scenario-result-v2"
@@ -271,10 +338,10 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     _require(result.get("execution_valid") is False
              and result.get("certainty") == "SCENARIO_CONDITIONED",
              "WRONG_EVIDENCE_TIER")
-    run_id = config_hash({"domain": "scenario-run-v1", "inputs": manifest})
+    run_id = _identity({"domain": "scenario-run-v1", "inputs": manifest})
     _require(result.get("scenario_run_id") == run_id, "RUN_ID_MISMATCH")
     _require(envelope.get("scenario_result_id") ==
-             config_hash({"domain": "scenario-result-v2", "result": result}),
+             _identity({"domain": "scenario-result-v2", "result": result}),
              "RESULT_ID_MISMATCH")
     legacy = dict(result)
     legacy["schema_version"] = "scenario-result-v1"
@@ -283,7 +350,7 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
     outcomes = _items(result.get("outcomes"), "outcomes")
     legacy["outcomes"] = [{k: v for k, v in o.items() if k not in FUTURE_FIELDS}
                            for o in outcomes]
-    legacy_id = config_hash({"domain": "scenario-result-v1", "result": legacy})
+    legacy_id = _identity({"domain": "scenario-result-v1", "result": legacy})
     companions = _map(result.get("companion_sha256"), "companion_binding")
     _require(set(companions) == {"source_quality", "strict_reference"},
              "MISSING_COMPANION_BINDING")
