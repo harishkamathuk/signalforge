@@ -330,7 +330,9 @@ def _strict_reference(companion: dict[str, Any],
                               "strict_proof_window")
             membership = per_window.get("eligibility_1m_mask")
             checked = per_window.get("assessed_1m_mask")
-            _require(type(membership) is str and len(membership) == expected
+            if not isinstance(membership, str):
+                raise ReportabilityError("INVALID_STRICT_ELIGIBILITY_MASK")
+            _require(len(membership) == expected
                      and set(membership).issubset({"E", "I", "?"})
                      and checked == mask,
                      "INVALID_STRICT_ELIGIBILITY_MASK")
