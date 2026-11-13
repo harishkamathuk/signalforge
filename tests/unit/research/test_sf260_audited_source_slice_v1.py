@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.stage6_90d_guarded_launcher as launcher
 import signalforge.research.audited_source_slice_v1 as deriv
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
@@ -23,7 +24,6 @@ from signalforge.research.historical_bars import (
 )
 from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.research.scenario_execution import FULL_YEAR_VARIANT, SF260_90D_VARIANT
-import scripts.stage6_90d_guarded_launcher as launcher
 
 BASE = datetime(2027, 1, 1, tzinfo=UTC)
 ORIGINAL = Path(__file__).resolve().parents[3] / (
