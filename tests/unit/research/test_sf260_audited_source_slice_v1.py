@@ -14,6 +14,7 @@ import pytest
 
 import scripts.stage6_90d_guarded_launcher as launcher
 import signalforge.research.audited_source_slice_v1 as deriv
+from signalforge.config.strategy_registry import StrategySelection
 from signalforge.domain.ids import InstrumentId
 from signalforge.domain.time import CandleInterval
 from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
@@ -23,7 +24,17 @@ from signalforge.research.historical_bars import (
     load_historical_bar_fixture,
 )
 from signalforge.research.historical_grid import HistoricalBarGrid
-from signalforge.research.scenario_execution import FULL_YEAR_VARIANT, SF260_90D_VARIANT
+from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
+from signalforge.research.scenario_execution import (
+    FULL_YEAR_VARIANT,
+    SF260_90D_VARIANT,
+    ScenarioAssumptionSet,
+    ScenarioMethodStatus,
+    ScenarioMode,
+    ScenarioResearchRequest,
+    ScenarioResearchRunner,
+    ScenarioResourcePolicy,
+)
 
 BASE = datetime(2027, 1, 1, tzinfo=UTC)
 ORIGINAL = Path(__file__).resolve().parents[3] / (
@@ -142,3 +153,65 @@ def test_90d_launcher_scope_includes_pid_swap_and_memory_guards(monkeypatch):
     assert f"MemoryMax={3 * launcher.GIB}" in command
     assert f"--as={4 * launcher.GIB}:{4 * launcher.GIB}" in command
     assert "--internal-probe" in command
+
+
+def test_hidden_worker_without_active_parent_lock_fails_before_source(monkeypatch, tmp_path):
+    monkeypatch.setattr(launcher, "_limits", lambda: {})
+    monkeypatch.setattr(launcher, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(launcher, "verify_prelaunch", lambda *a, **k: (
+        pytest.fail("protected source verification must never be entered")
+    ))
+    with pytest.raises(OSError):
+        launcher._worker("REFERENCE_RAW", 1)
+
+
+def test_90d_synthetic_runner_grid_replay_and_fail_closed(monkeypatch):
+    """Only local synthetic mock constants are used; no historical source is touched."""
+    parent = synthetic_parent(monkeypatch)
+    monkeypatch.setattr(deriv, "IS_START", BASE + timedelta(minutes=1250))
+    monkeypatch.setattr(deriv, "OOS_START", BASE + timedelta(minutes=1275))
+    monkeypatch.setattr(deriv, "IS_CANDLES", 5)
+    monkeypatch.setattr(deriv, "OOS_CANDLES", 5)
+    child = deriv.derive_audited_source_slice(parent)
+    request = ScenarioResearchRequest(
+        mode=ScenarioMode.SCENARIO_RESEARCH,
+        source=child,
+        strategy_selection=StrategySelection(
+            "btc_momentum_baseline_v0", "0.1.0-experimental", {},
+        ),
+        engine_calculation_version="engine-v1",
+        assumptions=ScenarioAssumptionSet.btc_ohlc_path_v1(),
+        profile=HistoricalExecutionAssumptionProfile.reference_raw(),
+        resources=ScenarioResourcePolicy(
+            "FINITE_FAIL_CLOSED", "1.0.0", 524160, 2096640, 104833, 2096640, 1,
+        ),
+        is_start=deriv.IS_START, oos_start=deriv.OOS_START,
+        measured_end=deriv.MEASURED_END,
+        repository_revision="a" * 40, study_variant=SF260_90D_VARIANT,
+    )
+    verified = ScenarioResearchRunner().run_verified(request)
+    assert verified.is_observed == verified.oos_observed == 5
+    assert verified.replay_verified is True
+    assert verified.failure is None
+    assert verified.method_status is ScenarioMethodStatus.VALID
+    assert verified.manifest.mapping()["mode_and_schema"]["study_variant"] == (
+        SF260_90D_VARIANT
+    )
+    with pytest.raises(ValueError, match="90D variant input"):
+        replace(request, oos_start=deriv.OOS_START + timedelta(minutes=5))
+    with pytest.raises(ValueError, match="requires audited source"):
+        replace(request, source=parent)
+
+    incomplete = replace(
+        verified, oos_observed=4,
+        method_status=ScenarioMethodStatus.INCONCLUSIVE, replay_verified=False,
+    )
+    early_stop = replace(
+        verified, failure="BUDGET_EXHAUSTED: synthetic test-only",
+        method_status=ScenarioMethodStatus.INCONCLUSIVE, replay_verified=False,
+    )
+    runner = ScenarioResearchRunner()
+    monkeypatch.setattr(ScenarioResearchRunner, "run", lambda _self, _req: incomplete)
+    assert runner.run_verified(request).point_metrics_allowed is False
+    monkeypatch.setattr(ScenarioResearchRunner, "run", lambda _self, _req: early_stop)
+    assert runner.run_verified(request).point_metrics_allowed is False
