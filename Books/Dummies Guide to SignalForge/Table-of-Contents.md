@@ -4,7 +4,7 @@
 
 1. [What Is SignalForge and Why Am I Building It?](Chapters/01-what-is-signalforge.md) — **Editorially approved, 12 November 2026**
 2. [Can a Robot Really Trade?](Chapters/02-can-a-robot-really-trade.md) — **Editorially approved, 12 November 2026**
-3. How Does a Trading Strategy Think? — Planned
+3. [How Does a Trading Strategy Think?](Chapters/03-how-does-a-trading-strategy-think.md) — **Editorially approved, 13 November 2026**
 
 ## Part II — Teaching, Testing and Questioning
 
