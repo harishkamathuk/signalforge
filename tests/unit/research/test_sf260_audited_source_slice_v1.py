@@ -23,8 +23,8 @@ from signalforge.research.historical_bars import (
     HistoricalPriceBasis,
     load_historical_bar_fixture,
 )
-from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
+from signalforge.research.historical_grid import HistoricalBarGrid
 from signalforge.research.scenario_execution import (
     FULL_YEAR_VARIANT,
     SF260_90D_VARIANT,
