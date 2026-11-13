@@ -1214,7 +1214,10 @@ def test_sf283_review_semantic_rebindings_fail_closed(tmp_path, mutation, expect
                   for i in range(1255, MINUTES)}
         signals = (251, 252)
     elif mutation == "stale-blocker":
-        prices = {1265: ("100", "105", "98", "100")}
+        # Entry at 1255, still OPEN at the 1260 blocked decision, closes 1265.
+        prices = {i: ("100.2", "100.21", "100.1", "100.2")
+                  for i in range(1255, MINUTES)}
+        prices[1265] = ("100.2", "105", "100.1", "100.2")
         signals = (251, 252)
     _, _, output, source, strict = _sf283_roundtrip(
         tmp_path, signals=signals, prices=prices,
