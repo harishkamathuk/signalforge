@@ -13,6 +13,7 @@ from pathlib import Path
 
 from signalforge.research.scenario_reportability import (
     ReportabilityError,
+    compare_profile_reports,
     report_from_saved_bytes,
 )
 
@@ -23,6 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--result", type=Path, required=True)
     parser.add_argument("--source-companion", type=Path, required=True)
     parser.add_argument("--strict-companion", type=Path, required=True)
+    parser.add_argument("--other-result", type=Path)
+    parser.add_argument("--other-source-companion", type=Path)
+    parser.add_argument("--other-strict-companion", type=Path)
     args = parser.parse_args(argv)
     try:
         paths = (args.result, args.source_companion, args.strict_companion)
@@ -34,6 +38,22 @@ def main(argv: list[str] | None = None) -> int:
             args.source_companion.read_bytes(),
             args.strict_companion.read_bytes(),
         )
+        other_paths = (
+            args.other_result,
+            args.other_source_companion,
+            args.other_strict_companion,
+        )
+        if any(p is not None for p in other_paths):
+            if any(p is None or not p.is_file() or p.is_symlink() for p in other_paths):
+                raise ReportabilityError("INCOMPLETE_OTHER_PROFILE_EVIDENCE")
+            other = report_from_saved_bytes(
+                args.other_result.read_bytes(),
+                args.other_source_companion.read_bytes(),
+                args.other_strict_companion.read_bytes(),
+            )
+            reference = report if report["profile_id"] == "REFERENCE_RAW" else other
+            adverse = other if report["profile_id"] == "REFERENCE_RAW" else report
+            report = compare_profile_reports(reference, adverse)
     except (ReportabilityError, OSError, TypeError, KeyError, OverflowError):
         # Never echo exception messages, source paths or partially computed metrics.
         print(json.dumps({"status": "WITHHELD", "reason": "SAVED_EVIDENCE_INVALID_OR_UNAVAILABLE"},
