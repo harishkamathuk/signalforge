@@ -1792,3 +1792,57 @@ def test_sf260_b3_dataset_end_armed_uncertainty_is_not_1m_ambiguity(tmp_path):
     assert report_from_saved_bytes(
         result.read_bytes(), source.read_bytes(), strict.read_bytes(),
     )["status"] == "COMPLETE_PERSISTED_REPORTABILITY"
+
+
+def test_sf260_b3_rehashed_known_eligible_unassessed_withholds(tmp_path):
+    """Full source traversal alone cannot qualify an unevaluated eligible minute."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    result_doc = _decode_canonical(result.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    row = strict_doc["strict_coverage_proof"]["windows"]["IS"]
+    row["eligibility_1m_mask"] = "E" + row["eligibility_1m_mask"][1:]
+    row["known_eligible"] = 1
+    row["known_ineligible"] -= 1
+    row["expected_eligible"] = 1
+    row["unassessed"] = 1
+    row["status"] = "ELIGIBLE_UNASSESSED"
+    row["incomplete_reasons"] = ["UNRESOLVED_STRICT_EVALUATION"]
+    saved, source_bytes, strict_bytes = _sf283_mutated_saved_bytes(
+        result_doc, source_doc, strict_doc,
+    )
+    with pytest.raises(ReportabilityError, match="STRICT_COVERAGE_INCOMPLETE_WITHHOLD"):
+        report_from_saved_bytes(saved, source_bytes, strict_bytes)
+
+
+def test_sf260_b3_observer_cannot_change_strict_result_identity():
+    """The optional audit channel must not change any historical result semantics."""
+    source = _source()
+    request = _request(source)
+    registry = StrategyRegistry((
+        StrategyRegistration(
+            SEL.strategy_id, SEL.strategy_version,
+            lambda params: _SignalAt((251,)),
+        ),
+    ))
+    runner = HistoricalBarExecutionRunner(registry=registry)
+    opts = {
+        "strategy_selection": request.strategy_selection,
+        "engine_calculation_version": request.engine_calculation_version,
+        "tick_schedule": None,
+        "execution_profile": request.profile,
+        "market_session_policy": CONTINUOUS_HISTORICAL_SESSION_POLICY,
+        "raw_source": source,
+        "measurement_start": request.is_start,
+        "continuation_policy": HistoricalContinuationPolicy.FAIL_CLOSED_V1,
+    }
+    prior = runner.run(source.dataset, **opts)
+    seen = []
+    audited = runner.run(
+        source.dataset, **opts, strict_minute_observer=seen.append,
+    )
+    assert seen
+    assert prior.result_id == audited.result_id
+    assert prior.semantic_mapping() == audited.semantic_mapping()
