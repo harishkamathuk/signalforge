@@ -11,6 +11,7 @@ import argparse
 import gc
 import hashlib
 import json
+import os
 import resource
 from decimal import Decimal
 from dataclasses import replace
@@ -263,11 +264,26 @@ def verify_source_only() -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--independent-source-only-verify", action="store_true")
+    parser.add_argument("--write-private-receipt", action="store_true")
     args = parser.parse_args(argv)
     if not args.independent_source_only_verify:
         parser.error("explicit independent source-only verification is required")
     try:
         result = verify_source_only()
+        if args.write_private_receipt:
+            receipt = {
+                "contract": "sf260-90d-independent-source-only-v1",
+                "revision": git_revision(),
+                **result,
+                "gate_d_approved": False,
+                "execution_valid": False,
+            }
+            with (PRIVATE / "independent-verification.json").open(
+                "x", encoding="utf-8",
+            ) as output:
+                output.write(canonical_config_json(receipt) + "\\n")
+                output.flush()
+                os.fsync(output.fileno())
     except (OSError, ValueError, VerificationBlocked) as exc:
         parser.exit(2, f"SF260 SOURCE-ONLY VERIFICATION BLOCKED: {exc}\n")
     print(json.dumps(result, sort_keys=True))
