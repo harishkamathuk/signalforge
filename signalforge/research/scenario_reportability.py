@@ -618,13 +618,18 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         assert blocker is not None
         blocker_signal = _utc(blocker["signal_interval_end"])
         blocker_terminal = _utc(blocker["terminal_event_bucket"])
-        # A decision is blocked only by a setup that existed at its completed
-        # boundary. Expired/CLOSED/REJECTED states terminate *before* the
-        # boundary decision; terminal OPEN/ARMED may block at measured_end.
+        # The completed-candle decision at t runs before walking the next 1m
+        # bucket starting t. A modeled CLOSE, REJECT, invalidation or strategy
+        # cutoff *at that bucket start* may therefore follow a valid block at t.
+        # VALIDITY_WINDOW_END instead expires at the preceding candle-end
+        # boundary before the decision, so it cannot block at that same t.
+        # This ordering is a runner invariant, not inferred intraminute timing.
         blocker_active = (
             blocker_signal <= begin
-            and (end <= blocker_terminal if blocker["state"] in ("OPEN", "ARMED")
-                 else end < blocker_terminal)
+            and (end < blocker_terminal or (
+                end == blocker_terminal
+                and blocker.get("reason") != "VALIDITY_WINDOW_END"
+            ))
         )
         entered_at = (None if blocker.get("entry_bucket") is None
                       else _utc(blocker["entry_bucket"]))
