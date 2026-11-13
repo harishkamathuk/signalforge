@@ -15,7 +15,6 @@ from signalforge.research.historical_execution import (
     HISTORICAL_EXECUTION_CALCULATION_VERSION,
     HistoricalBarExecutionRunner,
     HistoricalContinuationPolicy,
-    HistoricalOutcomeCertainty,
     HistoricalStrictMinuteAudit,
 )
 from signalforge.research.scenario_execution import (
