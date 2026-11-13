@@ -305,9 +305,40 @@ def _probe() -> dict[str, object]:
     return payload
 
 
+def _require_active_parent(profile: str, attempt: int) -> None:
+    """Reject a hidden child lacking the actual parent's exclusive flock."""
+    output = _private(OUTPUT_ROOT, 0o700)
+    marker = _private(output / ".sf260-90d-active.json", 0o600)
+    try:
+        record = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise LaunchBlocked("missing parent-owned 90D scope marker") from exc
+    require(
+        type(record) is dict and record.get("schema") == "sf260-90d-active-scope-v1"
+        and record.get("profile") == profile and record.get("attempt") == attempt
+        and type(record.get("parent_pid")) is int and record["parent_pid"] > 1
+        and type(record.get("scope")) is str
+        and record["scope"].startswith(f"sf260-90d-{profile.lower()}-a{attempt}-")
+        and record["scope"].endswith(".scope"),
+        "unrelated or malformed parent-owned scope marker",
+    )
+    _private(output / ".sf260-90d-launch.lock", 0o600)
+    fd = os.open(output / ".sf260-90d-launch.lock", os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return  # The parent still holds the exclusive flock.
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+    raise LaunchBlocked("internal worker requires active parent launcher flock")
+
+
 def _worker(profile: str, attempt: int) -> None:
     """Only after distinct Gate D: guarded, source-bound, sealed 90D execution."""
     _limits()  # No source read until cgroup swap/pid/RSS/VM/FSIZE verification.
+    _require_active_parent(profile, attempt)
     os.umask(0o077)
     source_dir, attempt_dir = verify_prelaunch(profile, attempt, existing=True)
     attempt_dir = _private(attempt_dir, 0o700)
