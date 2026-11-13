@@ -322,6 +322,75 @@ def _economics(closed: list[dict[str, Any]], expected: int,
     }
 
 
+def _difference(left: dict[str, object],
+                right: dict[str, object]) -> dict[str, object]:
+    """Calculate only comparable, individually defined modeled statistics."""
+    keys = (
+        "win_rate", "average_r_expectancy", "profit_factor_r",
+        "frequency_per_1000_expected_5m_decisions",
+    )
+    result: dict[str, object] = {}
+    for key in keys:
+        a = _map(left[key], "comparison_left")
+        b = _map(right[key], "comparison_right")
+        if a.get("status") != "DEFINED" or b.get("status") != "DEFINED":
+            result[key] = {"status": "UNDEFINED",
+                           "reason": "CONSTITUENT_UNDEFINED"}
+            continue
+        result[key] = {"status": "DEFINED", "value": str(
+            _sum([_number(a["value"]), -_number(b["value"])])
+        )}
+    for key in ("maximum_cumulative_r_drawdown",):
+        a = _map(left[key], "left_drawdown")
+        b = _map(right[key], "right_drawdown")
+        result[key] = {"status": "DEFINED", "value": str(
+            _sum([_number(a["value"]), -_number(b["value"])])
+        )}
+    result["closed_contained_difference"] = (
+        _count(left["closed_contained"]) - _count(right["closed_contained"])
+    )
+    result["sum_gross_r_difference"] = str(_sum([
+        _number(left["sum_gross_r"]), -_number(right["sum_gross_r"])
+    ]))
+    return result
+
+
+def compare_profile_reports(reference: dict[str, object],
+                            adverse: dict[str, object]) -> dict[str, object]:
+    """Compare two independently reportable profiles without pooling repeats.
+
+    Both reports must share exact source, strategy, windows and metric contract
+    identities, except for the explicitly distinct model-fill profile.
+    """
+    _require(reference.get("status") == "COMPLETE_PERSISTED_REPORTABILITY"
+             and adverse.get("status") == "COMPLETE_PERSISTED_REPORTABILITY",
+             "UNQUALIFIED_PROFILE_COMPARISON")
+    _require(reference.get("profile_id") == "REFERENCE_RAW"
+             and adverse.get("profile_id") == "ADVERSE_RAW",
+             "PROFILE_ISOLATION_REQUIRED")
+    _require(reference.get("comparison_base_identity")
+             == adverse.get("comparison_base_identity"),
+             "INCOMPATIBLE_PROFILE_IDENTITIES")
+    results: dict[str, object] = {}
+    for name in ("IS", "OOS"):
+        a = _map(_map(reference["windows"], "reference_windows")[name], "ref_window")
+        b = _map(_map(adverse["windows"], "adverse_windows")[name], "adv_window")
+        results[name] = _difference(_map(a["economics"], "ref_economics"),
+                                    _map(b["economics"], "adv_economics"))
+    return {
+        "status": "SCENARIO_CONDITIONED_PROFILE_COMPARISON",
+        "certainty": "SCENARIO_CONDITIONED",
+        "execution_valid": False,
+        "basis": "REFERENCE_RAW_MINUS_ADVERSE_RAW",
+        "comparison_base_identity": reference["comparison_base_identity"],
+        "windows": results,
+        "reference": reference,
+        "adverse": adverse,
+        "limitations": ["NO_PROFILE_POOLING", "NO_REPEAT_AS_NEW_SAMPLE",
+                        "NOT_NET_OR_OBSERVED_HISTORICAL_PROFITABILITY"],
+    }
+
+
 def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                             strict_bytes: bytes) -> dict[str, object]:
     """Rebuild a complete qualified conditional report from saved bytes alone.
@@ -358,6 +427,16 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
                         "source-quality", run_id, legacy_id)
     strict = _companion(strict_bytes, companions["strict_reference"],
                         "strict-reference", run_id, legacy_id)
+    fills = _map(manifest.get("fills"), "fill_profile")
+    profile_id = fills.get("profile_id")
+    _require(profile_id in ("REFERENCE_RAW", "ADVERSE_RAW")
+             and fills.get("price_mode") == "RAW_DIAGNOSTIC",
+             "UNSUPPORTED_SCENARIO_PROFILE")
+    comparative = dict(manifest)
+    del comparative["fills"]
+    comparison_base_identity = _identity({
+        "domain": "sf283-comparable-profile-v1", "inputs": comparative,
+    })
     window = _map(manifest.get("session_and_window"), "window")
     start, split, finish = (_utc(window[k])
                             for k in ("is_start", "oos_start", "measured_end"))
@@ -506,6 +585,8 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
         "point_metrics_basis": "CONDITIONAL_GROSS_R_NOT_ACTUAL_FILLS",
         "contract": CONTRACT, "scenario_result_id": envelope["scenario_result_id"],
         "scenario_run_id": run_id,
+        "profile_id": profile_id,
+        "comparison_base_identity": comparison_base_identity,
         "windows": reports,
         "closed_cohort_reconciliation": {
             "total_closed": sum(cohort_counts.values()),
@@ -513,7 +594,15 @@ def report_from_saved_bytes(document: bytes, source_bytes: bytes,
             "OOS_CONTAINED": cohort_counts["OOS"],
             "CROSS_WINDOW": cohort_counts["CROSS_WINDOW"],
         },
-        "comparisons": {"status": "SCENARIO_CONDITIONED_SEPARATE_PROFILES_REQUIRED"},
+        "comparisons": {
+            "OOS_MINUS_IS": _difference(
+                _map(reports["OOS"]["economics"], "oos_economics"),
+                _map(reports["IS"]["economics"], "is_economics"),
+            ),
+            "REFERENCE_MINUS_ADVERSE": {
+                "status": "REQUIRES_TWO_SEPARATELY_QUALIFIED_PROFILES",
+            },
+        },
         "limitations": [
             "CROSS_WINDOW_EXCLUDED_FROM_PRIMARY_ECONOMICS",
             "CONTAINED_OOS_NOT_UNBIASED_COMPLETE_OOS_SAMPLE",
