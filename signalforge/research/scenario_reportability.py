@@ -348,7 +348,7 @@ def _strict_reference(companion: dict[str, Any],
                 and _count(per_window.get("assessed")) == eligible
                 and _count(per_window.get("unassessed")) == unassessed
                 and _count(per_window.get("ambiguous")) == len(times)
-                and all(checked[i] == "0" or membership[i] == "E"
+                and all(mask[i] == "0" or membership[i] == "E"
                         for i in range(expected)),
                 "STRICT_ELIGIBILITY_COUNT_MISMATCH",
             )
