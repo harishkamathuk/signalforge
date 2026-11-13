@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 
@@ -488,14 +489,26 @@ class ScenarioResearchResult:
         result["outcomes"] = [item.prospective_mapping() for item in self.outcomes]
         return result
 
-    def write_reportable_new(self, destination: Path) -> None:
-        """Exclusively persist a prospective v2 result with canonical hash identity."""
+    def write_reportable_new(
+        self, destination: Path, *, source_companion: Path, strict_companion: Path,
+    ) -> None:
+        """Exclusively persist v2 with exact hash-bound diagnostic companions.
+
+        Companion evidence must be produced independently before this operation.
+        It cannot be inferred from scenario traces or synthesized by this writer.
+        """
         if destination.suffix != ".json" or not destination.parent.is_dir():
             raise ValueError("Scenario destination must be JSON in an existing directory")
         parent = destination.parent.resolve(strict=True)
         if any(part in (".signalforge-data", "sf088", "sf096") for part in parent.parts):
             raise ValueError("Cannot write future reportable output into protected evidence")
         result = self.reportable_mapping()
+        companions: dict[str, str] = {}
+        for label, path in (("source_quality", source_companion), ("strict_reference", strict_companion)):
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("Required independently produced companion is missing or unsafe")
+            companions[label] = sha256(path.read_bytes()).hexdigest()
+        result["companion_sha256"] = companions
         result_id = config_hash({"domain": "scenario-result-v2", "result": result})
         with destination.open("x", encoding="utf-8") as stream:
             stream.write(canonical_config_json({
