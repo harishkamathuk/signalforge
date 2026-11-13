@@ -12,6 +12,7 @@ import gc
 import hashlib
 import json
 import resource
+from decimal import Decimal
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -52,11 +53,53 @@ def check(condition: bool, reason: str) -> None:
         raise VerificationBlocked(reason)
 
 
+def decode_tagged(node: object) -> object:
+    """Strict independent canonical decoder; reject duplicate/unsorted map keys."""
+    check(isinstance(node, list) and node and isinstance(node[0], str),
+          "invalid canonical type tag")
+    typ = node[0]
+    if typ == "null":
+        check(len(node) == 1, "invalid null tag")
+        return None
+    check(len(node) == 2, "invalid canonical tag length")
+    value = node[1]
+    if typ == "str":
+        check(type(value) is str, "invalid string tag")
+        return value
+    if typ == "bool":
+        check(type(value) is bool, "invalid boolean tag")
+        return value
+    if typ == "int":
+        check(type(value) is str and str(int(value)) == value, "invalid integer tag")
+        return int(value)
+    if typ == "decimal":
+        check(type(value) is str, "invalid decimal tag")
+        decimal = Decimal(value)
+        check(decimal.is_finite(), "nonfinite decimal tag")
+        return decimal
+    if typ == "list":
+        check(isinstance(value, list), "invalid list tag")
+        return [decode_tagged(item) for item in value]
+    if typ == "map":
+        check(isinstance(value, list), "invalid map tag")
+        decoded: dict[str, object] = {}
+        previous: str | None = None
+        for pair in value:
+            check(isinstance(pair, list) and len(pair) == 2 and type(pair[0]) is str,
+                  "invalid canonical map member")
+            key = pair[0]
+            check(previous is None or key > previous, "duplicate/unsorted canonical map key")
+            decoded[key] = decode_tagged(pair[1])
+            previous = key
+        return decoded
+    raise VerificationBlocked("unknown canonical type tag")
+
+
 def read_canonical(path: Path) -> tuple[dict[str, Any], str]:
     check(path.is_file() and not path.is_symlink(), "missing/linked private receipt")
     check(path.stat().st_mode & 0o077 == 0, "non-private source-only artifact")
     data = path.read_bytes()
-    root = json.loads(data)
+    root = decode_tagged(json.loads(data))
     check(isinstance(root, dict), "invalid canonical manifest shape")
     check(data == (canonical_config_json(root) + "\n").encode("utf-8"),
           "noncanonical source-only artifact bytes")
@@ -178,12 +221,7 @@ def verify_source_only() -> dict[str, object]:
               and source.get("content_hash") == lineage["child_dataset_hash"]
               and source.get("source_diagnostic_id") == derived_id,
               "profile source lineage/hash mismatch")
-        expected_close = config_hash({
-            "close": None,
-        })
-        # The source-specific 5m close digest is independently represented in
-        # lineage; the manifest digest must equal the audited slice digest.
-        del expected_close
+        # Source-bound digest is independently recomputed from verified 1m closes.
         check(source.get("five_minute_close_digest") ==
               lineage["derived_five_minute_close_digest"],
               "source five-minute digest drift")
