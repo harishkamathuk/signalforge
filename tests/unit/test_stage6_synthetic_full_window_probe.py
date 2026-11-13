@@ -75,6 +75,20 @@ def test_declared_synthetic_split_rejects_invalid_inputs(warmup, is_length):
         probe._split(129_600, warmup_minutes=warmup, is_minutes=is_length)
 
 
+def test_direct_worker_launch_rejects_incomplete_split(monkeypatch):
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("invalid split must fail before spawning child")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", forbidden_spawn)
+    with pytest.raises(probe.ProbeBlocked, match="supplied together"):
+        probe._run_one(
+            minutes=129_600, mode="scheduled",
+            max_rss_gib=3, vm_limit_gib=4,
+            timeout_seconds=1200, min_free_gib=0.75,
+            warmup_minutes=1440,
+        )
+
+
 def test_parent_passes_explicit_split_to_child(monkeypatch):
     captured: list[str] = []
 
