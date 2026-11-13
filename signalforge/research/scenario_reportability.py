@@ -300,10 +300,25 @@ def _strict_reference(companion: dict[str, Any],
             stop_at = _utc(raw_stop)
             pre_roll = _utc(_map(manifest.get("session_and_window"),
                                  "strict_window_binding").get("pre_roll_start"))
-            _require(stop_at.isoformat() == raw_stop
-                     and stop_at >= pre_roll
-                     and (stop_at - pre_roll) % timedelta(minutes=1) ==
-                     timedelta(0), "INVALID_STRICT_STOP")
+            # The strict runner cannot process a source minute at/after the
+            # exclusive source end. A forged future stop otherwise makes all
+            # E/I masks appear to be a complete assessed prefix.
+            source_manifest = _map(_map(manifest.get("source"), "strict_source").get(
+                "manifest"), "strict_source_manifest")
+            source_grid = _map(source_manifest.get("grid"), "strict_source_grid")
+            source_coverage = _items(source_grid.get("coverage"),
+                                     "strict_source_coverage")
+            _require(len(source_coverage) == 1, "INVALID_STRICT_SOURCE_GRID")
+            source_start = _utc(source_coverage[0].get("start"))
+            source_end = _utc(source_coverage[0].get("end"))
+            _require(
+                stop_at.isoformat() == raw_stop
+                and source_start == pre_roll
+                and source_start <= stop_at < source_end
+                and (stop_at - source_start) % timedelta(minutes=1) ==
+                timedelta(0),
+                "INVALID_STRICT_STOP",
+            )
         else:
             _require(proof.get("stop") is None, "INVALID_STRICT_STOP")
         terminal = proof.get("end_terminal_uncertainty")
