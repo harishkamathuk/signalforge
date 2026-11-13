@@ -46,7 +46,9 @@ Eligible contained CLOSED trades only, finite signed scenario-conditioned **gros
 the persisted `trace` (minute bucket, ordered crossing action, opening/assumed
 ordering and modeled base) against the saved lifecycle. Each modeled ENTRY is
 matched with a filled OPEN/CLOSED opportunity or the attempted entry of a
-REJECTED one; STOP/TARGET matches the corresponding CLOSED exit bucket/reason;
+REJECTED one. Filled entry and exit prices must reconcile with the trace
+crossing level under the saved RAW profile slippage (including observed-open
+gaps); STOP/TARGET matches the corresponding CLOSED exit bucket/reason;
 PRE_ENTRY_INVALIDATION matches the EXPIRED terminal bucket. Non-event
 `ASSUMED_SEGMENT` records remain explicitly hypothetical, never observed
 provider event times. `event_count` must equal the number of crossing actions
