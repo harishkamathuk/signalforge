@@ -49,7 +49,7 @@ def test_independent_receipt_has_real_newline_and_0600(monkeypatch, tmp_path):
     path = tmp_path / "independent-verification.json"
     data = path.read_bytes()
     assert data.endswith(b"\n")
-    assert not data.endswith(b"\n")
+    assert not data.endswith(b"\\n")
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     decoded, digest = independent.read_canonical(path)
     assert len(digest) == 64
