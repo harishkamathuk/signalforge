@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import stat
 import sys
@@ -364,10 +363,16 @@ def validate(
     if not synthetic:
         require(inspection_record is not None and prereg is not None)
         protected_permission(inspection_record)
+    # Synthetic mode must never become an accidental bypass for protected
+    # historical-result access, even if a fixture-looking CLI flag is set.
+    if synthetic:
+        require(inspection_record is None and prereg is None)
+        require(not root.absolute().is_relative_to(
+            Path.home() / "signalforge-private"
+        ))
     root = private(root, 0o700)
     require(not (root / ".sf260-90d-active.json").exists())
     if synthetic:
-        require(inspection_record is None and prereg is None)
         mappings: dict[str, dict[str, Any]] = {}
     else:
         assert prereg is not None
@@ -382,6 +387,8 @@ def validate(
             size, sha = fingerprint(path)
             if not synthetic:
                 require((size, sha) == (FROZEN[profile][2], FROZEN[profile][3]))
+            else:
+                require((size, sha) != (FROZEN[profile][2], FROZEN[profile][3]))
             receipt = read_private_json(folder / "worker-receipt.json")
             require(
                 receipt == {
