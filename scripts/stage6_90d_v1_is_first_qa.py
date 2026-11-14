@@ -230,7 +230,11 @@ def lifecycle(result: dict[str, Any]) -> bool:
     entries: list[datetime] = []
     exits: list[datetime] = []
     for index, row in enumerate(outcomes):
-        require(type(row) is dict)
+        require(type(row) is dict and set(row) == {
+            "opportunity_id", "certainty", "state", "reason", "entry_bucket",
+            "exit_bucket", "entry_price", "exit_price", "r",
+            "holding_span_1m_buckets",
+        } and row.get("certainty") == "SCENARIO_CONDITIONED")
         identity, state, reason = row.get("opportunity_id"), row.get("state"), row.get("reason")
         require(type(identity) is str and len(identity) == 64
                 and all(c in "0123456789abcdef" for c in identity)
@@ -264,8 +268,16 @@ def lifecycle(result: dict[str, Any]) -> bool:
     entry_action: list[datetime] = []
     exit_action: list[datetime] = []
     action_counts = {"ENTRY": 0, "INVALIDATION": 0, "STOP": 0, "TARGET": 0}
+    entry_candidates = iter(
+        row for row in outcomes if row.get("state") in ("CLOSED", "OPEN", "REJECTED")
+    )
+    next_entry = next(entry_candidates, None)
+    opened = False
     for row in traces:
-        require(type(row) is dict)
+        require(type(row) is dict and set(row) == {
+            "bucket_start", "from_level", "to_level", "action",
+            "ordering", "modeled_base",
+        })
         bucket = minute(row.get("bucket_start"))
         require(prior is None or prior <= bucket)
         prior = bucket
@@ -274,16 +286,29 @@ def lifecycle(result: dict[str, Any]) -> bool:
         if action != "ASSUMED_SEGMENT":
             action_counts[action] += 1
         if action == "ENTRY":
-            entry_action.append(bucket)
+            require(not opened and next_entry is not None)
+            if next_entry["state"] != "REJECTED":
+                require(bucket == minute(next_entry.get("entry_bucket")))
+                opened = True
+                entry_action.append(bucket)
+            next_entry = next(entry_candidates, None)
         elif action in ("STOP", "TARGET"):
+            require(opened)
+            opened = False
             exit_action.append(bucket)
-    require(entry_action == entries and exit_action == exits)
+        elif action == "INVALIDATION":
+            require(not opened)
+    require(next_entry is None and entry_action == entries and exit_action == exits)
+    require(opened == (terminal == "OPEN"))
     require(sum(action_counts.values()) == result.get("event_count"))
     require(action_counts["INVALIDATION"] ==
             sum(x.get("reason") == "PRE_ENTRY_INVALIDATION" for x in outcomes))
     prev: datetime | None = None
     for row in blocked:
-        require(type(row) is dict)
+        require(type(row) is dict and set(row) == {
+            "interval_start", "interval_end", "blocking_opportunity_id",
+            "blocking_state",
+        })
         start = minute(row.get("interval_start"))
         end = minute(row.get("interval_end"), end=True)
         require(end - start == timedelta(minutes=5)
