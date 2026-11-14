@@ -41,6 +41,7 @@ def _manifest(profile: str) -> dict[str, Any]:
             "dataset_id": "synthetic-source",
         },
         "strategy": {"synthetic_fixture_identity": "synthetic-sf260-qa"},
+        "implementation": {"revision": "synthetic-fixture-v1"},
         "fills": {"profile_id": profile},
         "session_and_window": {
             "pre_roll_start": qa.SOURCE_START.isoformat(),
