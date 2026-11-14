@@ -291,3 +291,33 @@ def test_no_runner_invocation(synthetic_root: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(ScenarioResearchRunner, "run_verified", forbidden)
     assert qa.validate(synthetic_root, synthetic=True)["artifact_integrity"] == "PASS"
+
+
+def test_immutable_hash_rechecked_at_actual_semantic_read(
+    synthetic_root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A changed canonical file between fingerprint and parse must never pass."""
+    original = qa.canonical._parse_result
+    attacked = False
+
+    def swapped(path: Path) -> tuple[bytes, dict[str, Any], dict[str, Any]]:
+        nonlocal attacked
+        if not attacked:
+            attacked = True
+            folder = synthetic_root / "reference_raw-attempt-1"
+            target = folder / "canonical-result.json"
+            _, manifest, result = original(target)
+            result["event_count"] = 1  # Rehash a validly structured but altered file.
+            new_record = {
+                "manifest": manifest,
+                "result": result,
+                "scenario_result_id": canonical._hash_config({
+                    "domain": "scenario-result-v1", "result": result,
+                }),
+            }
+            _write(target, canonical._canonical(new_record))
+        return original(path)
+
+    monkeypatch.setattr(qa.canonical, "_parse_result", swapped)
+    with pytest.raises(qa.ValidationBlocked):
+        qa.validate(synthetic_root, synthetic=True)
