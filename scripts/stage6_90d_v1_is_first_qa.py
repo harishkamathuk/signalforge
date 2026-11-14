@@ -404,7 +404,7 @@ def validate(
             verified.append((profile, attempt, path, receipt))
     checks: dict[str, str] = {}
     hashes: dict[str, list[str]] = {profile: [] for profile in PROFILES}
-    for profile, attempt, path, receipt in verified:
+    for profile, _attempt, path, receipt in verified:
         _, manifest, result = canonical._parse_result(path)
         check_manifest(manifest, profile, synthetic)
         run = result.get("scenario_run_id")
