@@ -308,7 +308,9 @@ def test_immutable_hash_rechecked_at_actual_semantic_read(
             folder = synthetic_root / "reference_raw-attempt-1"
             target = folder / "canonical-result.json"
             _, manifest, result = original(target)
-            result["event_count"] = 1  # Rehash a validly structured but altered file.
+            # This is semantically allowed; only rehashing the *parsed* bytes
+            # detects a between-check-and-use swap.
+            result["method_status"] = "SCENARIO_METHOD_INCONCLUSIVE"
             new_record = {
                 "manifest": manifest,
                 "result": result,
@@ -438,6 +440,18 @@ def test_forged_rehashed_manifest_rejected(
             m["mode_and_schema"]["simulator"] = "unexpected-mode"
         else:
             m["fills"]["profile_id"] = "ADVERSE_RAW"
+
+    _mutate(synthetic_root, "REFERENCE_RAW", alter)
+    with pytest.raises(qa.ValidationBlocked):
+        qa.validate(synthetic_root, synthetic=True)
+
+
+def test_rehashed_incorrect_holding_span_is_rejected(
+    synthetic_root: Path,
+) -> None:
+    def alter(envelope: dict[str, Any]) -> None:
+        _one_closed(envelope, action="TARGET")
+        envelope["result"]["outcomes"][0]["holding_span_1m_buckets"] = 999
 
     _mutate(synthetic_root, "REFERENCE_RAW", alter)
     with pytest.raises(qa.ValidationBlocked):
