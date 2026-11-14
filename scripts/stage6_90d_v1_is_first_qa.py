@@ -259,12 +259,19 @@ def lifecycle(result: dict[str, Any]) -> bool:
             if state == "CLOSED":
                 leave = minute(row.get("exit_bucket"))
                 require(leave >= entry)
+                span = row.get("holding_span_1m_buckets")
+                require(type(span) is int and span ==
+                        1 + int((leave - entry) / timedelta(minutes=1)))
                 exits.append((leave, str(reason)))
                 prior_exit = leave
             else:
                 require(row.get("exit_bucket") is None)
         else:
             require(row.get("entry_bucket") is None and row.get("exit_bucket") is None)
+        if state != "CLOSED":
+            require(all(row.get(k) is None for k in (
+                "exit_bucket", "exit_price", "r", "holding_span_1m_buckets",
+            )))
     require(result.get("terminal_active_state") == terminal)
     prior: datetime | None = None
     entry_action: list[datetime] = []
