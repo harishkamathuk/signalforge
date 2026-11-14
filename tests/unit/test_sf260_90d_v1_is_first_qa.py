@@ -210,7 +210,7 @@ def test_bad_artifact_or_custody_blocks(synthetic_root: Path, change: str) -> No
         _write(folder / "partial.json", b"x")
     elif change == "failure_marker":
         _write(folder / "failure.json", b"x")
-    with pytest.raises(Exception):
+    with pytest.raises((qa.ValidationBlocked, canonical.CustodyBlocked)):
         qa.validate(synthetic_root, synthetic=True)
 
 
@@ -256,7 +256,7 @@ def test_rehashed_unexpected_schema_blocks(synthetic_root: Path) -> None:
     def alter(envelope: dict[str, Any]) -> None:
         envelope["result"]["unexpected"] = "SECRET_OOS_PROFIT_987"
     _mutate(synthetic_root, "REFERENCE_RAW", alter)
-    with pytest.raises(Exception):
+    with pytest.raises((qa.ValidationBlocked, canonical.CustodyBlocked)):
         qa.validate(synthetic_root, synthetic=True)
 
 
