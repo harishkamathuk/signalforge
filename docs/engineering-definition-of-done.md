@@ -22,6 +22,10 @@ Issue-specific acceptance criteria remain authoritative for the work item. This 
 - Keep code, domain validation and persistence constraints mutually consistent.
 - Add or update tests for changed contracts, including negative/contradictory cases where relevant.
 
+## New protected economic-study applicability (SF-293)
+
+For each **new** protected economic study, the PR and preregistration must reference an instantiated, versioned [requirements-to-evidence matrix](research/sf293-economic-study-traceability-v1.md) and the [prospective economic Gate D checklist](engineering/prospective-economic-gate-d-checklist.md). Before economic Gate D, 04 independently accepts the exact guarded launcher → canonical v2/independent source-and-strict companions → saved-byte verifier → **IS-only, OOS-default-denied** reporting capability, proven with synthetic positive, negative, undefined and adversarial **WITHHELD** actual-entry-point tests; 00.01 approves the study-specific economic question, quantitative sufficiency/cost scope and explicit Gate D decision. Gross modeled R is **not** after-cost profitability. Missing mandatory capability is **economic NO-GO**, or requires a distinct, prospectively authorised narrower gross-R question or NON-ECONOMIC study. Genuine historical B3 coverage, measured worker resources and economics remain **postexecution** gates, not synthetic PASS claims. The reusable template alone never confers approval; prior frozen studies and the Stage 6 preflight are unchanged.
+
 ## Strategy-abstraction proof
 
 When a change introduces or materially changes a reusable strategy-facing abstraction, apply
