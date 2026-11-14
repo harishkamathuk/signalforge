@@ -139,9 +139,10 @@ def protected_registration(prereg: Path) -> dict[str, dict[str, Any]]:
         path = private(prereg / str(row["filename"]), 0o600)
         size, sha = fingerprint(path)
         require(size > 0 and sha == FROZEN[profile][1])
-        record, _ = read_canonical(path)
+        record, verified_manifest_sha = read_canonical(path)
         require(
-            record.get("scenario_run_id") == FROZEN[profile][0]
+            verified_manifest_sha == FROZEN[profile][1]
+            and record.get("scenario_run_id") == FROZEN[profile][0]
             and set(record) == {"input_mapping", "scenario_run_id"}
             and type(record.get("input_mapping")) is dict
         )
@@ -377,7 +378,7 @@ def validate(
     else:
         assert prereg is not None
         mappings = protected_registration(prereg)
-    verified: list[tuple[str, int, Path, dict[str, Any]]] = []
+    verified: list[tuple[str, int, Path, dict[str, Any], int, str]] = []
     for profile in PROFILES:
         for attempt in (1, 2):
             folder = private(root / f"{profile.lower()}-attempt-{attempt}", 0o700)
@@ -401,11 +402,15 @@ def validate(
                     "execution_valid": False, "oos_released": False,
                 }
             )
-            verified.append((profile, attempt, path, receipt))
+            verified.append((profile, attempt, path, receipt, size, sha))
     checks: dict[str, str] = {}
     hashes: dict[str, list[str]] = {profile: [] for profile in PROFILES}
-    for profile, _attempt, path, receipt in verified:
-        _, manifest, result = canonical._parse_result(path)
+    for profile, _attempt, path, receipt, expected_size, expected_sha in verified:
+        raw, manifest, result = canonical._parse_result(path)
+        # Reauthenticate the actual bytes consumed by the semantic reader:
+        # a mutable owner filesystem must not allow a hash/check-vs-use swap.
+        require(len(raw) == expected_size
+                and hashlib.sha256(raw).hexdigest() == expected_sha)
         check_manifest(manifest, profile, synthetic)
         run = result.get("scenario_run_id")
         require(run == receipt["scenario_run_id"])
