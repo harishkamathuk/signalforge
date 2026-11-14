@@ -52,7 +52,7 @@ FROZEN = {
     ),
 }
 OWNER_URL = re.compile(
-    r"https://github\\.com/harishkamathuk/signalforge/issues/253#issuecomment-[1-9][0-9]*\\Z"
+    r"https://github\.com/harishkamathuk/signalforge/issues/253#issuecomment-[1-9][0-9]*\Z"
 )
 
 
@@ -228,7 +228,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
     prior_exit: datetime | None = None
     terminal: str | None = None
     entries: list[datetime] = []
-    exits: list[datetime] = []
+    exits: list[tuple[datetime, str]] = []
     for index, row in enumerate(outcomes):
         require(type(row) is dict and set(row) == {
             "opportunity_id", "certainty", "state", "reason", "entry_bucket",
@@ -257,7 +257,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
             if state == "CLOSED":
                 leave = minute(row.get("exit_bucket"))
                 require(leave >= entry)
-                exits.append(leave)
+                exits.append((leave, str(reason)))
                 prior_exit = leave
             else:
                 require(row.get("exit_bucket") is None)
@@ -266,7 +266,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
     require(result.get("terminal_active_state") == terminal)
     prior: datetime | None = None
     entry_action: list[datetime] = []
-    exit_action: list[datetime] = []
+    exit_action: list[tuple[datetime, str]] = []
     action_counts = {"ENTRY": 0, "INVALIDATION": 0, "STOP": 0, "TARGET": 0}
     entry_candidates = iter(
         row for row in outcomes if row.get("state") in ("CLOSED", "OPEN", "REJECTED")
@@ -295,7 +295,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
         elif action in ("STOP", "TARGET"):
             require(opened)
             opened = False
-            exit_action.append(bucket)
+            exit_action.append((bucket, str(action)))
         elif action == "INVALIDATION":
             require(not opened)
     require(next_entry is None and entry_action == entries and exit_action == exits)
@@ -316,6 +316,18 @@ def lifecycle(result: dict[str, Any]) -> bool:
         prev = end
         require(row.get("blocking_opportunity_id") in seen
                 and row.get("blocking_state") in ("ARMED", "OPEN"))
+        blocking = next(
+            (o for o in outcomes if o["opportunity_id"] ==
+             row["blocking_opportunity_id"]), None,
+        )
+        require(blocking is not None)
+        if row["blocking_state"] == "ARMED" and blocking["entry_bucket"] is not None:
+            require(minute(blocking["entry_bucket"]) >= end)
+        if row["blocking_state"] == "OPEN":
+            require(blocking["state"] in ("CLOSED", "OPEN"))
+            require(minute(blocking["entry_bucket"]) < end)
+            if blocking["exit_bucket"] is not None:
+                require(minute(blocking["exit_bucket"]) >= end)
     return True
 
 
