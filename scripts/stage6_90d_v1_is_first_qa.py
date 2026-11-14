@@ -225,6 +225,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
         and len(traces) + len(blocked) <= 2_096_640
     )
     seen: set[str] = set()
+    by_id: dict[str, dict[str, Any]] = {}
     prior_exit: datetime | None = None
     terminal: str | None = None
     entries: list[datetime] = []
@@ -240,6 +241,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
                 and all(c in "0123456789abcdef" for c in identity)
                 and identity not in seen)
         seen.add(identity)
+        by_id[identity] = row
         require(state in ("CLOSED", "OPEN", "ARMED", "REJECTED", "EXPIRED"))
         if state in ("OPEN", "ARMED"):
             require(index == len(outcomes) - 1 and reason == "DATASET_END_CONDITIONAL")
@@ -316,10 +318,7 @@ def lifecycle(result: dict[str, Any]) -> bool:
         prev = end
         require(row.get("blocking_opportunity_id") in seen
                 and row.get("blocking_state") in ("ARMED", "OPEN"))
-        blocking = next(
-            (o for o in outcomes if o["opportunity_id"] ==
-             row["blocking_opportunity_id"]), None,
-        )
+        blocking = by_id.get(row["blocking_opportunity_id"])
         require(blocking is not None)
         if row["blocking_state"] == "ARMED" and blocking["entry_bucket"] is not None:
             require(minute(blocking["entry_bucket"]) >= end)
