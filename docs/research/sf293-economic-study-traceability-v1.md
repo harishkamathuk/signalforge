@@ -1,8 +1,8 @@
 # SF-293 — Prospective economic study requirements-to-evidence matrix v1
 
-**Contract:** `sf293-economic-study-traceability-v1` — **template, not an approved study**.  
-**Applicability:** each **new** protected economic research study, before economic Gate D.  
-**Authority:** [00.01 owner decision #6885045585](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6885045585), [economic-objective gate #6884817873](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6884817873), [04 M1–M4 review #6884967612](https://github.com/harishkamathuk/signalforge/issues/293#issuecomment-6884967612), [#293](https://github.com/harishkamathuk/signalforge/issues/293).  
+**Contract:** `sf293-economic-study-traceability-v1` — **template, not an approved study**.
+**Applicability:** each **new** protected economic research study, before economic Gate D.
+**Authority:** [00.01 owner decision #6885045585](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6885045585), [economic-objective gate #6884817873](https://github.com/harishkamathuk/signalforge/issues/253#issuecomment-6884817873), [04 M1–M4 review #6884967612](https://github.com/harishkamathuk/signalforge/issues/293#issuecomment-6884967612), [#293](https://github.com/harishkamathuk/signalforge/issues/293).
 **Gate checklist:** [prospective economic Gate D](../engineering/prospective-economic-gate-d-checklist.md).
 
 This is a **normative contract/template**, not completed evidence, an execution permit or a substitute for an individually frozen preregistration. For every future study, instantiate **one versioned, study-specific copy** under `docs/research/`, fill all fields, freeze the approved revision before protected Gate D, and obtain independent 04 ACCEPT and explicit 00.01 GO. **An uninstantiated template, a blank cell, a component-only CI PASS or a historical study's PASS cannot admit an economic study.** Do not select, relax or backfill criteria after results are observed.
