@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -319,5 +320,125 @@ def test_immutable_hash_rechecked_at_actual_semantic_read(
         return original(path)
 
     monkeypatch.setattr(qa.canonical, "_parse_result", swapped)
+    with pytest.raises(qa.ValidationBlocked):
+        qa.validate(synthetic_root, synthetic=True)
+
+
+def test_valid_separate_owner_comment_url_is_accepted_as_local_shape_only(
+    tmp_path: Path,
+) -> None:
+    """This tests record format, not existence or authenticity of an owner GO."""
+    receipt = tmp_path / "synthetic-inspection-approval.json"
+    record = {
+        "decision": "SF260_V1_IS_QA_PROTECTED_READ_ACCEPT",
+        "parent_issue": 253,
+        "variant": qa.VARIANT,
+        "execution_revision": qa.REVISION,
+        "input_preregistration_id": qa.PREREG,
+        "source_derivation_id": qa.DERIVATION,
+        "approval_url": (
+            "https://github.com/harishkamathuk/signalforge/issues/253"
+            "#issuecomment-9999999999"
+        ),
+    }
+    _write(receipt, (json.dumps(record) + "\n").encode())
+    qa.protected_permission(receipt)
+    record["approval_url"] = (
+        "https://github.com/harishkamathuk/signalforge/issues/253"
+        "#issuecomment-6883237655"
+    )
+    _write(receipt, (json.dumps(record) + "\n").encode())
+    with pytest.raises(qa.ValidationBlocked):
+        qa.protected_permission(receipt)
+
+
+def _one_closed(envelope: dict[str, Any], *, action: str) -> None:
+    result = envelope["result"]
+    entry = (qa.IS_START + qa.timedelta(minutes=1)).isoformat()
+    leave = (qa.IS_START + qa.timedelta(minutes=2)).isoformat()
+    result["outcomes"] = [{
+        "opportunity_id": "e" * 64,
+        "certainty": "SCENARIO_CONDITIONED",
+        "state": "CLOSED",
+        "reason": "TARGET",
+        "entry_bucket": entry,
+        "exit_bucket": leave,
+        "entry_price": Decimal("100"),
+        "exit_price": Decimal("105"),
+        "r": Decimal("0.5"),
+        "holding_span_1m_buckets": 2,
+    }]
+    result["trace"] = [{
+        "bucket_start": entry,
+        "from_level": Decimal("100"),
+        "to_level": Decimal("100"),
+        "action": "ENTRY",
+        "ordering": "OBSERVED_OPEN",
+        "modeled_base": Decimal("100"),
+    }, {
+        "bucket_start": leave,
+        "from_level": Decimal("105"),
+        "to_level": Decimal("105"),
+        "action": action,
+        "ordering": "OBSERVED_OPEN",
+        "modeled_base": Decimal("105"),
+    }]
+    result["attempted_outcome_count"] = 1
+    result["attempted_trace_count"] = 2
+    result["event_count"] = 2
+
+
+def test_valid_synthetic_saved_closed_lifecycle_is_consistent(
+    synthetic_root: Path,
+) -> None:
+    _mutate(synthetic_root, "REFERENCE_RAW", lambda e: _one_closed(e, action="TARGET"))
+    answer = qa.validate(synthetic_root, synthetic=True)
+    assert answer["checks"]["SAVED_LIFECYCLE_INDEPENDENT_CONSISTENCY"] == "PASS"
+    assert answer["economics"] == "WITHHELD"
+
+
+def test_forged_exit_action_rejected_even_with_consistent_ids(
+    synthetic_root: Path,
+) -> None:
+    _mutate(synthetic_root, "REFERENCE_RAW", lambda e: _one_closed(e, action="STOP"))
+    with pytest.raises(qa.ValidationBlocked):
+        qa.validate(synthetic_root, synthetic=True)
+
+
+def test_forged_post_exit_blocking_interval_rejected(
+    synthetic_root: Path,
+) -> None:
+    def alter(envelope: dict[str, Any]) -> None:
+        _one_closed(envelope, action="TARGET")
+        result = envelope["result"]
+        result["blocked_decisions"] = [{
+            "interval_start": (qa.IS_START + qa.timedelta(minutes=5)).isoformat(),
+            "interval_end": (qa.IS_START + qa.timedelta(minutes=10)).isoformat(),
+            "blocking_opportunity_id": "e" * 64,
+            "blocking_state": "OPEN",
+        }]
+        result["blocked_actionable_count"] = 1
+
+    _mutate(synthetic_root, "REFERENCE_RAW", alter)
+    with pytest.raises(qa.ValidationBlocked):
+        qa.validate(synthetic_root, synthetic=True)
+
+
+@pytest.mark.parametrize("kind", [
+    "mismatched_source", "mismatched_simulator", "mismatched_profile",
+])
+def test_forged_rehashed_manifest_rejected(
+    synthetic_root: Path, kind: str,
+) -> None:
+    def alter(envelope: dict[str, Any]) -> None:
+        m = envelope["manifest"]
+        if kind == "mismatched_source":
+            m["source"]["content_hash"] = qa.CHILD
+        elif kind == "mismatched_simulator":
+            m["mode_and_schema"]["simulator"] = "unexpected-mode"
+        else:
+            m["fills"]["profile_id"] = "ADVERSE_RAW"
+
+    _mutate(synthetic_root, "REFERENCE_RAW", alter)
     with pytest.raises(qa.ValidationBlocked):
         qa.validate(synthetic_root, synthetic=True)
