@@ -23,6 +23,7 @@ from signalforge.domain.money import Price, ceil_to_tick, floor_to_tick
 from signalforge.domain.provenance import MarketSessionPolicyIdentity, RunIdentity
 from signalforge.domain.signals import Signal
 from signalforge.domain.time import CandleInterval, to_ist
+from signalforge.research.audited_source_slice_v1 import AuditedSourceSliceV1
 from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
 from signalforge.research.historical_bars import (
     HistoricalBar,
@@ -556,7 +557,7 @@ class HistoricalBarExecutionRunner:
         tick_schedule: TickSizeSchedule | None,
         execution_profile: HistoricalExecutionAssumptionProfile,
         market_session_policy: HistoricalSessionPolicy = NSE_INTRADAY_MARKET_SESSION_POLICY,
-        raw_source: RawDiagnosticSource | None = None,
+        raw_source: RawDiagnosticSource | AuditedSourceSliceV1 | None = None,
         measurement_start: datetime | None = None,
         continuation_policy: HistoricalContinuationPolicy = (
             HistoricalContinuationPolicy.FAIL_CLOSED_V1
