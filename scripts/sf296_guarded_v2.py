@@ -322,6 +322,38 @@ def _fixture_and_request(profile: str, revision: str) -> ScenarioResearchRequest
     )
 
 
+def _saved_ids(raw: bytes) -> dict[str, object]:
+    """Re-derive private content identities from canonical bytes, not memory."""
+    from signalforge.research.scenario_reportability import (
+        FUTURE_FIELDS,
+        _decode_canonical,
+        _identity,
+        _items,
+        _map,
+    )
+
+    envelope = _decode_canonical(raw)
+    manifest = _map(envelope.get("manifest"), "manifest")
+    result = _map(envelope.get("result"), "result")
+    legacy = dict(result)
+    legacy["schema_version"] = "scenario-result-v1"
+    del legacy["report_contract"]
+    del legacy["companion_sha256"]
+    legacy["outcomes"] = [
+        {key: val for key, val in row.items() if key not in FUTURE_FIELDS}
+        for row in _items(result.get("outcomes"), "outcomes")
+    ]
+    source = _map(manifest.get("source"), "source")
+    return {
+        "scenario_run_id": _identity({"domain": "scenario-run-v1", "inputs": manifest}),
+        "scenario_result_v1_id": _identity(
+            {"domain": "scenario-result-v1", "result": legacy},
+        ),
+        "scenario_result_v2_id": envelope.get("scenario_result_id"),
+        "source_diagnostic_id": source.get("source_diagnostic_id"),
+    }
+
+
 def _worker(root: Path, profile: str, attempt: int) -> None:
     """Run only when active parent owns live lock under the real cgroup."""
     _limits()
@@ -377,6 +409,7 @@ def _worker(root: Path, profile: str, attempt: int) -> None:
         "source_producer": "canonical-source-grid-classifier-v1",
         "strict_producer": "adr011-fail-closed-independent-strict-v1",
         "writer": "scenario-result-v2",
+        "identities": _saved_ids(blobs[2]),
         "disposition": disposition,
         "files": {
             item: {"sha256": _sha(raw), "bytes": len(raw)}
@@ -394,11 +427,13 @@ def _verify_set(root: Path, name: str) -> str:
     root = _root(root)
     require(not (root / MARKER).exists())
     completed = _private(root / name, 0o700, root=root)
+    require({x.name for x in completed.iterdir()} == set(FILES) | {WORKER_RECEIPT})
     ack = _record(root / (name + ".complete.json"), root=root)
     receipt_raw = _read(completed / WORKER_RECEIPT, root=root)
     receipt = json.loads(receipt_raw)
     require(type(receipt) is dict)
-    require(ack.get("schema") == COMMIT_SCHEMA
+    require(receipt.get("schema") == "sf296-worker-receipt-v1"
+            and ack.get("schema") == COMMIT_SCHEMA
             and ack.get("receipt_sha256") == _sha(receipt_raw)
             and ack.get("name") == name
             and ack.get("scope_confirmed_inactive") is True
@@ -420,6 +455,7 @@ def _verify_set(root: Path, name: str) -> str:
         require(records[filename] == {"sha256": _sha(raw), "bytes": len(raw)})
         blobs.append(raw)
     actual = verify_v2_structure(blobs[2], blobs[0], blobs[1])
+    require(receipt.get("identities") == _saved_ids(blobs[2]))
     require(actual == receipt["disposition"])
     return actual
 
@@ -479,6 +515,7 @@ def _parent(root: Path, profile: str, attempt: int) -> str:
         from signalforge.research.prospective_saved_verifier import verify_v2_structure
         disposition = verify_v2_structure(blobs[2], blobs[0], blobs[1])
         require(disposition == receipt["disposition"])
+        require(receipt.get("identities") == _saved_ids(blobs[2]))
         _sync_dir(stage)
         _no_replace_directory(stage, root / name)
         _sync_dir(root)
