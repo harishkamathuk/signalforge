@@ -1941,3 +1941,26 @@ def test_sf296_structural_genuine_strict_early_stop_withheld(tmp_path):
     assert verify_v2_structure(
         result.read_bytes(), source.read_bytes(), strict.read_bytes(),
     ) == "WITHHELD"
+
+def test_sf296_rehashed_invalid_armed_signal_boundary_is_blocked(tmp_path):
+    """A valid full hash chain never excuses missing saved lifecycle boundaries."""
+    from signalforge.research.prospective_saved_verifier import (
+        EvidenceBlocked,
+        verify_v2_structure,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("98", "100", "97", "98")},
+    )
+    result_doc = _decode_canonical(result.read_bytes())
+    source_doc = _decode_canonical(source.read_bytes())
+    strict_doc = _decode_canonical(strict.read_bytes())
+    assert result_doc["result"]["outcomes"]
+    result_doc["result"]["outcomes"][0]["signal_interval_end"] = None
+    saved, src, st = _sf283_mutated_saved_bytes(
+        result_doc, source_doc, strict_doc,
+    )
+    with pytest.raises(EvidenceBlocked):
+        verify_v2_structure(saved, src, st)
