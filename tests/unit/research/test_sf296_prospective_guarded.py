@@ -310,10 +310,7 @@ def test_complete_set_adversarial_mutations_fail_closed(
         for path, raw in files.items():
             if path.is_symlink():
                 path.unlink()
-            if not path.exists():
-                path.write_bytes(raw)
-            else:
-                path.write_bytes(raw)
+            path.write_bytes(raw)
             path.chmod(0o600)
         if linked.exists():
             linked.unlink()
@@ -341,7 +338,6 @@ def test_complete_set_parent_fault_edges_never_verify(
     monkeypatch.setattr(op, "_stop", lambda scope: True)
     real_read = op._read
     real_sync = op._sync_dir
-    real_rename = op._no_replace_directory
     real_json = op._json
     name = "reference_raw-attempt-1"
 
