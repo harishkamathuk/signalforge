@@ -8,7 +8,7 @@ labelled verified: a hash-consistent file alone cannot authenticate its producer
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Literal
 
 from signalforge.research.scenario_reportability import (
     FUTURE_FIELDS,
@@ -171,5 +171,5 @@ def verify_v2_structure(
         ):
             return "WITHHELD"
         raise EvidenceBlocked("INVALID_EVIDENCE") from None
-    except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
         raise EvidenceBlocked("INVALID_EVIDENCE") from None
