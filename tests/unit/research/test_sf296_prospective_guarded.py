@@ -42,6 +42,7 @@ def test_status_is_exact_non_economic_allowlist():
     ["--run-synthetic", "--profile", "REFERENCE_RAW", "--attempt", "3"],
     ["--root", "/tmp/unsafe"],
     ["--unknown"],
+    ["--help"],
 ])
 def test_bad_arguments_emit_only_fixed_blocked_status(capsys, args):
     assert op.main(args) == 1
