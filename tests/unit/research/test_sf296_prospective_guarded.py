@@ -228,7 +228,10 @@ def test_unavailable_guard_tool_fails_before_creating_attempt(tmp_path, monkeypa
     assert not (tmp_path / "reference_raw-attempt-1").exists()
 
 
-def _make_synthetic_complete_set(tmp_path: Path, monkeypatch, capsys) -> Path:
+def _make_synthetic_complete_set(
+    tmp_path: Path, monkeypatch, capsys, *,
+    profile: str = "REFERENCE_RAW", attempt: int = 1,
+) -> Path:
     """Supplemental mocked scope, but real worker/producers/v2 bytes and commit."""
     from types import SimpleNamespace
 
@@ -240,19 +243,19 @@ def _make_synthetic_complete_set(tmp_path: Path, monkeypatch, capsys) -> Path:
 
     def run_worker(command, **kwargs):
         assert command == ["synthetic-fake-scope"]
-        op._worker(tmp_path, "REFERENCE_RAW", 1)
+        op._worker(tmp_path, profile, attempt)
         return SimpleNamespace(returncode=0)
 
     with monkeypatch.context() as fake_scope:
         fake_scope.setattr(op.subprocess, "run", run_worker)
         assert op.main([
             "--run-synthetic", "--root", str(tmp_path),
-            "--profile", "REFERENCE_RAW", "--attempt", "1",
+            "--profile", profile, "--attempt", str(attempt),
         ]) == 0
     assert json.loads(capsys.readouterr().out) == op._status(
         "NON_ECONOMIC_EVIDENCE_VERIFIED"
     )
-    final = tmp_path / "reference_raw-attempt-1"
+    final = tmp_path / op._name(profile, attempt)
     assert op._verify_set(tmp_path, final.name) == "COMPLETE"
     return final
 
@@ -450,3 +453,143 @@ def test_postcommit_marker_cleanup_fsync_does_not_undo_durable_commit(
     # Commit-set rename, parent fsync, ack write and ack fsync occurred before
     # marker cleanup. Cleanup fsync failure must not falsely report BLOCKED.
     assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
+
+
+def test_two_profiles_and_attempts_have_separate_custody_and_stable_bytes(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    """AC-03: actual synthetic producers, distinct RAW profiles, no overwrite."""
+    first = _make_synthetic_complete_set(tmp_path, monkeypatch, capsys)
+    first_bytes = {name: (first / name).read_bytes() for name in op.FILES}
+    repeat = _make_synthetic_complete_set(
+        tmp_path, monkeypatch, capsys, attempt=2,
+    )
+    assert first != repeat
+    assert all(first_bytes[name] == (repeat / name).read_bytes() for name in op.FILES)
+    adverse = _make_synthetic_complete_set(
+        tmp_path, monkeypatch, capsys, profile="ADVERSE_RAW",
+    )
+    assert len({first.name, repeat.name, adverse.name}) == 3
+    assert op._verify_set(tmp_path, first.name) == "COMPLETE"
+    assert op._verify_set(tmp_path, repeat.name) == "COMPLETE"
+    assert op._verify_set(tmp_path, adverse.name) == "COMPLETE"
+    assert first_bytes[op.FILES[2]] != (adverse / op.FILES[2]).read_bytes()
+    for directory in (first, repeat, adverse):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        for filename in (*op.FILES, op.WORKER_RECEIPT):
+            assert stat.S_IMODE((directory / filename).stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("mutation", [
+    "ack_missing",
+    "ack_wrong_revision",
+    "ack_wrong_receipt_hash",
+    "ack_wrong_nonce",
+    "worker_wrong_producer",
+    "worker_wrong_profile",
+    "source_wrong_hash",
+    "strict_missing",
+    "extra_unexpected_file",
+    "live_marker",
+])
+def test_complete_set_rejects_realistic_metadata_and_custody_faults(
+    tmp_path: Path, monkeypatch, capsys, mutation: str,
+):
+    """AC-04/05/06: mutate a known-good committed set, never invent a receipt."""
+    final = _make_synthetic_complete_set(tmp_path, monkeypatch, capsys)
+    ack_path = tmp_path / (final.name + ".complete.json")
+    receipt_path = final / op.WORKER_RECEIPT
+    source_path = final / op.FILES[0]
+    strict_path = final / op.FILES[1]
+    altered_path = None
+    target = None
+    if mutation == "ack_missing":
+        ack_path.unlink()
+    elif mutation.startswith("ack_"):
+        doc = json.loads(ack_path.read_bytes())
+        if mutation == "ack_wrong_revision":
+            doc["revision"] = "other-revision"
+        elif mutation == "ack_wrong_receipt_hash":
+            doc["receipt_sha256"] = "0" * 64
+        elif mutation == "ack_wrong_nonce":
+            doc["nonce"] = "0" * 32
+        ack_path.write_text(json.dumps(doc) + "\n", encoding="utf-8")
+    elif mutation.startswith("worker_"):
+        doc = json.loads(receipt_path.read_bytes())
+        if mutation == "worker_wrong_producer":
+            doc["strict_producer"] = "wrong-producer"
+        elif mutation == "worker_wrong_profile":
+            doc["profile"] = "ADVERSE_RAW"
+        receipt_path.write_text(json.dumps(doc) + "\n", encoding="utf-8")
+    elif mutation == "source_wrong_hash":
+        source_path.write_bytes(source_path.read_bytes() + b"\n")
+    elif mutation == "strict_missing":
+        strict_path.unlink()
+    elif mutation == "extra_unexpected_file":
+        altered_path = final / "unlisted-file"
+        op._write(altered_path, b"unlisted\n")
+    elif mutation == "live_marker":
+        target = tmp_path / op.MARKER
+        op._json(target, {"schema": "sf296-active-parent-v1"})
+
+    assert op.main([
+        "--verify", "--root", str(tmp_path),
+        "--profile", "REFERENCE_RAW", "--attempt", "1",
+    ]) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out) == op._status("VALIDATION_BLOCKED")
+    assert len(output.out.splitlines()) == 1
+    assert str(tmp_path) not in output.out
+    assert "Traceback" not in output.out
+
+
+@pytest.mark.parametrize("failure", [
+    "scope_uncertain",
+    "worker_exit_nonzero",
+    "worker_receipt_write",
+])
+def test_failed_worker_or_uncertain_scope_never_commits(
+    tmp_path: Path, monkeypatch, capsys, failure: str,
+):
+    """AC-01/04/06: simulated failure; no real systemd claim."""
+    from types import SimpleNamespace
+
+    os.chmod(tmp_path, 0o700)
+    monkeypatch.setattr(op, "_checkout", lambda: "synthetic-test-revision")
+    monkeypatch.setattr(op, "_limits", lambda: None)
+    monkeypatch.setattr(op, "_command", lambda *args: ["synthetic-fake-scope"])
+    monkeypatch.setattr(op, "_stop", lambda scope: failure != "scope_uncertain")
+    original_json = op._json
+
+    def worker_simulation(command, **kwargs):
+        assert command == ["synthetic-fake-scope"]
+        if failure == "worker_receipt_write":
+            def fail_receipt(path, value):
+                if path.name == op.WORKER_RECEIPT:
+                    raise OSError("injected-receipt-failure")
+                return original_json(path, value)
+            monkeypatch.setattr(op, "_json", fail_receipt)
+            op._worker(tmp_path, "REFERENCE_RAW", 1)
+        else:
+            op._worker(tmp_path, "REFERENCE_RAW", 1)
+        return SimpleNamespace(returncode=1 if failure == "worker_exit_nonzero" else 0)
+
+    with monkeypatch.context() as patch_scope:
+        patch_scope.setattr(op.subprocess, "run", worker_simulation)
+        assert op.main([
+            "--run-synthetic", "--root", str(tmp_path),
+            "--profile", "REFERENCE_RAW", "--attempt", "1",
+        ]) == 1
+    emitted = capsys.readouterr()
+    assert emitted.err == ""
+    assert json.loads(emitted.out) == op._status("VALIDATION_BLOCKED")
+    name = "reference_raw-attempt-1"
+    assert not (tmp_path / name).exists()
+    assert not (tmp_path / (name + ".complete.json")).exists()
+    assert (tmp_path / (name + ".staging")).exists()
+    assert op.main([
+        "--verify", "--root", str(tmp_path),
+        "--profile", "REFERENCE_RAW", "--attempt", "1",
+    ]) == 1
+    assert json.loads(capsys.readouterr().out) == op._status("VALIDATION_BLOCKED")
