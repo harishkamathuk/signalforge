@@ -199,6 +199,7 @@ def verify_v2_structure(
                     and outcome.get("attempted_entry_bucket") is None,
                     "INVALID_CLOSED_LIFECYCLE",
                 )
+                assert entry_at is not None and exit_at is not None
                 entry_price = _number(outcome.get("entry_price"))
                 exit_price = _number(outcome.get("exit_price"))
                 stop = _number(outcome.get("modeled_stop_price"))
