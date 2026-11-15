@@ -8,6 +8,7 @@ labelled verified: a hash-consistent file alone cannot authenticate its producer
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import localcontext
 from typing import Literal
 
 from signalforge.research.scenario_reportability import (
@@ -19,6 +20,7 @@ from signalforge.research.scenario_reportability import (
     _identity,
     _items,
     _map,
+    _number,
     _reconcile_saved_actions,
     _require,
     _source_quality,
@@ -142,18 +144,113 @@ def verify_v2_structure(
             "OUTCOME_COUNT_MISMATCH",
         )
         seen: set[str] = set()
+        signals: set[object] = set()
+        last_signal = None
+        last_terminal = None
+        active = []
         for outcome in future:
             oid = outcome.get("opportunity_id")
+            state = outcome.get("state")
             _require(
                 type(oid) is str and oid not in seen
                 and outcome.get("certainty") == "SCENARIO_CONDITIONED"
-                and outcome.get("state") in (
-                    "CLOSED", "OPEN", "ARMED", "EXPIRED", "REJECTED",
-                ),
+                and state in ("CLOSED", "OPEN", "ARMED", "EXPIRED", "REJECTED"),
                 "INVALID_OUTCOME",
             )
             assert isinstance(oid, str)
             seen.add(oid)
+            signaled = _utc(outcome.get("signal_interval_end"))
+            signal_start = _utc(outcome.get("signal_interval_start"))
+            terminal = _utc(outcome.get("terminal_event_bucket"))
+            valid_until = _utc(outcome.get("valid_until_boundary"))
+            cutoff = outcome.get("strategy_cutoff_boundary")
+            cutoff_at = None if cutoff is None else _utc(cutoff)
+            _require(
+                signaled - signal_start == timedelta(minutes=5)
+                and signal_start >= start
+                and signaled <= finish
+                and signaled not in signals
+                and valid_until >= signaled
+                and signaled <= terminal <= finish
+                and (last_signal is None or (
+                    last_signal < signaled and last_terminal is not None
+                    and last_terminal <= signaled
+                )),
+                "INVALID_LIFECYCLE_ORDER",
+            )
+            signals.add(signaled)
+            last_signal, last_terminal = signaled, terminal
+            entry = outcome.get("entry_bucket")
+            exit_bucket = outcome.get("exit_bucket")
+            entry_at = None if entry is None else _utc(entry)
+            exit_at = None if exit_bucket is None else _utc(exit_bucket)
+            if entry_at is not None:
+                _require(
+                    signaled <= entry_at < valid_until
+                    and (cutoff_at is None or entry_at < cutoff_at),
+                    "INVALID_ENTRY_BOUNDARY",
+                )
+            if state == "CLOSED":
+                _require(
+                    entry_at is not None and exit_at is not None
+                    and entry_at <= exit_at
+                    and terminal == exit_at
+                    and outcome.get("reason") in ("STOP", "TARGET")
+                    and outcome.get("attempted_entry_bucket") is None,
+                    "INVALID_CLOSED_LIFECYCLE",
+                )
+                entry_price = _number(outcome.get("entry_price"))
+                exit_price = _number(outcome.get("exit_price"))
+                stop = _number(outcome.get("modeled_stop_price"))
+                target = _number(outcome.get("modeled_target_price"))
+                _require(
+                    entry_price > stop > 0 and target > entry_price
+                    and exit_price > 0,
+                    "INVALID_MODELED_RISK",
+                )
+                with localcontext() as ctx:
+                    ctx.prec = 28
+                    expected_r = (exit_price - entry_price) / (entry_price - stop)
+                _require(
+                    _number(outcome.get("r")) == expected_r,
+                    "INCONSISTENT_SAVED_R",
+                )
+                span = 1 + int((exit_at - entry_at) / timedelta(minutes=1))
+                _require(
+                    _count(outcome.get("holding_span_1m_buckets")) == span,
+                    "INCONSISTENT_HOLDING_SPAN",
+                )
+            else:
+                _require(exit_at is None and outcome.get("r") is None,
+                         "INVALID_NONCLOSED_LIFECYCLE")
+                if state == "OPEN":
+                    _require(
+                        entry_at is not None and terminal == finish
+                        and outcome.get("reason") == "DATASET_END_CONDITIONAL",
+                        "INVALID_TERMINAL_OPEN",
+                    )
+                    active.append(state)
+                elif state == "ARMED":
+                    _require(
+                        entry_at is None and terminal == finish
+                        and outcome.get("reason") == "DATASET_END_CONDITIONAL",
+                        "INVALID_TERMINAL_ARMED",
+                    )
+                    active.append(state)
+                elif state in ("REJECTED", "EXPIRED"):
+                    _require(entry_at is None, "INVALID_NONENTRY_OUTCOME")
+        _require(
+            len(active) <= 1
+            and (not active or future[-1]["state"] == active[0])
+            and result.get("terminal_active_state")
+            == (active[0] if active else None),
+            "INVALID_TERMINAL_ACTIVE_STATE",
+        )
+        blocked = _items(result.get("blocked_decisions"), "blocked_decisions")
+        _require(
+            _count(result.get("blocked_actionable_count")) == len(blocked),
+            "BLOCKED_COUNT_MISMATCH",
+        )
         fills = _map(manifest.get("fills"), "fills")
         _require(
             fills.get("profile_id") in ("REFERENCE_RAW", "ADVERSE_RAW")
@@ -172,5 +269,5 @@ def verify_v2_structure(
         ):
             return "WITHHELD"
         raise EvidenceBlocked("INVALID_EVIDENCE") from None
-    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, ArithmeticError):
         raise EvidenceBlocked("INVALID_EVIDENCE") from None
