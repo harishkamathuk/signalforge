@@ -188,3 +188,30 @@ def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
         "--profile", "REFERENCE_RAW", "--attempt", "1",
     ]) == 1
     assert json.loads(capsys.readouterr().out) == op._status("VALIDATION_BLOCKED")
+
+
+def test_unavailable_guard_tool_fails_before_creating_attempt(tmp_path, monkeypatch):
+    os.chmod(tmp_path, 0o700)
+    monkeypatch.setattr(op, "_checkout", lambda: "synthetic-revision")
+
+    def missing_systemd(*args):
+        raise op.OperatorBlocked("MISSING_SYSTEMD")
+
+    monkeypatch.setattr(op, "_command", missing_systemd)
+    with pytest.raises(op.OperatorBlocked):
+        op._parent(tmp_path, "REFERENCE_RAW", 1)
+    assert not (tmp_path / op.MARKER).exists()
+    assert not (tmp_path / "reference_raw-attempt-1.staging").exists()
+    assert not (tmp_path / "reference_raw-attempt-1").exists()
+
+
+def test_missing_parent_completion_ack_cannot_upgrade_to_verified(tmp_path):
+    os.chmod(tmp_path, 0o700)
+    finished = tmp_path / "reference_raw-attempt-1"
+    finished.mkdir(mode=0o700)
+    op._json(finished / "worker-receipt.json", {
+        "schema": "sf296-worker-receipt-v1",
+        "scope": "sf296-fake.scope", "disposition": "COMPLETE",
+    })
+    with pytest.raises((op.OperatorBlocked, OSError, KeyError)):
+        op._verify_set(tmp_path, "reference_raw-attempt-1")
