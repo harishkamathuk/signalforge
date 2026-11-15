@@ -528,8 +528,18 @@ def _parent(root: Path, profile: str, attempt: int) -> str:
             "receipt_sha256": _sha(worker_raw),
         })
         _sync_dir(root)
+        # The no-replace set and completion acknowledgement are now durable.
+        # Removing the in-progress marker is post-commit housekeeping, not an
+        # additional commit boundary. A failed cleanup fsync must not turn a
+        # confirmed commit into an apparently failed (later verifiable) run.
         (root / MARKER).unlink()
-        _sync_dir(root)
+        try:
+            _sync_dir(root)
+        except OSError:
+            # Marker removal may be durable or not after a crash. The current
+            # process can verify the committed bytes, but restart admission
+            # still fails closed if the marker reappears.
+            pass
         return _verify_set(root, name)
     finally:
         os.close(lockfd)
