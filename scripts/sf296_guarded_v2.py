@@ -549,7 +549,7 @@ def _status(status: str) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     """Emit exactly one restricted, fixed-shape JSON record; never partial data."""
-    parser = SafeArgumentParser(description=__doc__)
+    parser = SafeArgumentParser(description=__doc__, add_help=False)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--run-synthetic", action="store_true")
     modes.add_argument("--verify", action="store_true")
