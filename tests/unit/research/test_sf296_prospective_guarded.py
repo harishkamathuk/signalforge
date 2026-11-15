@@ -153,11 +153,14 @@ def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
         op._worker(tmp_path, "REFERENCE_RAW", 1)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(op.subprocess, "run", guarded_worker_simulation)
-    assert op.main([
-        "--run-synthetic", "--root", str(tmp_path),
-        "--profile", "REFERENCE_RAW", "--attempt", "1",
-    ]) == 0
+    # Mock only the parent-to-scope subprocess. The detached verifier below
+    # must start a *real* independent Python interpreter.
+    with monkeypatch.context() as scope_patch:
+        scope_patch.setattr(op.subprocess, "run", guarded_worker_simulation)
+        assert op.main([
+            "--run-synthetic", "--root", str(tmp_path),
+            "--profile", "REFERENCE_RAW", "--attempt", "1",
+        ]) == 0
     captured = capsys.readouterr()
     assert captured.err == ""
     assert json.loads(captured.out) == op._status("NON_ECONOMIC_EVIDENCE_VERIFIED")
