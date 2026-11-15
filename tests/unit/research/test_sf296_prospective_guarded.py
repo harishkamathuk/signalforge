@@ -223,5 +223,3 @@ def test_unavailable_guard_tool_fails_before_creating_attempt(tmp_path, monkeypa
     assert not (tmp_path / op.MARKER).exists()
     assert not (tmp_path / "reference_raw-attempt-1.staging").exists()
     assert not (tmp_path / "reference_raw-attempt-1").exists()
-
-
