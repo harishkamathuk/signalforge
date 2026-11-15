@@ -242,12 +242,18 @@ def _fixture_and_request(profile: str, revision: str) -> object:
     from signalforge.domain.time import CandleInterval
     from signalforge.research.btc_raw_diagnostic_input import RawDiagnosticSource
     from signalforge.research.historical_bars import (
-        HistoricalBarDataset, HistoricalPriceBasis, load_historical_bar_fixture,
+        HistoricalBarDataset,
+        HistoricalPriceBasis,
+        load_historical_bar_fixture,
     )
-    from signalforge.research.historical_execution import HistoricalExecutionAssumptionProfile
+    from signalforge.research.historical_execution import (
+        HistoricalExecutionAssumptionProfile,
+    )
     from signalforge.research.historical_grid import HistoricalBarGrid
     from signalforge.research.scenario_execution import (
-        ScenarioAssumptionSet, ScenarioMode, ScenarioResearchRequest,
+        ScenarioAssumptionSet,
+        ScenarioMode,
+        ScenarioResearchRequest,
         ScenarioResourcePolicy,
     )
 
