@@ -1907,3 +1907,37 @@ def test_sf260_b3_r01_final_source_minute_stop_is_not_out_of_range(tmp_path):
     assert report_from_saved_bytes(
         result.read_bytes(), source.read_bytes(), strict.read_bytes(),
     )["windows"]["OOS"]["strict_reference"]["ambiguous_count"] == 1
+
+
+# SF-296: independent non-economic saved-byte verification using actual strict engine.
+def test_sf296_structural_zero_eligible_complete_without_economics(tmp_path):
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    assert verify_v2_structure(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    ) == "COMPLETE"
+
+
+def test_sf296_structural_independent_eligible_complete(tmp_path):
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("98", "100", "97", "98")},
+    )
+    assert verify_v2_structure(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    ) == "COMPLETE"
+
+
+def test_sf296_structural_genuine_strict_early_stop_withheld(tmp_path):
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    assert verify_v2_structure(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    ) == "WITHHELD"
