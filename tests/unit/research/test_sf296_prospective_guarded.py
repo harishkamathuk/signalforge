@@ -389,3 +389,76 @@ def test_complete_set_parent_fault_edges_never_verify(
         op._verify_set(tmp_path, name)
     # Neither a staged nor an unacknowledged committed directory is accepted.
     assert (tmp_path / (name + ".staging")).exists() != (tmp_path / name).exists()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="AC-05/06: self-consistent forged worker+parent receipts lack independent T2 proof",
+)
+def test_rehashed_coupled_receipt_forgery_must_not_verify(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    """Known unresolved T2 trust-model gap; never treat CI xfail as acceptance."""
+    final = _make_synthetic_complete_set(tmp_path, monkeypatch, capsys)
+    receipt_path = final / op.WORKER_RECEIPT
+    ack_path = tmp_path / (final.name + ".complete.json")
+    receipt = json.loads(receipt_path.read_bytes())
+    ack = json.loads(ack_path.read_bytes())
+    # Mutate the worker claim and parent claim together, rebinding hashes.
+    # The saved results, source/strict companions and schema stay valid (T1).
+    fake_nonce = "0" * 32
+    receipt["nonce"] = fake_nonce
+    raw = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    receipt_path.write_bytes(raw)
+    ack["nonce"] = fake_nonce
+    ack["receipt_sha256"] = op._sha(raw)
+    ack_path.write_bytes(
+        (json.dumps(ack, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    )
+    with pytest.raises(op.OperatorBlocked):
+        op._verify_set(tmp_path, final.name)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="AC-04/06: failed final parent fsync after marker unlink leaves ambiguous ack",
+)
+def test_post_marker_unlink_fsync_failure_must_not_later_verify(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    """Crash edge requiring approved durable commit/recovery contract."""
+    from types import SimpleNamespace
+
+    os.chmod(tmp_path, 0o700)
+    monkeypatch.setattr(op, "_checkout", lambda: "synthetic-test-revision")
+    monkeypatch.setattr(op, "_limits", lambda: None)
+    monkeypatch.setattr(op, "_command", lambda *args: ["synthetic-fake-scope"])
+    monkeypatch.setattr(op, "_stop", lambda scope: True)
+    real_sync = op._sync_dir
+
+    def guarded_worker(command, **kwargs):
+        assert command == ["synthetic-fake-scope"]
+        op._worker(tmp_path, "REFERENCE_RAW", 1)
+        return SimpleNamespace(returncode=0)
+
+    def interrupted_sync(path):
+        if (
+            path == tmp_path
+            and (tmp_path / "reference_raw-attempt-1.complete.json").exists()
+            and not (tmp_path / op.MARKER).exists()
+        ):
+            raise OSError("synthetic-injected-final-fsync-failure")
+        return real_sync(path)
+
+    monkeypatch.setattr(op, "_sync_dir", interrupted_sync)
+    with monkeypatch.context() as fake_scope:
+        fake_scope.setattr(op.subprocess, "run", guarded_worker)
+        assert op.main([
+            "--run-synthetic", "--root", str(tmp_path),
+            "--profile", "REFERENCE_RAW", "--attempt", "1",
+        ]) == 1
+    assert json.loads(capsys.readouterr().out) == op._status("VALIDATION_BLOCKED")
+    # An interrupted final persistence edge must *not* be accepted by
+    # an independently invoked verification after the operator reported BLOCKED.
+    with pytest.raises(op.OperatorBlocked):
+        op._verify_set(tmp_path, "reference_raw-attempt-1")
