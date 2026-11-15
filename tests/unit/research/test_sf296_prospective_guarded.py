@@ -169,19 +169,39 @@ def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
     assert (tmp_path / "reference_raw-attempt-1.complete.json").is_file()
     assert not (tmp_path / op.MARKER).exists()
     assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
-    # Verify that a second process can reread saved bytes without original
-    # runner/request objects or any economic/public reporting route.
-    monkeypatch.undo()
+    # An independently started Python interpreter rereads the saved files.
+    # Override only the clean-checkout requirement for this *supplemental*
+    # test: ordinary developer trees may contain unrelated uncommitted work.
+    # The mandatory clean-head real guarded-host CLI test is separate AC-01.
+    verifier = (
+        "import sys; from scripts import sf296_guarded_v2 as op; "
+        "op._checkout = lambda: sys.argv[1]; "
+        "sys.exit(op.main(sys.argv[2:]))"
+    )
     checked = subprocess.run(
         [
-            sys.executable, str(op.SCRIPT), "--verify", "--root", str(tmp_path),
+            sys.executable, "-c", verifier, head,
+            "--verify", "--root", str(tmp_path),
             "--profile", "REFERENCE_RAW", "--attempt", "1",
         ],
-        capture_output=True, text=True, check=False,
+        cwd=op.ROOT, capture_output=True, text=True, check=False,
     )
     assert checked.returncode == 0
     assert checked.stderr == ""
     assert json.loads(checked.stdout) == op._status("NON_ECONOMIC_EVIDENCE_VERIFIED")
+
+    # Control: remove *only* the parent ack from an otherwise valid saved set.
+    # Unlike an incomplete mock directory, this reaches the actual ack gate.
+    ack = tmp_path / "reference_raw-attempt-1.complete.json"
+    ack_quarantine = tmp_path / "ack-withheld-for-test"
+    ack.rename(ack_quarantine)
+    try:
+        with pytest.raises((op.OperatorBlocked, OSError, KeyError)):
+            op._verify_set(tmp_path, "reference_raw-attempt-1")
+    finally:
+        ack_quarantine.rename(ack)
+    assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
+
     # Fail closed on attempted idempotent rerun, no overwrite.
     assert op.main([
         "--run-synthetic", "--root", str(tmp_path),
@@ -205,13 +225,3 @@ def test_unavailable_guard_tool_fails_before_creating_attempt(tmp_path, monkeypa
     assert not (tmp_path / "reference_raw-attempt-1").exists()
 
 
-def test_missing_parent_completion_ack_cannot_upgrade_to_verified(tmp_path):
-    os.chmod(tmp_path, 0o700)
-    finished = tmp_path / "reference_raw-attempt-1"
-    finished.mkdir(mode=0o700)
-    op._json(finished / "worker-receipt.json", {
-        "schema": "sf296-worker-receipt-v1",
-        "scope": "sf296-fake.scope", "disposition": "COMPLETE",
-    })
-    with pytest.raises((op.OperatorBlocked, OSError, KeyError)):
-        op._verify_set(tmp_path, "reference_raw-attempt-1")
