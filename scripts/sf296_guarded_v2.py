@@ -286,7 +286,7 @@ def _fixture_and_request(profile: str, revision: str) -> ScenarioResearchRequest
         expected_session_dates=(), price_basis=HistoricalPriceBasis.TRADED,
         limitations=("UNQUALIFIED_HISTORICAL_METADATA", "SYNTHETIC_TEST_ONLY"),
         grid=HistoricalBarGrid(
-            "sf296-synthetic", "1",
+            "scenario-synthetic", "1",
             (CandleInterval(start, start + timedelta(minutes=minutes)),),
         ),
         requested_start=start, requested_end=start + timedelta(minutes=minutes),
@@ -473,6 +473,7 @@ def _parent(root: Path, profile: str, attempt: int) -> str:
             name, name + ".staging", name + ".complete.json",
         )))
         scope = f"sf296-{profile.lower()}-a{attempt}-{os.getpid()}.scope"
+        command = _command(profile, attempt, root, scope)
         nonce = secrets.token_hex(16)
         stage = root / (name + ".staging")
         stage.mkdir(mode=0o700)
@@ -484,7 +485,6 @@ def _parent(root: Path, profile: str, attempt: int) -> str:
         _sync_dir(root)
         exit_code = 127
         try:
-            command = _command(profile, attempt, root, scope)
             with open(os.devnull, "wb") as quiet:
                 process = subprocess.run(
                     command, stdout=quiet, stderr=quiet, timeout=SECONDS + 45,
