@@ -192,7 +192,7 @@ def _command(profile: str, attempt: int, root: Path, scope: str) -> list[str]:
     assert systemd and timeout and prlimit
     return [
         systemd, "--user", "--scope", "--quiet", "--collect",
-        f"--unit={scope}", "-p", f"MemoryMax={MEMORY}",
+        "--slice=sf296.slice", f"--unit={scope}", "-p", f"MemoryMax={MEMORY}",
         "-p", "MemorySwapMax=0", "-p", f"TasksMax={PIDS}",
         timeout, "--signal=TERM", "--kill-after=5s", f"{SECONDS}s",
         prlimit, f"--as={ADDRESS}:{ADDRESS}",
