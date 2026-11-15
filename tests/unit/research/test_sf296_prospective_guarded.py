@@ -126,3 +126,46 @@ def test_no_protected_mode_is_exposed(capsys):
     captured = capsys.readouterr()
     assert captured.err == ""
     assert json.loads(captured.out) == op._status("VALIDATION_BLOCKED")
+
+
+def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
+    tmp_path: Path, capsys, monkeypatch,
+):
+    """Supplemental composition; explicitly NOT real systemd-host acceptance."""
+    from types import SimpleNamespace
+
+    os.chmod(tmp_path, 0o700)
+    monkeypatch.setattr(op, "_checkout", lambda: "synthetic-sf296-test-revision")
+    monkeypatch.setattr(op, "_limits", lambda: None)
+    monkeypatch.setattr(op, "_command", lambda *args: ["synthetic-fake-scope"])
+    monkeypatch.setattr(op, "_stop", lambda scope: True)
+
+    def guarded_worker_simulation(command, **kwargs):
+        assert command == ["synthetic-fake-scope"]
+        # The original parent owns a live OS flock and crash marker.
+        # The worker runs actual scenario + distinct strict producer + writer.
+        op._worker(tmp_path, "REFERENCE_RAW", 1)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(op.subprocess, "run", guarded_worker_simulation)
+    assert op.main([
+        "--run-synthetic", "--root", str(tmp_path),
+        "--profile", "REFERENCE_RAW", "--attempt", "1",
+    ]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == op._status("NON_ECONOMIC_EVIDENCE_VERIFIED")
+    finished = tmp_path / "reference_raw-attempt-1"
+    assert finished.is_dir()
+    assert set(x.name for x in finished.iterdir()) == set(op.FILES) | {
+        op.WORKER_RECEIPT,
+    }
+    assert (tmp_path / "reference_raw-attempt-1.complete.json").is_file()
+    assert not (tmp_path / op.MARKER).exists()
+    assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
+    # Fail closed on attempted idempotent rerun, no overwrite.
+    assert op.main([
+        "--run-synthetic", "--root", str(tmp_path),
+        "--profile", "REFERENCE_RAW", "--attempt", "1",
+    ]) == 1
+    assert json.loads(capsys.readouterr().out) == op._status("VALIDATION_BLOCKED")
