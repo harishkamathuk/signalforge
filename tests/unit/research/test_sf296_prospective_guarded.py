@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -135,7 +137,10 @@ def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
     from types import SimpleNamespace
 
     os.chmod(tmp_path, 0o700)
-    monkeypatch.setattr(op, "_checkout", lambda: "synthetic-sf296-test-revision")
+    head = subprocess.check_output(
+        ["git", "-C", str(op.ROOT), "rev-parse", "HEAD"], text=True,
+    ).strip()
+    monkeypatch.setattr(op, "_checkout", lambda: head)
     monkeypatch.setattr(op, "_limits", lambda: None)
     monkeypatch.setattr(op, "_command", lambda *args: ["synthetic-fake-scope"])
     monkeypatch.setattr(op, "_stop", lambda scope: True)
@@ -163,6 +168,19 @@ def test_supplemental_parent_worker_v2_custody_with_mocked_scope(
     assert (tmp_path / "reference_raw-attempt-1.complete.json").is_file()
     assert not (tmp_path / op.MARKER).exists()
     assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
+    # Verify that a second process can reread saved bytes without original
+    # runner/request objects or any economic/public reporting route.
+    monkeypatch.undo()
+    checked = subprocess.run(
+        [
+            sys.executable, str(op.SCRIPT), "--verify", "--root", str(tmp_path),
+            "--profile", "REFERENCE_RAW", "--attempt", "1",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    assert checked.returncode == 0
+    assert checked.stderr == ""
+    assert json.loads(checked.stdout) == op._status("NON_ECONOMIC_EVIDENCE_VERIFIED")
     # Fail closed on attempted idempotent rerun, no overwrite.
     assert op.main([
         "--run-synthetic", "--root", str(tmp_path),
