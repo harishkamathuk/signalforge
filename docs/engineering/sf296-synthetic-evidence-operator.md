@@ -47,6 +47,10 @@ The exclusive private staging set is fsynced before a single same-filesystem no-
 Two former `xfail` examples were superseded by scoped acceptance decisions: deliberate coordinated owner rewriting of *all* trusted records is out of scope; ordinary unilateral receipt forgery must fail. A failed marker cleanup fsync after the durable commit is not a failed commit; injected earlier write, fsync, rename and acknowledgement failures still must BLOCK.
 
 
+### WSL scope-controller finding and bounded correction (15 November 2026)
+
+Operator-supplied preflight on WSL Ubuntu / user systemd 255 showed `app.slice` with no `cgroup.subtree_control`, so transient scopes under the default slice lacked `memory.max`, `memory.swap.max` and `pids.max` despite successful launch. A **separate harmless transient scope** using `--slice=sf296-test.slice` showed correctly enforced `MemoryMax=3221225472`, `MemorySwapMax=0` and `TasksMax=64`. The operator therefore now specifies **`--slice=sf296.slice`** with its existing `--user --scope --collect` invocation; it leaves all resource limits and worker-side effective-control checks unchanged. This is a minimal local systemd configuration choice, not a relaxation of safeguards. **The final exact `sf296.slice` production command and actual guarded workload remain unexecuted** until the updated code is checked out and the host run independently measured. No root/systemd permanent configuration edits are required.
+
 ## Phase C preflight and controlled host procedure (prepared 15 November 2026; NOT EXECUTED)
 
 **Execution gate:** Run the read-only preflight first in the intended native Linux/WSL distro. This section records the reviewed script and an operator plan, NOT measured host evidence or permission to ignore a failed prerequisite. Do not start `--run-synthetic` until the preflight outcome is reviewed. Never run these steps against protected sources, SF-260 roots or Windows-mounted /mnt/c custody. The same user owns the clean checkout, guard scope and private synthetic root.
