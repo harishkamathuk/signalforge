@@ -20,7 +20,10 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from signalforge.research.scenario_execution import ScenarioResearchRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).resolve()
@@ -230,7 +233,7 @@ def _stop(scope: str) -> bool:
     return False
 
 
-def _fixture_and_request(profile: str, revision: str) -> object:
+def _fixture_and_request(profile: str, revision: str) -> ScenarioResearchRequest:
     """Generate only embedded artificial bars; do not accept a source path."""
     from dataclasses import replace
     from datetime import UTC, datetime, timedelta
