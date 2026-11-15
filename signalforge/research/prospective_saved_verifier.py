@@ -152,6 +152,7 @@ def verify_v2_structure(
                 ),
                 "INVALID_OUTCOME",
             )
+            assert isinstance(oid, str)
             seen.add(oid)
         fills = _map(manifest.get("fills"), "fills")
         _require(
