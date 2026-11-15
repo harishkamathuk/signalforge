@@ -15,6 +15,36 @@ from scripts import sf296_guarded_v2 as op
 from signalforge.research.prospective_saved_verifier import EvidenceBlocked, verify_v2_structure
 
 
+@pytest.mark.parametrize("profile", op.PROFILES)
+def test_guarded_command_uses_dedicated_slice_and_preserves_limits(
+    monkeypatch, tmp_path: Path, profile: str,
+):
+    """WSL Phase C regression: never fall back to uncontrolled app.slice."""
+    binaries = {
+        "systemd-run": "/usr/bin/systemd-run",
+        "timeout": "/usr/bin/timeout",
+        "prlimit": "/usr/bin/prlimit",
+    }
+    monkeypatch.setattr(op.shutil, "which", lambda name: binaries.get(name))
+    scope = f"sf296-{profile.lower()}-a1-test.scope"
+    command = op._command(profile, 1, tmp_path, scope)
+    assert command[:6] == [
+        binaries["systemd-run"], "--user", "--scope", "--quiet",
+        "--collect", "--slice=sf296.slice",
+    ]
+    assert f"--unit={scope}" in command
+    assert ["-p", f"MemoryMax={op.MEMORY}"] == command[7:9]
+    assert ["-p", "MemorySwapMax=0"] == command[9:11]
+    assert ["-p", f"TasksMax={op.PIDS}"] == command[11:13]
+    assert command[-7:] == [
+        "--internal-worker", "--root", str(tmp_path), "--profile",
+        profile, "--attempt", "1",
+    ]
+    assert f"--as={op.ADDRESS}:{op.ADDRESS}" in command
+    assert f"--fsize={op.FILE_LIMIT}:{op.FILE_LIMIT}" in command
+    assert f"--cpu={op.SECONDS}:{op.SECONDS}" in command
+
+
 def test_status_is_exact_non_economic_allowlist():
     for state in ("NON_ECONOMIC_EVIDENCE_VERIFIED", "WITHHELD", "VALIDATION_BLOCKED"):
         record = op._status(state)
