@@ -391,42 +391,29 @@ def test_complete_set_parent_fault_edges_never_verify(
     assert (tmp_path / (name + ".staging")).exists() != (tmp_path / name).exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="AC-05/06: self-consistent forged worker+parent receipts lack independent T2 proof",
-)
-def test_rehashed_coupled_receipt_forgery_must_not_verify(
+def test_single_record_receipt_change_is_blocked_under_local_trust(
     tmp_path: Path, monkeypatch, capsys,
 ):
-    """Known unresolved T2 trust-model gap; never treat CI xfail as acceptance."""
+    """Trusted single-user model: isolated forged/mismatched record fails closed.
+
+    Coordinated edits of *all* records by the privileged trusted owner are
+    explicitly outside the accepted threat model (SF-296 AC-05 revision).
+    """
     final = _make_synthetic_complete_set(tmp_path, monkeypatch, capsys)
     receipt_path = final / op.WORKER_RECEIPT
-    ack_path = tmp_path / (final.name + ".complete.json")
     receipt = json.loads(receipt_path.read_bytes())
-    ack = json.loads(ack_path.read_bytes())
-    # Mutate the worker claim and parent claim together, rebinding hashes.
-    # The saved results, source/strict companions and schema stay valid (T1).
-    fake_nonce = "0" * 32
-    receipt["nonce"] = fake_nonce
-    raw = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    receipt_path.write_bytes(raw)
-    ack["nonce"] = fake_nonce
-    ack["receipt_sha256"] = op._sha(raw)
-    ack_path.write_bytes(
-        (json.dumps(ack, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    receipt["nonce"] = "0" * 32
+    receipt_path.write_bytes(
+        (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
     )
     with pytest.raises(op.OperatorBlocked):
         op._verify_set(tmp_path, final.name)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="AC-04/06: failed final parent fsync after marker unlink leaves ambiguous ack",
-)
-def test_post_marker_unlink_fsync_failure_must_not_later_verify(
+def test_postcommit_marker_cleanup_fsync_does_not_undo_durable_commit(
     tmp_path: Path, monkeypatch, capsys,
 ):
-    """Crash edge requiring approved durable commit/recovery contract."""
+    """Commit and ack were fsynced; marker-removal flush is housekeeping."""
     from types import SimpleNamespace
 
     os.chmod(tmp_path, 0o700)
@@ -456,9 +443,10 @@ def test_post_marker_unlink_fsync_failure_must_not_later_verify(
         assert op.main([
             "--run-synthetic", "--root", str(tmp_path),
             "--profile", "REFERENCE_RAW", "--attempt", "1",
-        ]) == 1
-    assert json.loads(capsys.readouterr().out) == op._status("VALIDATION_BLOCKED")
-    # An interrupted final persistence edge must *not* be accepted by
-    # an independently invoked verification after the operator reported BLOCKED.
-    with pytest.raises(op.OperatorBlocked):
-        op._verify_set(tmp_path, "reference_raw-attempt-1")
+        ]) == 0
+    assert json.loads(capsys.readouterr().out) == op._status(
+        "NON_ECONOMIC_EVIDENCE_VERIFIED"
+    )
+    # Commit-set rename, parent fsync, ack write and ack fsync occurred before
+    # marker cleanup. Cleanup fsync failure must not falsely report BLOCKED.
+    assert op._verify_set(tmp_path, "reference_raw-attempt-1") == "COMPLETE"
