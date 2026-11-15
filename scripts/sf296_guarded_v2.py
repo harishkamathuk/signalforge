@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import errno
 import fcntl
 import hashlib
 import json
@@ -17,7 +16,6 @@ import os
 import resource
 import secrets
 import shutil
-import signal
 import stat
 import subprocess
 import sys
@@ -42,6 +40,13 @@ WORKER_RECEIPT = "worker-receipt.json"
 COMMIT_SCHEMA = "sf296-complete-set-v1"
 MARKER = ".sf296-active.json"
 LOCK = ".sf296-launch.lock"
+
+
+class SafeArgumentParser(argparse.ArgumentParser):
+    """Normalize bad arguments to one non-sensitive status response."""
+
+    def error(self, message: str) -> None:
+        raise OperatorBlocked("INVALID_ARGUMENT")
 
 
 class OperatorBlocked(RuntimeError):
@@ -498,7 +503,7 @@ def _status(status: str) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     """Emit exactly one restricted, fixed-shape JSON record; never partial data."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = SafeArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--run-synthetic", action="store_true")
     modes.add_argument("--verify", action="store_true")
@@ -506,8 +511,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--attempt", type=int, choices=(1, 2))
-    args = parser.parse_args(argv)
     try:
+        args = parser.parse_args(argv)
         if args.run_synthetic or args.verify or args.internal_worker:
             require(args.root is not None and args.profile is not None
                     and args.attempt is not None)
