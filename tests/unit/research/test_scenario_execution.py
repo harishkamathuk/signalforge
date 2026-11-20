@@ -8,6 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+import json
+
 import pytest
 
 from signalforge.config.btc_momentum_baseline_v0 import BtcMomentumBaselineV0Config
