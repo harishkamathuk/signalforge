@@ -2627,6 +2627,11 @@ def _sf293_slice3_fixture(
     result, source, strict = _sf260_strict_roundtrip(
         folder, signals=signals, prices=prices, split_minute=split_minute,
     )
+    # Production-like synthetic private admission: independent producers
+    # write standard 0644 fixtures; the trusted local custodian stages 0600
+    # immutable inputs before the release facade may read them.
+    for artifact in (result, source, strict):
+        artifact.chmod(0o600)
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     env = _decode_canonical(raw[0])
     costs = _sf293_test_cost_assumptions(raw[0])
@@ -2878,11 +2883,11 @@ def test_sf293_slice3_oos_only_independent_strict_stop_noninterference(
     }
     normal = dict(prefix)
     normal.update({
-        1270: ("100.2", "100.21", "100.1", "100.2"),
-        1271: ("101", "101", "100.9", "101"),
+        1265: ("100.2", "100.21", "100.1", "100.2"),
+        1266: ("101", "101", "100.9", "101"),
     })
     stopped = dict(prefix)
-    stopped[1270] = ("100", "105", "98", "100")
+    stopped[1265] = ("100", "105", "98", "100")
     a, _ = _sf293_slice3_fixture(
         root, "oos-strict-full", signals=(251, 253), prices=normal,
     )
