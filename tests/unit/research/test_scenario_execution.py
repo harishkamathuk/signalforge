@@ -2695,10 +2695,19 @@ def test_sf293_slice3_cli_is_only_independent_positive_and_no_oos(tmp_path, caps
     assert data["custody_tier"] == "LOCAL_SYNTHETIC_T1_NOT_T2"
     assert data["closed_is_contained"] == 1
     assert Decimal(data["gross_r"]["sum_gross_r"]) == Decimal("3.2")
-    assert Decimal(data["adjusted_r"]["sum_adjusted_r"]) < Decimal("3.2")
+    # Independent hand-calculated oracle: E=100.2, S=99.95, X=101,
+    # risk=.25; fee entry=.1002, exit=.101, funding=.05; adjusted=2.1952R.
+    assert Decimal(data["adjusted_r"]["sum_adjusted_r"]) == Decimal("2.1952")
+    assert Decimal(data["adjusted_r"]["component_totals_quote"][
+        "entry_fee_quote"
+    ]) == Decimal("0.1002")
+    assert Decimal(data["adjusted_r"]["component_totals_quote"][
+        "exit_fee_quote"
+    ]) == Decimal("0.101")
     assert data["adjusted_r"]["component_totals_quote"]["funding_debit_quote"] == (
         "0.05"
     )
+    assert data["gross_r"]["profit_factor_r"]["reason"] == "NO_LOSING_R"
     forbidden = (
         "OOS_CONTAINED", "CROSS_WINDOW", "OOS_MINUS_IS",
         "scenario_result_id", "result_sha256", "strict_sha256",
@@ -2765,10 +2774,24 @@ def test_sf293_slice3_is_equal_for_separately_granted_oos_variants(tmp_path, cap
     # OOS modeled closes cannot alter IS right-censored ARMED population.
     a = {1255: ("100.2", "100.21", "100.1", "100.2"),
          1256: ("101", "101", "100.9", "101")}
-    b = {1255: ("100.2", "100.21", "100.1", "100.2"),
-         1256: ("99", "99.1", "98.9", "99")}
-    _sf293_slice3_fixture(root, "oos-one", prices=a, split_minute=1255)
-    _sf293_slice3_fixture(root, "oos-two", prices=b, split_minute=1255)
+    b = {
+        i: ("100", "100.05", "100", "100")
+        for i in range(1255, 1260)
+    }
+    first, _ = _sf293_slice3_fixture(
+        root, "oos-one", prices=a, split_minute=1255,
+    )
+    second, _ = _sf293_slice3_fixture(
+        root, "oos-two", prices=b, split_minute=1255,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+    final_a = _decode_canonical(
+        (first / "scenario-result.json").read_bytes()
+    )["result"]["outcomes"][0]["state"]
+    final_b = _decode_canonical(
+        (second / "scenario-result.json").read_bytes()
+    )["result"]["outcomes"][0]["state"]
+    assert final_a == "CLOSED" and final_b == "EXPIRED"
     outputs = []
     for name in ("oos-one", "oos-two"):
         code = main(["--root", str(root), "--set", name,
