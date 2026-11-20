@@ -12,6 +12,7 @@ from decimal import localcontext
 from typing import Literal
 
 from signalforge.research.scenario_reportability import (
+    EXPIRY,
     FUTURE_FIELDS,
     ReportabilityError,
     _companion,
@@ -145,6 +146,8 @@ def verify_v2_structure(
         )
         seen: set[str] = set()
         signals: set[object] = set()
+        by_opportunity: dict[str, dict] = {}
+        close_buckets: set[object] = set()
         last_signal = None
         last_terminal = None
         active = []
@@ -159,6 +162,7 @@ def verify_v2_structure(
             )
             assert isinstance(oid, str)
             seen.add(oid)
+            by_opportunity[oid] = outcome
             signaled = _utc(outcome.get("signal_interval_end"))
             signal_start = _utc(outcome.get("signal_interval_start"))
             terminal = _utc(outcome.get("terminal_event_bucket"))
@@ -200,6 +204,8 @@ def verify_v2_structure(
                     "INVALID_CLOSED_LIFECYCLE",
                 )
                 assert entry_at is not None and exit_at is not None
+                _require(exit_at not in close_buckets, "DUPLICATE_MODELED_CLOSE_BUCKET")
+                close_buckets.add(exit_at)
                 entry_price = _number(outcome.get("entry_price"))
                 exit_price = _number(outcome.get("exit_price"))
                 stop = _number(outcome.get("modeled_stop_price"))
@@ -238,8 +244,29 @@ def verify_v2_structure(
                         "INVALID_TERMINAL_ARMED",
                     )
                     active.append(state)
-                elif state in ("REJECTED", "EXPIRED"):
-                    _require(entry_at is None, "INVALID_NONENTRY_OUTCOME")
+                elif state == "EXPIRED":
+                    reason = outcome.get("reason")
+                    _require(entry_at is None and reason in EXPIRY,
+                             "INVALID_EXPIRED_OUTCOME")
+                    if reason == "VALIDITY_WINDOW_END":
+                        _require(terminal >= valid_until,
+                                 "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                    elif reason == "STRATEGY_CUTOFF":
+                        _require(cutoff_at is not None and terminal >= cutoff_at,
+                                 "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                    else:
+                        _require(terminal < valid_until and
+                                 (cutoff_at is None or terminal < cutoff_at),
+                                 "EXPIRY_REASON_BOUNDARY_MISMATCH")
+                elif state == "REJECTED":
+                    attempt = outcome.get("attempted_entry_bucket")
+                    _require(
+                        entry_at is None
+                        and outcome.get("reason") == "NON_POSITIVE_OR_UNSUPPORTED_RISK"
+                        and attempt is not None
+                        and _utc(attempt) == terminal,
+                        "INVALID_REJECTED_OUTCOME",
+                    )
         _require(
             len(active) <= 1
             and (not active or future[-1]["state"] == active[0])
@@ -252,6 +279,50 @@ def verify_v2_structure(
             _count(result.get("blocked_actionable_count")) == len(blocked),
             "BLOCKED_COUNT_MISMATCH",
         )
+        # A counted blocked decision is meaningful only when it corresponds to
+        # one completed 5m interval and an actually active prior opportunity.
+        blocked_ends: set[object] = set()
+        for row in blocked:
+            begin = _utc(row.get("interval_start"))
+            end = _utc(row.get("interval_end"))
+            blocker_id = row.get("blocking_opportunity_id")
+            blocker = (
+                by_opportunity.get(blocker_id)
+                if isinstance(blocker_id, str) else None
+            )
+            _require(
+                end - begin == timedelta(minutes=5)
+                and begin >= start
+                and (begin - start) % timedelta(minutes=5) == timedelta(0)
+                and end <= finish
+                and end not in signals
+                and end not in blocked_ends
+                and blocker is not None,
+                "INVALID_BLOCKED_DECISION",
+            )
+            blocked_ends.add(end)
+            assert blocker is not None
+            blocker_signal = _utc(blocker.get("signal_interval_end"))
+            blocker_terminal = _utc(blocker.get("terminal_event_bucket"))
+            # The completed-candle decision precedes the next 1m bucket.
+            # VALIDITY_WINDOW_END expires before that decision, unlike a
+            # closure/rejection/invalidation at the next bucket start.
+            active_at_decision = (
+                blocker_signal <= begin
+                and (end < blocker_terminal or (
+                    end == blocker_terminal
+                    and blocker.get("reason") != "VALIDITY_WINDOW_END"
+                ))
+            )
+            entry = blocker.get("entry_bucket")
+            entry_at = None if entry is None else _utc(entry)
+            expected_state = (
+                "OPEN" if entry_at is not None and entry_at < end else "ARMED"
+            )
+            _require(
+                active_at_decision and row.get("blocking_state") == expected_state,
+                "INVALID_BLOCKER_LIFECYCLE",
+            )
         fills = _map(manifest.get("fills"), "fills")
         _require(
             fills.get("profile_id") in ("REFERENCE_RAW", "ADVERSE_RAW")
