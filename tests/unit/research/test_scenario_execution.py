@@ -2510,3 +2510,87 @@ def test_sf293_slice2_saved_byte_replay_independent_of_decimal_context(tmp_path)
         high = _calculate_synthetic_cost_r(*raw, assumptions)
     assert low == high
     assert low["windows"]["IS"]["economics"]["count"] == 1
+
+
+def test_sf293_f1_legacy_caller_authored_strict_rejected_even_when_rehashed(tmp_path):
+    """SF-283 legacy compatibility stays intact; SF-293 never promotes it."""
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+    from signalforge.research.prospective_saved_verifier import (
+        EvidenceBlocked,
+        verify_v2_structure,
+    )
+
+    _, _, result, source, strict = _sf283_roundtrip(tmp_path, signals=())
+    doc = _decode_canonical(result.read_bytes())
+    src = _decode_canonical(source.read_bytes())
+    st = _decode_canonical(strict.read_bytes())
+    assert st["producer_id"] == "synthetic-independent-strict-diagnostic-v1"
+    assert "strict_coverage_proof" not in st
+    # A newly canonical, correctly rebound legacy evidence set cannot bypass
+    # independent producer qualification even though SF-283 accepts it.
+    st["sf293_test_only_legacy_note"] = "properly-rehashed-compatibility-only"
+    rebound = _sf283_mutated_saved_bytes(doc, src, st)
+    assert report_from_saved_bytes(*rebound)["status"] == (
+        "COMPLETE_PERSISTED_REPORTABILITY"
+    )
+    with pytest.raises(EvidenceBlocked, match="INVALID_EVIDENCE"):
+        verify_v2_structure(*rebound)
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *rebound, _sf293_test_cost_assumptions(rebound[0]),
+        )
+    assert blocked.value.disposition == "INVALID"
+
+
+def test_sf293_f1_independent_strict_early_stop_withheld_not_invalid(tmp_path):
+    """Genuine ADR-011 ambiguity retains unknown suffix, no cost metrics."""
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    strict_doc = _decode_canonical(raw[2])
+    assert strict_doc["producer_id"] == "adr011-fail-closed-independent-strict-v1"
+    assert strict_doc["strict_coverage_proof"]["strict_terminated_early"] is True
+    assert verify_v2_structure(*raw) == "WITHHELD"
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *raw, _sf293_test_cost_assumptions(raw[0]),
+        )
+    assert blocked.value.disposition == "WITHHELD"
+
+
+def test_sf293_f1_genuine_independent_closed_producer_lineage(tmp_path):
+    """Accepted CLOSED economics start from independently produced strict proof."""
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    baseline, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assert verify_v2_structure(*raw) == "COMPLETE"
+    assert _decode_canonical(raw[1])["producer_id"] == (
+        "canonical-source-grid-classifier-v1"
+    )
+    proof = _decode_canonical(raw[2])["strict_coverage_proof"]
+    assert proof["producer_id"] == "adr011-fail-closed-independent-strict-v1"
+    assert proof["strict_terminated_early"] is False
+    assert baseline["closed_cohort_reconciliation"]["IS_CONTAINED"] == 1
+    calculated = _calculate_synthetic_cost_r(
+        *raw, _sf293_test_cost_assumptions(raw[0]),
+    )
+    assert calculated["windows"]["IS"]["economics"]["count"] == 1
+    assert calculated["windows"]["IS"]["economics"]["trades"][0][
+        "incremental_cost_quote"
+    ] != "0"
