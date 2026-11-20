@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-
-import json
 
 import pytest
 
@@ -1988,7 +1987,8 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
     """
     from scripts import sf296_guarded_v2 as op
     from signalforge.research.prospective_saved_verifier import (
-        EvidenceBlocked, verify_v2_structure,
+        EvidenceBlocked,
+        verify_v2_structure,
     )
     from signalforge.research.scenario_reportability import _decode_canonical
 
