@@ -2292,8 +2292,10 @@ def test_sf293_slice2_saved_bytes_matched_cohort_provenance_no_mutation(tmp_path
     assert Decimal(closed["component_totals_quote"]["funding_debit_quote"]) == (
         Decimal("0.05")
     )
-    assert Decimal(closed["sum_gross_r"]) == Decimal("1.5")
-    assert Decimal(closed["sum_adjusted_r"]) < Decimal("1.5")
+    assert Decimal(closed["sum_gross_r"]) == Decimal(
+        original["windows"]["IS"]["economics"]["sum_gross_r"]
+    )
+    assert Decimal(closed["sum_adjusted_r"]) < Decimal(closed["sum_gross_r"])
     assert closed["trades"][0]["opportunity_id"]
     assert calculated["windows"]["IS"]["population"]["source_quality"] == (
         original["windows"]["IS"]["source_quality"]
@@ -2418,7 +2420,12 @@ def test_sf293_slice2_preserves_entire_cohort_and_censor_population(
     signals = (251,)
     split = 1260
     if case == "cross-window":
-        prices = {1255: ("100", "105", "98", "100")}
+        # Use the independently strict-determinate open-entry / next-minute
+        # open-exit fixture; same-bar STOP/TARGET would legitimately WITHHOLD.
+        prices = {
+            1255: ("100.2", "100.21", "100.1", "100.2"),
+            1256: ("101", "101", "100.9", "101"),
+        }
         split = 1255
     elif case == "open-censored":
         prices = {
