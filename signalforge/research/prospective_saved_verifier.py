@@ -37,12 +37,15 @@ class EvidenceBlocked(ValueError):
 
 
 def verify_v2_structure(
-    result_bytes: bytes, source_bytes: bytes, strict_bytes: bytes,
+    result_bytes: bytes, source_bytes: bytes, strict_bytes: bytes, *,
+    science_scope: str = "FULL",
 ) -> EvidenceDisposition:
     """Check saved canonical identity, source/strict and lifecycle without economics.
 
     This only proves T1 structural integrity; T2 is enforced separately by the
     controlled operator's committed-set receipt and verified guarded lineage.
+    FULL is the unchanged legacy default. IS retains full structural checks
+    but requires scientific source/strict completeness only before the split.
     No supplied bytes are presumed to prove historical B3/source authenticity.
     """
     try:
@@ -138,8 +141,12 @@ def verify_v2_structure(
         )
         # Strict/source checks are shared with the saved report but return no
         # public data here. They may fail closed on authentic incomplete source.
-        _source_quality(source, bounds)
-        _strict_reference(strict, bounds, manifest)
+        _require(science_scope in ("FULL", "IS"), "INVALID_SCIENCE_SCOPE")
+        selected = frozenset(bounds) if science_scope == "FULL" else frozenset({"IS"})
+        # Structural provenance, all-window proof masks and lifecycle remain
+        # mandatory; OOS scientific incompleteness must not affect IS output.
+        _source_quality(source, bounds, qualified_windows=selected)
+        _strict_reference(strict, bounds, manifest, qualified_windows=selected)
         _require(
             _count(result.get("attempted_outcome_count")) == len(future),
             "OUTCOME_COUNT_MISMATCH",
