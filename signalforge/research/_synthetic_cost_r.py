@@ -14,6 +14,10 @@ from hashlib import sha256
 from typing import Any
 
 from signalforge.config.identity import config_hash
+from signalforge.research.prospective_saved_verifier import (
+    EvidenceBlocked,
+    verify_v2_structure,
+)
 from signalforge.research.scenario_reportability import (
     ReportabilityError,
     _count,
@@ -282,6 +286,15 @@ def _calculate_synthetic_cost_r(
             and _SOURCE in limitations
             and strategy.get("synthetic_fixture_identity") is not None
         )
+        # SF-283 intentionally accepts legacy caller-authored synthetic strict masks.
+        # Cost-qualified evidence requires the stronger independent SF-296
+        # source/ADR-011 strict producer lineage *before* any economics.
+        structural_status = verify_v2_structure(
+            document, source_bytes, strict_bytes,
+        )
+        if structural_status == "WITHHELD":
+            raise _SyntheticCostBlocked("WITHHELD")
+        _require(structural_status == "COMPLETE")
         qualified: Any = report_from_saved_bytes(document, source_bytes, strict_bytes)
         result = _map(envelope.get("result"), "result")
         fills = _map(manifest.get("fills"), "fills")
@@ -407,6 +420,8 @@ def _calculate_synthetic_cost_r(
                 "NO_IS_OOS_ECONOMIC_RELEASE",
             ),
         }
+    except EvidenceBlocked as exc:
+        raise _SyntheticCostBlocked("INVALID") from exc
     except ReportabilityError as exc:
         disposition = "WITHHELD" if str(exc) in _WITHHOLD_CAUSES else "INVALID"
         raise _SyntheticCostBlocked(disposition) from exc
