@@ -66,6 +66,7 @@ def _need(ok: bool) -> None:
 
 def _time(value: object) -> datetime:
     _need(type(value) is str)
+    assert isinstance(value, str)
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as exc:
@@ -87,6 +88,7 @@ def _load_json(raw: bytes) -> dict[str, Any]:
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise _ReleaseDenied() from exc
     _need(type(result) is dict)
+    assert isinstance(result, dict)
     return result
 
 
