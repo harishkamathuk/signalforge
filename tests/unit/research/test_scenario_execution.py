@@ -2601,3 +2601,217 @@ def test_sf293_f1_genuine_independent_closed_producer_lineage(tmp_path):
     assert calculated["windows"]["IS"]["economics"]["trades"][0][
         "incremental_cost_quote"
     ] != "0"
+
+
+# SF-293 Slice 3: genuine synthetic producer + exact local-grant IS release.
+def _sf293_slice3_fixture(
+    root: Path, name: str, *,
+    signals: tuple[int, ...] = (251,),
+    prices: dict[int, tuple[str, str, str, str]] | None = None,
+    split_minute: int = 1260,
+    include_oos_funding: bool = True,
+) -> tuple[Path, dict[str, object]]:
+    from hashlib import sha256
+
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    root.mkdir(mode=0o700, exist_ok=True)
+    root.chmod(0o700)
+    folder = root / name
+    folder.mkdir(mode=0o700)
+    if prices is None:
+        prices = {
+            1255: ("100.2", "100.21", "100.1", "100.2"),
+            1256: ("101", "101", "100.9", "101"),
+        }
+    result, source, strict = _sf260_strict_roundtrip(
+        folder, signals=signals, prices=prices, split_minute=split_minute,
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    env = _decode_canonical(raw[0])
+    costs = _sf293_test_cost_assumptions(raw[0])
+    if not include_oos_funding:
+        costs["funding_events"] = [
+            event for event in costs["funding_events"]
+            if datetime.fromisoformat(event["bucket"]) <
+               datetime.fromisoformat(
+                   env["manifest"]["session_and_window"]["oos_start"]
+               )
+        ]
+    cost_bytes = json.dumps(costs, sort_keys=True, separators=(",", ":")).encode()
+    cost_path = folder / "test-cost-assumptions.json"
+    cost_path.write_bytes(cost_bytes)
+    cost_path.chmod(0o600)
+    win = env["manifest"]["session_and_window"]
+    grant: dict[str, object] = {
+        "contract": "sf293-slice3-test-only-local-grant-v1",
+        "grant_kind": "SYNTHETIC_TEST_ONLY_LOCAL_FIXTURE",
+        "grant_id": name,
+        "study_id": "synthetic-is-study",
+        "matrix_revision": "matrix-one",
+        "approved": True,
+        "revoked": False,
+        "recipient": "test-owner",
+        "scope": "IS_ONLY",
+        "not_before": "2020-01-01T00:00:00+00:00",
+        "expires": "2099-01-01T00:00:00+00:00",
+        "repository_revision": env["manifest"]["implementation"]["revision"],
+        "profile_id": env["manifest"]["fills"]["profile_id"],
+        "scenario_result_id": env["scenario_result_id"],
+        "is_start": win["is_start"],
+        "oos_start": win["oos_start"],
+        "cost_model_id": costs["model_id"],
+        "cost_model_version": costs["model_version"],
+        "result_sha256": sha256(raw[0]).hexdigest(),
+        "source_sha256": sha256(raw[1]).hexdigest(),
+        "strict_sha256": sha256(raw[2]).hexdigest(),
+        "cost_sha256": sha256(cost_bytes).hexdigest(),
+    }
+    grant_path = folder / "test-only-grant.json"
+    grant_path.write_text(json.dumps(grant, sort_keys=True))
+    grant_path.chmod(0o600)
+    return folder, grant
+
+
+def test_sf293_slice3_cli_is_only_independent_positive_and_no_oos(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    _sf293_slice3_fixture(root, "valid-positive")
+    exit_code = main([
+        "--root", str(root), "--set", "valid-positive",
+        "--recipient", "test-owner",
+    ])
+    output = capsys.readouterr()
+    assert exit_code == 0 and output.err == ""
+    data = json.loads(output.out)
+    assert data["status"] == "IS_ONLY_QUALIFIED"
+    assert data["oos"] == "SEALED"
+    assert data["custody_tier"] == "LOCAL_SYNTHETIC_T1_NOT_T2"
+    assert data["closed_is_contained"] == 1
+    assert Decimal(data["gross_r"]["sum_gross_r"]) == Decimal("3.2")
+    assert Decimal(data["adjusted_r"]["sum_adjusted_r"]) < Decimal("3.2")
+    assert data["adjusted_r"]["component_totals_quote"]["funding_debit_quote"] == (
+        "0.05"
+    )
+    forbidden = (
+        "OOS_CONTAINED", "CROSS_WINDOW", "OOS_MINUS_IS",
+        "scenario_result_id", "result_sha256", "strict_sha256",
+        "grant_id", "exit_bucket", "trades", "realised_r_sorted",
+        "windows", "source-quality.json",
+    )
+    assert not any(token in output.out for token in forbidden)
+    assert not list(root.rglob("*report*"))
+
+
+def test_sf293_slice3_cli_known_zero_and_undefined(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    _sf293_slice3_fixture(root, "no-trades", signals=(), prices={})
+    code = main(["--root", str(root), "--set", "no-trades",
+                 "--recipient", "test-owner"])
+    data = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert data["closed_is_contained"] == 0
+    assert data["is_strict_reference"]["assessment"] == "ASSESSED_ZERO_ELIGIBLE"
+    assert data["gross_r"]["profit_factor_r"]["reason"] == "NO_CLOSED_TRADES"
+    assert data["adjusted_r"]["mean_adjusted_r"]["reason"] == "NO_CLOSED_TRADES"
+
+
+@pytest.mark.parametrize("case", [
+    "wrong-recipient", "revoked", "stale-grant", "wrong-scope",
+    "expired", "unsupported-option",
+])
+def test_sf293_slice3_cli_default_denial_no_leak(tmp_path, capsys, case):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    folder, grant = _sf293_slice3_fixture(root, "denial")
+    options = ["--root", str(root), "--set", "denial",
+               "--recipient", "test-owner"]
+    if case == "wrong-recipient":
+        options[-1] = "stranger"
+    elif case == "revoked":
+        grant["revoked"] = True
+    elif case == "wrong-scope":
+        grant["scope"] = "IS_AND_OOS"
+    elif case == "expired":
+        grant["expires"] = "2021-01-01T00:00:00+00:00"
+    elif case == "stale-grant":
+        grant["result_sha256"] = "0" * 64
+    elif case == "unsupported-option":
+        options += ["--show-oos"]
+    (folder / "test-only-grant.json").write_text(json.dumps(grant, sort_keys=True))
+    code = main(options)
+    stream = capsys.readouterr()
+    assert code == 1 and stream.err == ""
+    assert json.loads(stream.out) == {
+        "contract": "sf293-slice3-synthetic-is-only-v1",
+        "status": "RELEASE_BLOCKED", "oos": "SEALED",
+    }
+
+
+def test_sf293_slice3_is_equal_for_separately_granted_oos_variants(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    # Signal ending at split IS, entry bucket at split OOS. Different future
+    # OOS modeled closes cannot alter IS right-censored ARMED population.
+    a = {1255: ("100.2", "100.21", "100.1", "100.2"),
+         1256: ("101", "101", "100.9", "101")}
+    b = {1255: ("100.2", "100.21", "100.1", "100.2"),
+         1256: ("99", "99.1", "98.9", "99")}
+    _sf293_slice3_fixture(root, "oos-one", prices=a, split_minute=1255)
+    _sf293_slice3_fixture(root, "oos-two", prices=b, split_minute=1255)
+    outputs = []
+    for name in ("oos-one", "oos-two"):
+        code = main(["--root", str(root), "--set", name,
+                     "--recipient", "test-owner"])
+        streams = capsys.readouterr()
+        assert code == 0 and streams.err == ""
+        outputs.append(streams.out)
+    assert outputs[0] == outputs[1]
+    result = json.loads(outputs[0])
+    assert result["closed_is_contained"] == 0
+    assert result["cutoff_lifecycle"]["right_censored_armed"] == 1
+
+
+def test_sf293_slice3_is_oos_funding_omission_no_release_change(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    prices = {
+        1255: ("100.2", "100.21", "100.1", "100.2"),
+        1256: ("101", "101", "100.9", "101"),
+        1260: ("100.2", "100.21", "100.1", "100.2"),
+        1261: ("101", "101", "100.9", "101"),
+    }
+    _sf293_slice3_fixture(root, "full-oos", prices=prices,
+                          signals=(251, 252), split_minute=1260)
+    _sf293_slice3_fixture(root, "missing-oos", prices=prices,
+                          signals=(251, 252), split_minute=1260,
+                          include_oos_funding=False)
+    outputs = []
+    for name in ("full-oos", "missing-oos"):
+        code = main(["--root", str(root), "--set", name,
+                     "--recipient", "test-owner"])
+        streams = capsys.readouterr()
+        assert code == 0 and streams.err == ""
+        outputs.append(streams.out)
+    assert outputs[0] == outputs[1]
+    assert json.loads(outputs[0])["closed_is_contained"] == 1
+
+
+def test_sf293_slice3_full_verifier_is_scoped_while_default_unchanged(tmp_path):
+    from signalforge.research.prospective_saved_verifier import (
+        verify_v2_structure,
+    )
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assert verify_v2_structure(*raw) == "WITHHELD"
+    assert verify_v2_structure(*raw, science_scope="IS") == "WITHHELD"
