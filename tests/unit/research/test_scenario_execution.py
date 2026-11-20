@@ -2189,6 +2189,9 @@ def test_sf293_slice2_independent_a_b_and_three_close_drawdown_oracles():
             "gross_r": str(r["gross_r"]),
             "adjusted_r": str(r["adjusted_r"]),
             "cost_r": str(r["cost_r"]),
+            "entry_fee_quote": str(r["entry_fee_quote"]),
+            "exit_fee_quote": str(r["exit_fee_quote"]),
+            "funding_debit_quote": str(r["funding_debit_quote"]),
         }
 
     two_ab = _aggregate([record(a, 1255), record(b, 1265)], 2)
