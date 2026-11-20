@@ -2367,3 +2367,91 @@ def test_sf293_slice2_adverse_raw_profile_not_charged_twice(tmp_path):
                 Decimal(item["funding_debit_quote"]) /
                 Decimal(item["risk_quote"])
             )
+
+
+@pytest.mark.parametrize("case", [
+    "cross-window", "open-censored", "expired", "armed-censored",
+])
+def test_sf293_slice2_preserves_entire_cohort_and_censor_population(
+    tmp_path, case,
+):
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    prices = {}
+    signals = (251,)
+    split = 1260
+    if case == "cross-window":
+        prices = {1255: ("100", "105", "98", "100")}
+        split = 1255
+    elif case == "open-censored":
+        prices = {
+            i: ("100.2", "100.21", "100.1", "100.2")
+            for i in range(1255, MINUTES)
+        }
+    elif case == "expired":
+        prices = {
+            i: ("100", "100.05", "100", "100")
+            for i in range(1255, 1260)
+        }
+    else:
+        signals = (260,)
+    _, baseline, result, source, strict = _sf283_roundtrip(
+        tmp_path, prices=prices, signals=signals, split_minute=split,
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    adjusted = _calculate_synthetic_cost_r(
+        *raw, _sf293_test_cost_assumptions(raw[0]),
+    )
+    assert adjusted["closed_cohort_reconciliation"] == baseline[
+        "closed_cohort_reconciliation"
+    ]
+    assert adjusted["windows"]["IS"]["economics"]["count"] == 0
+    assert adjusted["windows"]["OOS"]["economics"]["count"] == 0
+    for window in ("IS", "OOS"):
+        original = baseline["windows"][window]
+        current = adjusted["windows"][window]["population"]
+        assert current["actionable_accepted_signals"] == original[
+            "actionable_accepted_signals"
+        ]
+        assert current["source_quality"] == original["source_quality"]
+        assert current["strict_reference"] == original["strict_reference"]
+        assert current["lifecycle_by_signal_window"] == original[
+            "lifecycle_by_signal_window"
+        ]
+    if case == "cross-window":
+        assert adjusted["closed_cohort_reconciliation"]["CROSS_WINDOW"] == 1
+    else:
+        state = {
+            "open-censored": "OPEN", "expired": "EXPIRED",
+            "armed-censored": "ARMED",
+        }[case]
+        assert sum(
+            adjusted["windows"][window]["population"][
+                "lifecycle_by_signal_window"
+            ].get(state, 0)
+            for window in ("IS", "OOS")
+        ) == 1
+
+
+def test_sf293_slice2_rehashed_contradictory_saved_r_blocks_without_metrics(tmp_path):
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, _, result, source, strict = _sf283_roundtrip(
+        tmp_path, prices={1255: ("100", "105", "98", "100")},
+    )
+    original = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    document = _decode_canonical(original[0])
+    source_doc = _decode_canonical(original[1])
+    strict_doc = _decode_canonical(original[2])
+    document["result"]["outcomes"][0]["r"] = Decimal("888")
+    rebound = _sf283_mutated_saved_bytes(document, source_doc, strict_doc)
+    assert rebound[0] != original[0]
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *rebound, _sf293_test_cost_assumptions(original[0]),
+        )
+    assert blocked.value.disposition == "INVALID"
