@@ -76,6 +76,8 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
         "payoff", "quantity", "effective_start", "effective_end", "components",
         "funding_events",
     }
+    if not required.issubset(raw):
+        raise _SyntheticCostBlocked("WITHHELD")
     _require(set(raw) == required)
     _require(raw["contract"] == _ASSUMPTION_CONTRACT
              and raw["source_kind"] == _SOURCE
@@ -88,7 +90,11 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
     end = _utc(raw["effective_end"])
     _require(start < end)
     components = raw["components"]
-    _require(type(components) is list and len(components) == 2)
+    _require(type(components) is list)
+    assert isinstance(components, list)
+    if len(components) < 2:
+        raise _SyntheticCostBlocked("WITHHELD")
+    _require(len(components) == 2)
     assert isinstance(components, list)
     fees: dict[str, Decimal] = {}
     for item in components:
@@ -112,7 +118,8 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
         _string(item["source_revision"])
         _require(str(item["source_id"]).startswith("TEST_ONLY:"))
         fees[kind] = _decimal(item["rate"], nonnegative=True)
-    _require(set(fees) == _FEE_KINDS)
+    if set(fees) != _FEE_KINDS:
+        raise _SyntheticCostBlocked("WITHHELD")
     events = raw["funding_events"]
     _require(type(events) is list)
     assert isinstance(events, list)
@@ -307,7 +314,9 @@ def _calculate_synthetic_cost_r(
             # Even cross-window CLOSED trades must have an explicitly qualified
             # funding ledger: exclusion from metrics is not evidence of zero cost.
             funding_rows = by_opportunity.get(oid, [])
-            _require(bool(funding_rows) and all(
+            if not funding_rows:
+                raise _SyntheticCostBlocked("WITHHELD")
+            _require(all(
                 entry_at <= _utc(event["bucket"]) <= exit_at
                 for event in funding_rows
             ))
