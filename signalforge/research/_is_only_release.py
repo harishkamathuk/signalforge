@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -18,10 +18,10 @@ from typing import Any
 
 from scripts.sf296_guarded_v2 import OperatorBlocked, _private, _read, _root
 from signalforge.research._synthetic_cost_r import (
-    _SyntheticCostBlocked,
     _aggregate,
     _cost_model,
     _decimal,
+    _SyntheticCostBlocked,
     _trade_math,
 )
 from signalforge.research.prospective_saved_verifier import (
@@ -113,7 +113,7 @@ def _admit_grant(
         and all(type(grant[k]) is str and bool(_SAFE_LABEL.fullmatch(grant[k]))
                 for k in ("grant_id", "study_id", "matrix_revision", "recipient"))
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     _need(_time(grant["not_before"]) <= now < _time(grant["expires"]))
     _need(
         grant["result_sha256"] == sha256(raw[0]).hexdigest()
