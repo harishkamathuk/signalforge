@@ -209,10 +209,18 @@ def _companion(raw: bytes, digest: object, kind: str, run_id: str,
 
 
 def _source_quality(companion: dict[str, Any],
-                    bounds: dict[str, tuple[datetime, datetime]]) -> dict[str, object]:
+                    bounds: dict[str, tuple[datetime, datetime]],
+                    *, qualified_windows: frozenset[str] | None = None,
+                    ) -> dict[str, object]:
+    # Existing SF-283 callers retain mandatory full-window qualification.
+    # Private Slice 3 verifies *all* 1m structural counts but only IS science.
+    required = frozenset(bounds) if qualified_windows is None else qualified_windows
+    _require(required.issubset(bounds), "INVALID_SCIENCE_SCOPE")
     _require(companion.get("unit") == "CANONICAL_1M_SOURCE_BUCKET"
-             and companion.get("assessment") == "ASSESSED",
+             and companion.get("assessment") in ("ASSESSED", "NOT_ASSESSED"),
              "SOURCE_NOT_ASSESSED")
+    if required == frozenset(bounds):
+        _require(companion.get("assessment") == "ASSESSED", "SOURCE_NOT_ASSESSED")
     windows = _map(companion.get("windows"), "source_windows")
     result: dict[str, object] = {}
     for name, (start, end) in bounds.items():
@@ -233,8 +241,11 @@ def _source_quality(companion: dict[str, Any],
         recomputed = Counter(alphabet[ch] for ch in sequence)
         _require(all(recomputed[k] == counts[k] for k in QUALITY),
                  "SOURCE_COUNT_MISMATCH")
-        _require(all(counts[k] == 0 for k in QUALITY if k != "VALID"),
-                 "UNQUALIFIED_SOURCE")
+        if name in required:
+            _require(companion.get("assessment") == "ASSESSED",
+                     "SOURCE_NOT_ASSESSED")
+            _require(all(counts[k] == 0 for k in QUALITY if k != "VALID"),
+                     "UNQUALIFIED_SOURCE")
         result[name] = {"unit": "CANONICAL_1M_SOURCE_BUCKET",
                         "expected_intervals": expected,
                         "primary_disposition_counts": counts,
@@ -244,7 +255,13 @@ def _source_quality(companion: dict[str, Any],
 
 def _strict_reference(companion: dict[str, Any],
                       bounds: dict[str, tuple[datetime, datetime]],
-                      manifest: dict[str, Any]) -> dict[str, object]:
+                      manifest: dict[str, Any], *,
+                      qualified_windows: frozenset[str] | None = None,
+                      ) -> dict[str, object]:
+    # Always verify both windows' producer/proof/mask structural consistency.
+    # Only the selected science scope must have complete eligibility.
+    required = frozenset(bounds) if qualified_windows is None else qualified_windows
+    _require(required.issubset(bounds), "INVALID_SCIENCE_SCOPE")
     _require(companion.get("unit") == "CANONICAL_1M_SOURCE_BUCKET",
              "INVALID_STRICT_UNIT")
     coverage = companion.get("strict_coverage_proof")
@@ -418,10 +435,11 @@ def _strict_reference(companion: dict[str, Any],
                      and len(set(reasons)) == len(reasons)
                      and (bool(reasons) == bool(indeterminate or unassessed)),
                      "INVALID_STRICT_INCOMPLETE_REASON")
-            _require(
-                indeterminate == 0 and unassessed == 0,
-                "STRICT_COVERAGE_INCOMPLETE_WITHHOLD",
-            )
+            if name in required:
+                _require(
+                    indeterminate == 0 and unassessed == 0,
+                    "STRICT_COVERAGE_INCOMPLETE_WITHHOLD",
+                )
             row_out.update({
                 "assessment": expected_status,
                 "expected_eligible_intervals": known_e,
