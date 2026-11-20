@@ -2299,7 +2299,8 @@ def test_sf293_slice2_bad_costs_or_rehashed_saved_evidence_block(
 ):
     from signalforge.config.identity import canonical_config_json
     from signalforge.research._synthetic_cost_r import (
-        _SyntheticCostBlocked, _calculate_synthetic_cost_r,
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
     )
     from signalforge.research.scenario_reportability import _decode_canonical
 
