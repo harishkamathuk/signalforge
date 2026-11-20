@@ -2815,3 +2815,153 @@ def test_sf293_slice3_full_verifier_is_scoped_while_default_unchanged(tmp_path):
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     assert verify_v2_structure(*raw) == "WITHHELD"
     assert verify_v2_structure(*raw, science_scope="IS") == "WITHHELD"
+
+
+def test_sf293_slice3_cli_valid_negative_after_synthetic_cost(tmp_path, capsys):
+    """A genuine loss after invented costs must not be withheld."""
+    from hashlib import sha256
+
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    folder, grant = _sf293_slice3_fixture(root, "negative-cost")
+    costs_path = folder / "test-cost-assumptions.json"
+    costs = json.loads(costs_path.read_text())
+    for fee in costs["components"]:
+        fee["rate"] = "0.1"  # artificial stress test: 10% modeled notional
+    revised = json.dumps(costs, sort_keys=True, separators=(",", ":")).encode()
+    costs_path.write_bytes(revised)
+    grant["cost_sha256"] = sha256(revised).hexdigest()
+    (folder / "test-only-grant.json").write_text(json.dumps(grant, sort_keys=True))
+    code = main(["--root", str(root), "--set", "negative-cost",
+                 "--recipient", "test-owner"])
+    stream = capsys.readouterr()
+    assert code == 0 and stream.err == ""
+    payload = json.loads(stream.out)
+    assert payload["status"] == "IS_ONLY_QUALIFIED"
+    assert Decimal(payload["gross_r"]["sum_gross_r"]) > 0
+    assert Decimal(payload["adjusted_r"]["sum_adjusted_r"]) < 0
+    assert payload["adjusted_r"]["losses"] == 1
+
+
+def test_sf293_slice3_cli_genuine_is_strict_early_stop_withheld(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    _sf293_slice3_fixture(
+        root, "strict-is-stop", signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    code = main(["--root", str(root), "--set", "strict-is-stop",
+                 "--recipient", "test-owner"])
+    stream = capsys.readouterr()
+    assert code == 2 and stream.err == ""
+    assert json.loads(stream.out) == {
+        "contract": "sf293-slice3-synthetic-is-only-v1",
+        "status": "WITHHELD", "oos": "SEALED",
+    }
+
+
+def test_sf293_slice3_oos_only_independent_strict_stop_noninterference(
+    tmp_path, capsys,
+):
+    """T09b: valid same-IS pairs with OOS early stop have identical public view."""
+    from scripts.sf293_is_only_report import main
+    from signalforge.research.prospective_saved_verifier import (
+        verify_v2_structure,
+    )
+
+    root = tmp_path / "synthetic-custody"
+    prefix = {
+        1255: ("100.2", "100.21", "100.1", "100.2"),
+        1256: ("101", "101", "100.9", "101"),
+    }
+    normal = dict(prefix)
+    normal.update({
+        1270: ("100.2", "100.21", "100.1", "100.2"),
+        1271: ("101", "101", "100.9", "101"),
+    })
+    stopped = dict(prefix)
+    stopped[1270] = ("100", "105", "98", "100")
+    a, _ = _sf293_slice3_fixture(
+        root, "oos-strict-full", signals=(251, 253), prices=normal,
+    )
+    b, _ = _sf293_slice3_fixture(
+        root, "oos-strict-stop", signals=(251, 253), prices=stopped,
+    )
+    raw = tuple((b / x).read_bytes() for x in (
+        "scenario-result.json", "source-quality.json", "strict-reference.json",
+    ))
+    assert verify_v2_structure(*raw) == "WITHHELD"
+    assert verify_v2_structure(*raw, science_scope="IS") == "COMPLETE"
+    results = []
+    for name in ("oos-strict-full", "oos-strict-stop"):
+        code = main(["--root", str(root), "--set", name,
+                     "--recipient", "test-owner"])
+        stream = capsys.readouterr()
+        assert code == 0 and stream.err == ""
+        results.append(stream.out)
+    assert results[0] == results[1]
+    assert a.exists()
+
+
+def test_sf293_slice3_rehashed_corrupted_oos_denied_with_rebound_grant(
+    tmp_path, capsys,
+):
+    """T09c: even a newly rebound grant cannot authorise contradictory OOS proof."""
+    from hashlib import sha256
+
+    from scripts.sf293_is_only_report import main
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    root = tmp_path / "synthetic-custody"
+    folder, grant = _sf293_slice3_fixture(root, "oos-corrupt")
+    names = ("scenario-result.json", "source-quality.json",
+             "strict-reference.json")
+    raw = [(folder / name).read_bytes() for name in names]
+    documents = [_decode_canonical(blob) for blob in raw]
+    proof = documents[2]["strict_coverage_proof"]["windows"]["OOS"]
+    proof["known_eligible"] += 1  # inconsistent with original OOS E/I/? mask
+    rewritten = _sf283_mutated_saved_bytes(*documents)
+    for name, value in zip(names, rewritten, strict=True):
+        (folder / name).write_bytes(value)
+    grant["scenario_result_id"] = _decode_canonical(rewritten[0])[
+        "scenario_result_id"
+    ]
+    for field, blob in zip((
+        "result_sha256", "source_sha256", "strict_sha256",
+    ), rewritten, strict=True):
+        grant[field] = sha256(blob).hexdigest()
+    (folder / "test-only-grant.json").write_text(json.dumps(grant, sort_keys=True))
+    code = main(["--root", str(root), "--set", "oos-corrupt",
+                 "--recipient", "test-owner"])
+    stream = capsys.readouterr()
+    assert code == 1 and stream.err == ""
+    assert json.loads(stream.out) == {
+        "contract": "sf293-slice3-synthetic-is-only-v1",
+        "status": "RELEASE_BLOCKED", "oos": "SEALED",
+    }
+
+
+def test_sf293_slice3_local_privacy_rejects_symlink_and_bad_modes(
+    tmp_path, capsys,
+):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    folder, _ = _sf293_slice3_fixture(root, "private-fixture")
+    result = folder / "scenario-result.json"
+    original = result.read_bytes()
+    result.unlink()
+    result.symlink_to(folder / "strict-reference.json")
+    options = ["--root", str(root), "--set", "private-fixture",
+               "--recipient", "test-owner"]
+    assert main(options) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "RELEASE_BLOCKED"
+    result.unlink()
+    result.write_bytes(original)
+    result.chmod(0o644)
+    assert main(options) == 1
+    stream = capsys.readouterr()
+    assert stream.err == ""
+    assert json.loads(stream.out)["status"] == "RELEASE_BLOCKED"
