@@ -1572,6 +1572,7 @@ def _sf260_strict_roundtrip(
     tmp_path: Path, *, signals: tuple[int, ...] = (),
     prices: dict[int, tuple[str, str, str, str]] | None = None,
     split_minute: int = 1260,
+    profile: HistoricalExecutionAssumptionProfile | None = None,
 ):
     """Run synthetic scenario and separate strict engines with the same strategy."""
     from signalforge.research.strict_reference_producer import (
@@ -1580,7 +1581,8 @@ def _sf260_strict_roundtrip(
 
     source = _source(overrides=prices)
     request = replace(
-        _request(source), oos_start=START + timedelta(minutes=split_minute),
+        _request(source, profile=profile),
+        oos_start=START + timedelta(minutes=split_minute),
     )
     scenario = _runner(*signals).run_verified(request)
     strict_registry = StrategyRegistry((
@@ -2104,3 +2106,498 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
     assert json.loads(public.out) == op._status("VALIDATION_BLOCKED")
     assert "gross" not in public.out.lower()
     assert "OOS" not in public.out
+
+
+def _sf293_independent_roundtrip(
+    tmp_path: Path, *, signals: tuple[int, ...] = (251,),
+    prices: dict[int, tuple[str, str, str, str]] | None = None,
+    split_minute: int = 1260,
+    profile: HistoricalExecutionAssumptionProfile | None = None,
+):
+    """Real synthetic runner plus independent ADR-011 strict/source producers.
+
+    The default CLOSED trace is determined by an observed-open entry with
+    no competing barrier and a later observed-open target exit.
+    """
+    if prices is None:
+        prices = {
+            1255: ("100.2", "100.21", "100.1", "100.2"),
+            1256: ("101", "101", "100.9", "101"),
+        }
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=signals, prices=prices, split_minute=split_minute,
+        profile=profile,
+    )
+    baseline = report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )
+    return baseline, result, source, strict
+
+
+def _sf293_test_cost_assumptions(document: bytes, *, rate: str = "0.001",
+                                funding: str = "0.05") -> dict[str, object]:
+    """Synthetic-only explicit cost evidence for SF-293 Slice 2 regression."""
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    decoded = _decode_canonical(document)
+    window = decoded["manifest"]["session_and_window"]
+    begin, end = window["is_start"], window["measured_end"]
+    components = [
+        {
+            "id": f"test-{kind.lower()}", "kind": kind,
+            "side": "ENTRY" if kind == "ENTRY_FEE" else "EXIT",
+            "basis": "MODELED_FILL_NOTIONAL", "rate": rate,
+            "unit": "DECIMAL_RATE_OF_NOTIONAL",
+            "source_id": "TEST_ONLY:independent-synthetic-fee-oracle",
+            "source_revision": "1",
+            "overlap_policy": "INCREMENTAL_NOT_IN_RAW_FILL",
+            "effective_start": begin, "effective_end": end,
+        }
+        for kind in ("ENTRY_FEE", "EXIT_FEE")
+    ]
+    funding_events = [
+        {
+            "id": f"test-funding-{i}",
+            "opportunity_id": item["opportunity_id"],
+            "bucket": item["exit_bucket"],
+            "signed_debit_quote": funding,
+            "source_id": "TEST_ONLY:funding-at-modelled-close",
+            "source_revision": "1",
+            "unit": "TEST_QUOTE",
+            "side": "LONG",
+            "basis": "MODELED_HOLDING_BUCKET_TEST_CHARGE",
+            "overlap_policy": "INCREMENTAL_NOT_IN_RAW_FILL",
+        }
+        for i, item in enumerate(decoded["result"]["outcomes"])
+        if item["state"] == "CLOSED"
+    ]
+    return {
+        "contract": "sf293-slice2-test-cost-assumptions-v1",
+        "source_kind": "SYNTHETIC_TEST_ONLY",
+        "model_id": "independent-synthetic-unit-oracle",
+        "model_version": "1",
+        "currency": "TEST_QUOTE",
+        "payoff": "LINEAR_ONE_UNIT_LONG_TEST_ONLY",
+        "quantity": "1",
+        "effective_start": begin, "effective_end": end,
+        "components": components,
+        "funding_events": funding_events,
+    }
+
+
+def test_sf293_slice2_independent_a_b_and_three_close_drawdown_oracles():
+    """Hand-calculated oracle: chronological three-close DD, not two-close."""
+    from signalforge.research._synthetic_cost_r import _aggregate, _trade_math
+
+    fee = Decimal("0.001")
+    funding = Decimal("0.05")
+    a = _trade_math(entry=Decimal(100), stop=Decimal(99), exit=Decimal(102),
+                    entry_rate=fee, exit_rate=fee, funding_debit=funding)
+    b = _trade_math(entry=Decimal(100), stop=Decimal(99), exit=Decimal("99.5"),
+                    entry_rate=fee, exit_rate=fee, funding_debit=funding)
+    assert a["gross_r"] == Decimal("2")
+    assert a["entry_fee_quote"] == Decimal("0.100")
+    assert a["exit_fee_quote"] == Decimal("0.102")
+    assert a["incremental_cost_quote"] == Decimal("0.252")
+    assert a["adjusted_r"] == Decimal("1.748")
+    assert b["gross_r"] == Decimal("-0.5")
+    assert b["incremental_cost_quote"] == Decimal("0.2495")
+    assert b["adjusted_r"] == Decimal("-0.7495")
+    edge = _trade_math(
+        entry=Decimal(100), stop=Decimal(99), exit=Decimal("100.1"),
+        entry_rate=fee, exit_rate=fee, funding_debit=funding,
+    )
+    assert edge["gross_r"] == Decimal("0.1")
+    assert edge["incremental_cost_quote"] == Decimal("0.2501")
+    assert edge["adjusted_r"] == Decimal("-0.1501")
+
+    def record(r: dict[str, Decimal], minute: int) -> dict[str, str]:
+        return {
+            "exit_bucket": (START + timedelta(minutes=minute)).isoformat(),
+            "gross_r": str(r["gross_r"]),
+            "adjusted_r": str(r["adjusted_r"]),
+            "cost_r": str(r["cost_r"]),
+            "entry_fee_quote": str(r["entry_fee_quote"]),
+            "exit_fee_quote": str(r["exit_fee_quote"]),
+            "funding_debit_quote": str(r["funding_debit_quote"]),
+        }
+
+    two_ab = _aggregate([record(a, 1255), record(b, 1265)], 2)
+    two_ba = _aggregate([record(b, 1255), record(a, 1265)], 2)
+    for pair in (two_ab, two_ba):
+        assert Decimal(pair["sum_gross_r"]) == Decimal("1.500")
+        assert Decimal(pair["sum_adjusted_r"]) == Decimal("0.9985")
+        assert Decimal(pair["mean_gross_r"]["value"]) == Decimal("0.750")
+        assert Decimal(pair["mean_adjusted_r"]["value"]) == Decimal("0.49925")
+        assert Decimal(pair["adjusted_profit_factor_r"]["value"]) == (
+            Decimal("1.748") / Decimal("0.7495")
+        )
+        assert Decimal(pair["max_cumulative_adjusted_r_drawdown"]["value"]) == Decimal(
+            "0.7495"
+        )
+
+    # Unsorted input intentionally proves the saved modeled close bucket
+    # controls chronology, not the list's presentation order.
+    abc = _aggregate([record(b, 1275), record(a, 1255), record(b, 1265)], 3)
+    bac = _aggregate([record(b, 1255), record(b, 1275), record(a, 1265)], 3)
+    for triple in (abc, bac):
+        assert triple["count"] == 3
+        assert Decimal(triple["sum_adjusted_r"]) == Decimal("0.2490")
+        assert Decimal(triple["mean_adjusted_r"]["value"]) == Decimal("0.0830")
+        assert Decimal(triple["adjusted_profit_factor_r"]["value"]) == (
+            Decimal("1.748") / Decimal("1.499")
+        )
+        assert triple["wins"] == 1 and triple["losses"] == 2
+    assert Decimal(abc["max_cumulative_adjusted_r_drawdown"]["value"]) == Decimal(
+        "1.4990"
+    )
+    assert Decimal(bac["max_cumulative_adjusted_r_drawdown"]["value"]) == Decimal(
+        "0.7495"
+    )
+    assert [row["adjusted_r"] for row in abc["trades"]] == [
+        "1.748", "-0.7495", "-0.7495",
+    ]
+    assert [row["adjusted_r"] for row in bac["trades"]] == [
+        "-0.7495", "1.748", "-0.7495",
+    ]
+    with pytest.raises(ValueError, match="INVALID"):
+        _aggregate([record(a, 1255), record(b, 1255)], 2)
+
+
+def test_sf293_slice2_saved_bytes_matched_cohort_provenance_no_mutation(tmp_path):
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    original, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assumptions = _sf293_test_cost_assumptions(raw[0])
+    calculated = _calculate_synthetic_cost_r(*raw, assumptions)
+    assert calculated["status"] == "SYNTHETIC_TEST_ONLY_CALCULATED"
+    assert calculated["source_kind"] == "SYNTHETIC_TEST_ONLY"
+    assert calculated["execution_valid"] is False
+    assert calculated["study_outcome"] == "NOT_PREREGISTERED"
+    assert calculated["scenario_result_id"] == original["scenario_result_id"]
+    assert calculated["closed_cohort_reconciliation"] == original[
+        "closed_cohort_reconciliation"
+    ]
+    closed = calculated["windows"]["IS"]["economics"]
+    assert calculated["windows"]["IS"]["gross_economics"] == (
+        original["windows"]["IS"]["economics"]
+    )
+    assert calculated["windows"]["OOS"]["gross_economics"] == (
+        original["windows"]["OOS"]["economics"]
+    )
+    assert closed["count"] == 1
+    assert Decimal(closed["component_totals_quote"]["entry_fee_quote"]) > 0
+    assert Decimal(closed["component_totals_quote"]["exit_fee_quote"]) > 0
+    assert Decimal(closed["component_totals_quote"]["funding_debit_quote"]) == (
+        Decimal("0.05")
+    )
+    assert Decimal(closed["sum_gross_r"]) == Decimal(
+        original["windows"]["IS"]["economics"]["sum_gross_r"]
+    )
+    assert Decimal(closed["sum_adjusted_r"]) < Decimal(closed["sum_gross_r"])
+    assert closed["trades"][0]["opportunity_id"]
+    assert calculated["windows"]["IS"]["population"]["source_quality"] == (
+        original["windows"]["IS"]["source_quality"]
+    )
+    assert calculated["windows"]["IS"]["population"]["strict_reference"] == (
+        original["windows"]["IS"]["strict_reference"]
+    )
+    assert (result.read_bytes(), source.read_bytes(), strict.read_bytes()) == raw
+    assert _calculate_synthetic_cost_r(*raw, assumptions) == calculated
+
+
+def test_sf293_slice2_zero_cohort_and_known_zero_strict_are_not_missing(tmp_path):
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    result, source, strict = _sf260_strict_roundtrip(tmp_path, signals=())
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    calculated = _calculate_synthetic_cost_r(
+        *raw, _sf293_test_cost_assumptions(raw[0]),
+    )
+    for name in ("IS", "OOS"):
+        economics = calculated["windows"][name]["economics"]
+        assert economics["count"] == 0
+        assert economics["mean_adjusted_r"]["reason"] == "NO_CLOSED_TRADES"
+        assert economics["adjusted_profit_factor_r"]["reason"] == "NO_CLOSED_TRADES"
+        assert economics["max_cumulative_adjusted_r_drawdown"]["value"] == "0"
+        assert calculated["windows"][name]["population"]["strict_reference"][
+            "assessment"
+        ] == "ASSESSED_ZERO_ELIGIBLE"
+
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("missing-funding", "WITHHELD"),
+    ("duplicate-funding", "INVALID"),
+    ("funding-basis", "INVALID"),
+    ("duplicate-fee-identity", "INVALID"),
+    ("fee-overlap", "INVALID"),
+    ("fee-source-real", "INVALID"),
+    ("wrong-currency", "INVALID"),
+    ("missing-fee", "WITHHELD"),
+    ("outside-funding", "INVALID"),
+    ("float-rate", "INVALID"),
+    ("unsupported-payoff", "INVALID"),
+    ("nonsynthetic", "INVALID"),
+    ("swapped-companion", "INVALID"),
+])
+def test_sf293_slice2_bad_costs_or_rehashed_saved_evidence_block(
+    tmp_path, mutation, expected,
+):
+    from signalforge.config.identity import canonical_config_json
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assumptions = _sf293_test_cost_assumptions(raw[0])
+    if mutation == "missing-funding":
+        assumptions["funding_events"] = []
+    elif mutation == "duplicate-funding":
+        assumptions["funding_events"].append(dict(assumptions["funding_events"][0]))
+    elif mutation == "funding-basis":
+        assumptions["funding_events"][0]["basis"] = "UNKNOWN_NOTIONAL"
+    elif mutation == "duplicate-fee-identity":
+        assumptions["components"][1]["id"] = assumptions["components"][0]["id"]
+    elif mutation == "fee-overlap":
+        assumptions["components"][0]["overlap_policy"] = "RAW_SLIPPAGE_AGAIN"
+    elif mutation == "fee-source-real":
+        assumptions["components"][0]["source_id"] = "real-exchange"
+    elif mutation == "wrong-currency":
+        assumptions["currency"] = "USD"
+    elif mutation == "missing-fee":
+        assumptions["components"] = assumptions["components"][:1]
+    elif mutation == "outside-funding":
+        assumptions["funding_events"][0]["bucket"] = START.isoformat()
+    elif mutation == "float-rate":
+        assumptions["components"][0]["rate"] = 0.001
+    elif mutation == "unsupported-payoff":
+        assumptions["payoff"] = "INVERSE_BTC"
+    elif mutation == "nonsynthetic":
+        document = _decode_canonical(raw[0])
+        document["manifest"]["strategy"]["synthetic_fixture_identity"] = None
+        raw = ((canonical_config_json(document) + "\n").encode(),
+               raw[1], raw[2])
+    elif mutation == "swapped-companion":
+        raw = (raw[0], raw[2], raw[1])
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(*raw, assumptions)
+    assert blocked.value.disposition == expected
+
+
+def test_sf293_slice2_adverse_raw_profile_not_charged_twice(tmp_path):
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    _, result, source, strict = _sf293_independent_roundtrip(
+        tmp_path, profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assumption = _sf293_test_cost_assumptions(raw[0], rate="0")
+    calculated = _calculate_synthetic_cost_r(*raw, assumption)
+    assert calculated["profile_id"] == "ADVERSE_RAW"
+    for name in ("IS", "OOS"):
+        for item in calculated["windows"][name]["economics"]["trades"]:
+            assert Decimal(item["entry_fee_quote"]) == 0
+            assert Decimal(item["exit_fee_quote"]) == 0
+            assert Decimal(item["cost_r"]) == (
+                Decimal(item["funding_debit_quote"]) /
+                Decimal(item["risk_quote"])
+            )
+
+
+@pytest.mark.parametrize("case", [
+    "cross-window", "open-censored", "expired", "armed-censored",
+])
+def test_sf293_slice2_preserves_entire_cohort_and_censor_population(
+    tmp_path, case,
+):
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    prices = {}
+    signals = (251,)
+    split = 1260
+    if case == "cross-window":
+        # Use the independently strict-determinate open-entry / next-minute
+        # open-exit fixture; same-bar STOP/TARGET would legitimately WITHHOLD.
+        prices = {
+            1255: ("100.2", "100.21", "100.1", "100.2"),
+            1256: ("101", "101", "100.9", "101"),
+        }
+        split = 1255
+    elif case == "open-censored":
+        prices = {
+            i: ("100.2", "100.21", "100.1", "100.2")
+            for i in range(1255, MINUTES)
+        }
+    elif case == "expired":
+        prices = {
+            i: ("100", "100.05", "100", "100")
+            for i in range(1255, 1260)
+        }
+    else:
+        signals = (260,)
+    baseline, result, source, strict = _sf293_independent_roundtrip(
+        tmp_path, prices=prices if prices else None,
+        signals=signals, split_minute=split,
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    adjusted = _calculate_synthetic_cost_r(
+        *raw, _sf293_test_cost_assumptions(raw[0]),
+    )
+    assert adjusted["closed_cohort_reconciliation"] == baseline[
+        "closed_cohort_reconciliation"
+    ]
+    assert adjusted["windows"]["IS"]["economics"]["count"] == 0
+    assert adjusted["windows"]["OOS"]["economics"]["count"] == 0
+    for window in ("IS", "OOS"):
+        original = baseline["windows"][window]
+        current = adjusted["windows"][window]["population"]
+        assert current["actionable_accepted_signals"] == original[
+            "actionable_accepted_signals"
+        ]
+        assert current["source_quality"] == original["source_quality"]
+        assert current["strict_reference"] == original["strict_reference"]
+        assert current["lifecycle_by_signal_window"] == original[
+            "lifecycle_by_signal_window"
+        ]
+    if case == "cross-window":
+        assert adjusted["closed_cohort_reconciliation"]["CROSS_WINDOW"] == 1
+    else:
+        state = {
+            "open-censored": "OPEN", "expired": "EXPIRED",
+            "armed-censored": "ARMED",
+        }[case]
+        assert sum(
+            adjusted["windows"][window]["population"][
+                "lifecycle_by_signal_window"
+            ].get(state, 0)
+            for window in ("IS", "OOS")
+        ) == 1
+
+
+def test_sf293_slice2_rehashed_contradictory_saved_r_blocks_without_metrics(tmp_path):
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    original = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    document = _decode_canonical(original[0])
+    source_doc = _decode_canonical(original[1])
+    strict_doc = _decode_canonical(original[2])
+    document["result"]["outcomes"][0]["r"] = Decimal("888")
+    rebound = _sf283_mutated_saved_bytes(document, source_doc, strict_doc)
+    assert rebound[0] != original[0]
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *rebound, _sf293_test_cost_assumptions(original[0]),
+        )
+    assert blocked.value.disposition == "INVALID"
+
+
+def test_sf293_slice2_saved_byte_replay_independent_of_decimal_context(tmp_path):
+    """The ambient caller's Decimal precision cannot alter a replay."""
+    from decimal import localcontext
+
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assumptions = _sf293_test_cost_assumptions(raw[0])
+    with localcontext() as ctx:
+        ctx.prec = 6
+        low = _calculate_synthetic_cost_r(*raw, assumptions)
+    with localcontext() as ctx:
+        ctx.prec = 48
+        high = _calculate_synthetic_cost_r(*raw, assumptions)
+    assert low == high
+    assert low["windows"]["IS"]["economics"]["count"] == 1
+
+
+def test_sf293_f1_legacy_caller_authored_strict_rejected_even_when_rehashed(tmp_path):
+    """SF-283 legacy compatibility stays intact; SF-293 never promotes it."""
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.prospective_saved_verifier import (
+        EvidenceBlocked,
+        verify_v2_structure,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    _, _, result, source, strict = _sf283_roundtrip(tmp_path, signals=())
+    doc = _decode_canonical(result.read_bytes())
+    src = _decode_canonical(source.read_bytes())
+    st = _decode_canonical(strict.read_bytes())
+    assert st["producer_id"] == "synthetic-independent-strict-diagnostic-v1"
+    assert "strict_coverage_proof" not in st
+    # A newly canonical, correctly rebound legacy evidence set cannot bypass
+    # independent producer qualification even though SF-283 accepts it.
+    st["sf293_test_only_legacy_note"] = "properly-rehashed-compatibility-only"
+    rebound = _sf283_mutated_saved_bytes(doc, src, st)
+    assert report_from_saved_bytes(*rebound)["status"] == (
+        "COMPLETE_PERSISTED_REPORTABILITY"
+    )
+    with pytest.raises(EvidenceBlocked, match="INVALID_EVIDENCE"):
+        verify_v2_structure(*rebound)
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *rebound, _sf293_test_cost_assumptions(rebound[0]),
+        )
+    assert blocked.value.disposition == "INVALID"
+
+
+def test_sf293_f1_independent_strict_early_stop_withheld_not_invalid(tmp_path):
+    """Genuine ADR-011 ambiguity retains unknown suffix, no cost metrics."""
+    from signalforge.research._synthetic_cost_r import (
+        _calculate_synthetic_cost_r,
+        _SyntheticCostBlocked,
+    )
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=(251,),
+        prices={1255: ("100", "105", "98", "100")},
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    strict_doc = _decode_canonical(raw[2])
+    assert strict_doc["producer_id"] == "adr011-fail-closed-independent-strict-v1"
+    assert strict_doc["strict_coverage_proof"]["strict_terminated_early"] is True
+    assert verify_v2_structure(*raw) == "WITHHELD"
+    with pytest.raises(_SyntheticCostBlocked) as blocked:
+        _calculate_synthetic_cost_r(
+            *raw, _sf293_test_cost_assumptions(raw[0]),
+        )
+    assert blocked.value.disposition == "WITHHELD"
+
+
+def test_sf293_f1_genuine_independent_closed_producer_lineage(tmp_path):
+    """Accepted CLOSED economics start from independently produced strict proof."""
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+    from signalforge.research.prospective_saved_verifier import verify_v2_structure
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    baseline, result, source, strict = _sf293_independent_roundtrip(tmp_path)
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assert verify_v2_structure(*raw) == "COMPLETE"
+    assert _decode_canonical(raw[1])["producer_id"] == (
+        "canonical-source-grid-classifier-v1"
+    )
+    proof = _decode_canonical(raw[2])["strict_coverage_proof"]
+    assert proof["producer_id"] == "adr011-fail-closed-independent-strict-v1"
+    assert proof["strict_terminated_early"] is False
+    assert baseline["closed_cohort_reconciliation"]["IS_CONTAINED"] == 1
+    calculated = _calculate_synthetic_cost_r(
+        *raw, _sf293_test_cost_assumptions(raw[0]),
+    )
+    assert calculated["windows"]["IS"]["economics"]["count"] == 1
+    assert calculated["windows"]["IS"]["economics"]["trades"][0][
+        "incremental_cost_quote"
+    ] != "0"
