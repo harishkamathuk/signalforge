@@ -223,6 +223,14 @@ def _aggregate(closed: list[dict[str, Any]], expected: int) -> dict[str, object]
         losses = n - wins - breakevens
         return {
             "count": n, "wins": wins, "breakevens": breakevens, "losses": losses,
+            "component_totals_quote": {
+                key: str(sum(
+                    (_number(row[key]) for row in ordered), Decimal(0),
+                ))
+                for key in (
+                    "entry_fee_quote", "exit_fee_quote", "funding_debit_quote",
+                )
+            },
             "sum_gross_r": str(gross),
             "sum_incremental_cost_r": str(cost),
             "sum_adjusted_r": str(adjusted),
@@ -360,6 +368,12 @@ def _calculate_synthetic_cost_r(
             _require(len(rows) == qualified["windows"][name]["economics"][
                 "closed_contained"
             ])
+            # Reuse the fully qualified SF-283 gross report unchanged; it
+            # owns gross win rate, PF, distributions and modeled gross DD.
+            # Both sections refer to this identical CLOSED-contained cohort.
+            reports[name]["gross_economics"] = qualified["windows"][name][
+                "economics"
+            ]
             reports[name]["economics"] = _aggregate(rows, expected)
         return {
             "contract": _CONTRACT,
