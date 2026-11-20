@@ -1963,3 +1963,132 @@ def test_sf296_rehashed_invalid_armed_signal_boundary_is_blocked(tmp_path):
     )
     with pytest.raises(EvidenceBlocked):
         verify_v2_structure(saved, src, st)
+
+
+@pytest.mark.parametrize("mutation", [
+    "expired-unknown-reason",
+    "expired-validity-boundary",
+    "rejected-reason",
+    "rejected-attempted-entry",
+    "blocked-unknown-opportunity",
+    "blocked-duplicate-interval",
+    "blocked-incorrect-state",
+    "duplicate-closed-exit-bucket",
+])
+def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
+    tmp_path, monkeypatch, capsys, mutation,
+):
+    """04 F1: genuine producer bytes, independently rebound canonical identities.
+
+    All contradictions are rehashed so failure cannot be attributed to an
+    invalid SHA or malformed canonical envelope. The operator-visible public
+    status is separately asserted without exposing economic/OOS fields.
+    """
+    from scripts import sf296_guarded_v2 as op
+    from signalforge.research.prospective_saved_verifier import (
+        EvidenceBlocked, verify_v2_structure,
+    )
+    from signalforge.research.scenario_reportability import _decode_canonical
+
+    prices = {1255: ("98", "100", "97", "98")}
+    signals = (251,)
+    if mutation.startswith("expired-"):
+        # Real runner produces an expiry from an unfilled armed signal.
+        prices = {
+            i: ("100", "100.05", "100", "100")
+            for i in range(1255, 1260)
+        }
+    if mutation == "duplicate-closed-exit-bucket":
+        signals = (251, 253)
+        prices = {
+            1255: ("98", "100", "97", "98"),
+            1265: ("98", "100", "97", "98"),
+        }
+
+    result_path, source_path, strict_path = _sf260_strict_roundtrip(
+        tmp_path, signals=signals, prices=prices,
+    )
+    original = (
+        result_path.read_bytes(), source_path.read_bytes(),
+        strict_path.read_bytes(),
+    )
+    if mutation in (
+        "rejected-reason", "rejected-attempted-entry",
+        "blocked-unknown-opportunity", "blocked-duplicate-interval",
+        "blocked-incorrect-state",
+    ):
+        assert verify_v2_structure(*original) == "COMPLETE"
+
+    result_doc = _decode_canonical(original[0])
+    source_doc = _decode_canonical(original[1])
+    strict_doc = _decode_canonical(original[2])
+    result = result_doc["result"]
+    first = result["outcomes"][0]
+
+    if mutation.startswith("expired-"):
+        assert first["state"] == "EXPIRED"
+        if mutation == "expired-unknown-reason":
+            first["reason"] = "UNSUPPORTED_EXPIRY"
+        else:
+            first["reason"] = "VALIDITY_WINDOW_END"
+            first["valid_until_boundary"] = (
+                START + timedelta(minutes=MINUTES + 5)
+            ).isoformat()
+    elif mutation.startswith("rejected-"):
+        # An otherwise canonical record is reclassified to expose the
+        # rejection-specific boundary/reason validation, not its hashes.
+        first["state"] = "REJECTED"
+        first["entry_bucket"] = None
+        first["exit_bucket"] = None
+        first["r"] = None
+        first["attempted_entry_bucket"] = None
+        first["reason"] = (
+            "INVALID_RISK_REASON" if mutation == "rejected-reason"
+            else "NON_POSITIVE_OR_UNSUPPORTED_RISK"
+        )
+    elif mutation.startswith("blocked-"):
+        row = {
+            "interval_start": (START + timedelta(minutes=1260)).isoformat(),
+            "interval_end": (START + timedelta(minutes=1265)).isoformat(),
+            "blocking_opportunity_id": (
+                "no-such-opportunity" if mutation == "blocked-unknown-opportunity"
+                else first["opportunity_id"]
+            ),
+            "blocking_state": (
+                "INVALID_STATE" if mutation == "blocked-incorrect-state"
+                else "ARMED"
+            ),
+        }
+        result["blocked_decisions"].append(row)
+        if mutation == "blocked-duplicate-interval":
+            result["blocked_decisions"].append(dict(row))
+        result["blocked_actionable_count"] = len(result["blocked_decisions"])
+    else:
+        assert len(result["outcomes"]) == 2
+        second = result["outcomes"][1]
+        assert first["state"] == second["state"] == "CLOSED"
+        second["exit_bucket"] = first["exit_bucket"]
+        second["terminal_event_bucket"] = first["terminal_event_bucket"]
+
+    rehashed = _sf283_mutated_saved_bytes(
+        result_doc, source_doc, strict_doc,
+    )
+    assert rehashed[0] != original[0]
+    with pytest.raises(EvidenceBlocked, match="INVALID_EVIDENCE"):
+        verify_v2_structure(*rehashed)
+
+    # Supplemental public-path check: replace only the private custody read
+    # with this independently rehashed payload, not the structural verifier.
+    monkeypatch.setattr(
+        op, "_verify_set", lambda *_: verify_v2_structure(*rehashed),
+    )
+    assert op.main([
+        "--verify", "--root", str(tmp_path),
+        "--profile", "REFERENCE_RAW", "--attempt", "1",
+    ]) == 1
+    public = capsys.readouterr()
+    assert public.err == ""
+    assert public.out.count("\\n") == 1
+    assert json.loads(public.out) == op._status("VALIDATION_BLOCKED")
+    assert "gross" not in public.out.lower()
+    assert "OOS" not in public.out
