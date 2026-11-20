@@ -1572,6 +1572,7 @@ def _sf260_strict_roundtrip(
     tmp_path: Path, *, signals: tuple[int, ...] = (),
     prices: dict[int, tuple[str, str, str, str]] | None = None,
     split_minute: int = 1260,
+    profile: HistoricalExecutionAssumptionProfile | None = None,
 ):
     """Run synthetic scenario and separate strict engines with the same strategy."""
     from signalforge.research.strict_reference_producer import (
@@ -1580,7 +1581,8 @@ def _sf260_strict_roundtrip(
 
     source = _source(overrides=prices)
     request = replace(
-        _request(source), oos_start=START + timedelta(minutes=split_minute),
+        _request(source, profile=profile),
+        oos_start=START + timedelta(minutes=split_minute),
     )
     scenario = _runner(*signals).run_verified(request)
     strict_registry = StrategyRegistry((
@@ -2106,6 +2108,32 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
     assert "OOS" not in public.out
 
 
+def _sf293_independent_roundtrip(
+    tmp_path: Path, *, signals: tuple[int, ...] = (251,),
+    prices: dict[int, tuple[str, str, str, str]] | None = None,
+    split_minute: int = 1260,
+    profile: HistoricalExecutionAssumptionProfile | None = None,
+):
+    """Real synthetic runner plus independent ADR-011 strict/source producers.
+
+    The default CLOSED trace is determined by an observed-open entry with
+    no competing barrier and a later observed-open target exit.
+    """
+    if prices is None:
+        prices = {
+            1255: ("100.2", "100.21", "100.1", "100.2"),
+            1256: ("101", "101", "100.9", "101"),
+        }
+    result, source, strict = _sf260_strict_roundtrip(
+        tmp_path, signals=signals, prices=prices, split_minute=split_minute,
+        profile=profile,
+    )
+    baseline = report_from_saved_bytes(
+        result.read_bytes(), source.read_bytes(), strict.read_bytes(),
+    )
+    return baseline, result, source, strict
+
+
 def _sf293_test_cost_assumptions(document: bytes, *, rate: str = "0.001",
                                 funding: str = "0.05") -> dict[str, object]:
     """Synthetic-only explicit cost evidence for SF-293 Slice 2 regression."""
@@ -2239,9 +2267,7 @@ def test_sf293_slice2_independent_a_b_and_three_close_drawdown_oracles():
 def test_sf293_slice2_saved_bytes_matched_cohort_provenance_no_mutation(tmp_path):
     from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
 
-    _, original, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices={1255: ("100", "105", "98", "100")},
-    )
+    original, result, source, strict = _sf293_independent_roundtrip(tmp_path)
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     assumptions = _sf293_test_cost_assumptions(raw[0])
     calculated = _calculate_synthetic_cost_r(*raw, assumptions)
@@ -2323,9 +2349,7 @@ def test_sf293_slice2_bad_costs_or_rehashed_saved_evidence_block(
     )
     from signalforge.research.scenario_reportability import _decode_canonical
 
-    _, _, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices={1255: ("100", "105", "98", "100")},
-    )
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     assumptions = _sf293_test_cost_assumptions(raw[0])
     if mutation == "missing-funding":
@@ -2365,9 +2389,8 @@ def test_sf293_slice2_bad_costs_or_rehashed_saved_evidence_block(
 def test_sf293_slice2_adverse_raw_profile_not_charged_twice(tmp_path):
     from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
 
-    _, _, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices={1255: ("100", "105", "98", "100")},
-        profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
+    _, result, source, strict = _sf293_independent_roundtrip(
+        tmp_path, profile=HistoricalExecutionAssumptionProfile.adverse_raw(),
     )
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     assumption = _sf293_test_cost_assumptions(raw[0], rate="0")
@@ -2409,8 +2432,9 @@ def test_sf293_slice2_preserves_entire_cohort_and_censor_population(
         }
     else:
         signals = (260,)
-    _, baseline, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices=prices, signals=signals, split_minute=split,
+    baseline, result, source, strict = _sf293_independent_roundtrip(
+        tmp_path, prices=prices if prices else None,
+        signals=signals, split_minute=split,
     )
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     adjusted = _calculate_synthetic_cost_r(
@@ -2454,9 +2478,7 @@ def test_sf293_slice2_rehashed_contradictory_saved_r_blocks_without_metrics(tmp_
     )
     from signalforge.research.scenario_reportability import _decode_canonical
 
-    _, _, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices={1255: ("100", "105", "98", "100")},
-    )
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
     original = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     document = _decode_canonical(original[0])
     source_doc = _decode_canonical(original[1])
@@ -2477,9 +2499,7 @@ def test_sf293_slice2_saved_byte_replay_independent_of_decimal_context(tmp_path)
 
     from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
 
-    _, _, result, source, strict = _sf283_roundtrip(
-        tmp_path, prices={1255: ("100", "105", "98", "100")},
-    )
+    _, result, source, strict = _sf293_independent_roundtrip(tmp_path)
     raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
     assumptions = _sf293_test_cost_assumptions(raw[0])
     with localcontext() as ctx:
