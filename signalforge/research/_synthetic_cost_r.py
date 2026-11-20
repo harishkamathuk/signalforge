@@ -98,6 +98,7 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
     _require(len(components) == 2)
     assert isinstance(components, list)
     fees: dict[str, Decimal] = {}
+    fee_ids: set[str] = set()
     for item in components:
         _require(type(item) is dict)
         assert isinstance(item, dict)
@@ -114,7 +115,9 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
                  and item["overlap_policy"] == "INCREMENTAL_NOT_IN_RAW_FILL"
                  and item["effective_start"] == raw["effective_start"]
                  and item["effective_end"] == raw["effective_end"])
-        _string(item["id"])
+        fee_id = _string(item["id"])
+        _require(fee_id not in fee_ids)
+        fee_ids.add(fee_id)
         _string(item["source_id"])
         _string(item["source_revision"])
         _require(str(item["source_id"]).startswith("TEST_ONLY:"))
@@ -131,13 +134,17 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
         assert isinstance(event, dict)
         _require(set(event) == {
             "id", "opportunity_id", "bucket", "signed_debit_quote",
-            "source_id", "source_revision", "unit",
+            "source_id", "source_revision", "unit", "side", "basis",
+            "overlap_policy",
         })
         key = _string(event["id"])
         opportunity_id = _string(event["opportunity_id"])
         at = _utc(event["bucket"])
         _require(key not in seen_ids and (opportunity_id, at) not in seen_trade_event
-                 and start <= at < end and event["unit"] == "TEST_QUOTE")
+                 and start <= at < end and event["unit"] == "TEST_QUOTE"
+                 and event["side"] == "LONG"
+                 and event["basis"] == "MODELED_HOLDING_BUCKET_TEST_CHARGE"
+                 and event["overlap_policy"] == "INCREMENTAL_NOT_IN_RAW_FILL")
         seen_ids.add(key)
         seen_trade_event.add((opportunity_id, at))
         _require(_string(event["source_id"]).startswith("TEST_ONLY:"))
