@@ -2136,6 +2136,9 @@ def _sf293_test_cost_assumptions(document: bytes, *, rate: str = "0.001",
             "source_id": "TEST_ONLY:funding-at-modelled-close",
             "source_revision": "1",
             "unit": "TEST_QUOTE",
+            "side": "LONG",
+            "basis": "MODELED_HOLDING_BUCKET_TEST_CHARGE",
+            "overlap_policy": "INCREMENTAL_NOT_IN_RAW_FILL",
         }
         for i, item in enumerate(decoded["result"]["outcomes"])
         if item["state"] == "CLOSED"
@@ -2284,6 +2287,8 @@ def test_sf293_slice2_zero_cohort_and_known_zero_strict_are_not_missing(tmp_path
 @pytest.mark.parametrize("mutation,expected", [
     ("missing-funding", "WITHHELD"),
     ("duplicate-funding", "INVALID"),
+    ("funding-basis", "INVALID"),
+    ("duplicate-fee-identity", "INVALID"),
     ("fee-overlap", "INVALID"),
     ("fee-source-real", "INVALID"),
     ("wrong-currency", "INVALID"),
@@ -2313,6 +2318,10 @@ def test_sf293_slice2_bad_costs_or_rehashed_saved_evidence_block(
         assumptions["funding_events"] = []
     elif mutation == "duplicate-funding":
         assumptions["funding_events"].append(dict(assumptions["funding_events"][0]))
+    elif mutation == "funding-basis":
+        assumptions["funding_events"][0]["basis"] = "UNKNOWN_NOTIONAL"
+    elif mutation == "duplicate-fee-identity":
+        assumptions["components"][1]["id"] = assumptions["components"][0]["id"]
     elif mutation == "fee-overlap":
         assumptions["components"][0]["overlap_policy"] = "RAW_SLIPPAGE_AGAIN"
     elif mutation == "fee-source-real":
