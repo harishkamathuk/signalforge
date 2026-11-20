@@ -2466,3 +2466,24 @@ def test_sf293_slice2_rehashed_contradictory_saved_r_blocks_without_metrics(tmp_
             *rebound, _sf293_test_cost_assumptions(original[0]),
         )
     assert blocked.value.disposition == "INVALID"
+
+
+def test_sf293_slice2_saved_byte_replay_independent_of_decimal_context(tmp_path):
+    """The ambient caller's Decimal precision cannot alter a replay."""
+    from decimal import localcontext
+
+    from signalforge.research._synthetic_cost_r import _calculate_synthetic_cost_r
+
+    _, _, result, source, strict = _sf283_roundtrip(
+        tmp_path, prices={1255: ("100", "105", "98", "100")},
+    )
+    raw = (result.read_bytes(), source.read_bytes(), strict.read_bytes())
+    assumptions = _sf293_test_cost_assumptions(raw[0])
+    with localcontext() as ctx:
+        ctx.prec = 6
+        low = _calculate_synthetic_cost_r(*raw, assumptions)
+    with localcontext() as ctx:
+        ctx.prec = 48
+        high = _calculate_synthetic_cost_r(*raw, assumptions)
+    assert low == high
+    assert low["windows"]["IS"]["economics"]["count"] == 1
