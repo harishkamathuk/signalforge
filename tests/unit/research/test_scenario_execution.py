@@ -2993,3 +2993,59 @@ def test_sf293_slice3_local_privacy_rejects_symlink_and_bad_modes(
     stream = capsys.readouterr()
     assert stream.err == ""
     assert json.loads(stream.out)["status"] == "RELEASE_BLOCKED"
+
+
+@pytest.mark.parametrize("case,expected,code", [
+    ("missing-is-funding", "WITHHELD", 2),
+    ("double-raw-slippage", "RELEASE_BLOCKED", 1),
+    ("wrong-test-currency", "RELEASE_BLOCKED", 1),
+])
+def test_sf293_slice3_authentic_missing_vs_invalid_cost_evidence(
+    tmp_path, capsys, case, expected, code,
+):
+    from hashlib import sha256
+
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    folder, grant = _sf293_slice3_fixture(root, "cost-validation")
+    path = folder / "test-cost-assumptions.json"
+    data = json.loads(path.read_text())
+    if case == "missing-is-funding":
+        data["funding_events"] = []
+    elif case == "double-raw-slippage":
+        data["components"][0]["overlap_policy"] = "CHARGE_RAW_AGAIN"
+    else:
+        data["currency"] = "USD"
+    raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    path.write_bytes(raw)
+    grant["cost_sha256"] = sha256(raw).hexdigest()
+    (folder / "test-only-grant.json").write_text(json.dumps(grant, sort_keys=True))
+    result = main(["--root", str(root), "--set", "cost-validation",
+                   "--recipient", "test-owner"])
+    streams = capsys.readouterr()
+    assert result == code and streams.err == ""
+    assert json.loads(streams.out) == {
+        "contract": "sf293-slice3-synthetic-is-only-v1",
+        "status": expected,
+        "oos": "SEALED",
+    }
+
+
+def test_sf293_slice3_report_deterministic_no_mutating_any_fixture(tmp_path, capsys):
+    from scripts.sf293_is_only_report import main
+
+    root = tmp_path / "synthetic-custody"
+    folder, _ = _sf293_slice3_fixture(root, "replay")
+    before = {
+        item.name: item.read_bytes() for item in folder.iterdir()
+    }
+    outputs = []
+    for _ in range(2):
+        code = main(["--root", str(root), "--set", "replay",
+                     "--recipient", "test-owner"])
+        stream = capsys.readouterr()
+        assert code == 0 and stream.err == ""
+        outputs.append(stream.out)
+    assert outputs[0] == outputs[1]
+    assert {item.name: item.read_bytes() for item in folder.iterdir()} == before
