@@ -2090,7 +2090,7 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
     ]) == 1
     public = capsys.readouterr()
     assert public.err == ""
-    assert public.out.count("\\n") == 1
+    assert public.out.count("\n") == 1
     assert json.loads(public.out) == op._status("VALIDATION_BLOCKED")
     assert "gross" not in public.out.lower()
     assert "OOS" not in public.out
