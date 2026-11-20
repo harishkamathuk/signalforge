@@ -11,12 +11,12 @@ import json
 import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from scripts.sf296_guarded_v2 import OperatorBlocked, _private, _read, _root
+from scripts.sf296_guarded_v2 import MARKER, OperatorBlocked, _private, _read, _root
 from signalforge.research._synthetic_cost_r import (
     _aggregate,
     _cost_model,
@@ -254,8 +254,13 @@ def _is_projection(
             entry <= _utc(event["bucket"]) <= exit_at
             for event in rows
         ))
-        funding = sum((_decimal(e["signed_debit_quote"]) for e in rows),
-                      Decimal(0))
+        # Never let an ambient Decimal context alter a signed multi-event
+        # funding ledger or the reproducibility of an authorised IS view.
+        with localcontext() as ctx:
+            ctx.prec = max(64, 3 * len(rows) + 32)
+            funding = sum(
+                (_decimal(e["signed_debit_quote"]) for e in rows), Decimal(0),
+            )
         math = _trade_math(
             entry=_number(outcome["entry_price"]),
             stop=_number(outcome["modeled_stop_price"]),
@@ -340,6 +345,7 @@ def _run_is_only(root: Path, set_name: str, recipient: str) -> dict[str, object]
     _need(bool(_SAFE_LABEL.fullmatch(set_name))
           and bool(_SAFE_LABEL.fullmatch(recipient)))
     base = _root(root)
+    _need(not (base / MARKER).exists())  # No release during guarded writing.
     folder = _private(base / set_name, 0o700, root=base)
     _need({path.name for path in folder.iterdir()} == _FILES)
     result, source, strict, costs, grant_raw = (
