@@ -2518,11 +2518,11 @@ def test_sf293_f1_legacy_caller_authored_strict_rejected_even_when_rehashed(tmp_
         _calculate_synthetic_cost_r,
         _SyntheticCostBlocked,
     )
-    from signalforge.research.scenario_reportability import _decode_canonical
     from signalforge.research.prospective_saved_verifier import (
         EvidenceBlocked,
         verify_v2_structure,
     )
+    from signalforge.research.scenario_reportability import _decode_canonical
 
     _, _, result, source, strict = _sf283_roundtrip(tmp_path, signals=())
     doc = _decode_canonical(result.read_bytes())
