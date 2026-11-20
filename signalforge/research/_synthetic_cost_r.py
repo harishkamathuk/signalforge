@@ -16,6 +16,7 @@ from typing import Any
 from signalforge.config.identity import config_hash
 from signalforge.research.scenario_reportability import (
     ReportabilityError,
+    _count,
     _decode_canonical,
     _map,
     _number,
@@ -342,7 +343,7 @@ def _calculate_synthetic_cost_r(
             })
         _require(set(by_opportunity) == all_closed)
         for name in ("IS", "OOS"):
-            expected = int(reports[name]["expected_completed_5m_decisions"])
+            expected = _count(reports[name]["expected_completed_5m_decisions"])
             rows = buckets[name]
             _require(len(rows) == qualified["windows"][name]["economics"][
                 "closed_contained"
