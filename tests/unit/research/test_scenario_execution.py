@@ -2001,10 +2001,12 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
             for i in range(1255, 1260)
         }
     if mutation == "duplicate-closed-exit-bucket":
+        # Established SF-283 two-close fixture; both exits are genuine runner
+        # outcomes, though their same-bar stop/target paths are strict-ambiguous.
         signals = (251, 253)
         prices = {
-            1255: ("98", "100", "97", "98"),
-            1265: ("98", "100", "97", "98"),
+            1255: ("100", "105", "98", "100"),
+            1265: ("100", "105", "98", "100"),
         }
 
     result_path, source_path, strict_path = _sf260_strict_roundtrip(
@@ -2014,6 +2016,14 @@ def test_sf296_f1_rehashed_non_economic_lifecycle_parity(
         result_path.read_bytes(), source_path.read_bytes(),
         strict_path.read_bytes(),
     )
+    if mutation == "duplicate-closed-exit-bucket":
+        # Isolate the lifecycle/exit-bucket rule from strict source ambiguity
+        # only in this test. All three canonical documents still come from
+        # genuine independent producers and are fully rebound below.
+        monkeypatch.setattr(
+            "signalforge.research.prospective_saved_verifier._strict_reference",
+            lambda *_: None,
+        )
     if mutation in (
         "rejected-reason", "rejected-attempted-entry",
         "blocked-unknown-opportunity", "blocked-duplicate-interval",
