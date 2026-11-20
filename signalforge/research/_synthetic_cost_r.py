@@ -89,9 +89,11 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
     _require(start < end)
     components = raw["components"]
     _require(type(components) is list and len(components) == 2)
+    assert isinstance(components, list)
     fees: dict[str, Decimal] = {}
     for item in components:
         _require(type(item) is dict)
+        assert isinstance(item, dict)
         required_fee = {
             "id", "kind", "side", "basis", "rate", "unit", "source_id",
             "source_revision", "overlap_policy", "effective_start", "effective_end",
@@ -113,10 +115,13 @@ def _cost_model(raw: Mapping[str, object]) -> tuple[dict[str, Decimal], str, dat
     _require(set(fees) == _FEE_KINDS)
     events = raw["funding_events"]
     _require(type(events) is list)
+    assert isinstance(events, list)
     seen_ids: set[str] = set()
     seen_trade_event: set[tuple[str, datetime]] = set()
     for event in events:
-        _require(type(event) is dict and set(event) == {
+        _require(type(event) is dict)
+        assert isinstance(event, dict)
+        _require(set(event) == {
             "id", "opportunity_id", "bucket", "signed_debit_quote",
             "source_id", "source_revision", "unit",
         })
@@ -179,22 +184,22 @@ def _aggregate(closed: list[dict[str, Any]], expected: int) -> dict[str, object]
     n = len(ordered)
     with localcontext() as ctx:
         ctx.prec = max(64, 3 * n + 32)
-        gross = sum((row["gross_r"] for row in ordered), Decimal(0))
-        adjusted = sum((row["adjusted_r"] for row in ordered), Decimal(0))
-        cost = sum((row["cost_r"] for row in ordered), Decimal(0))
-        positives = sum((row["adjusted_r"] for row in ordered
-                         if row["adjusted_r"] > 0), Decimal(0))
-        negatives = -sum((row["adjusted_r"] for row in ordered
-                          if row["adjusted_r"] < 0), Decimal(0))
+        gross = sum((_number(row["gross_r"]) for row in ordered), Decimal(0))
+        adjusted = sum((_number(row["adjusted_r"]) for row in ordered), Decimal(0))
+        cost = sum((_number(row["cost_r"]) for row in ordered), Decimal(0))
+        positives = sum((_number(row["adjusted_r"]) for row in ordered
+                         if _number(row["adjusted_r"]) > 0), Decimal(0))
+        negatives = -sum((_number(row["adjusted_r"]) for row in ordered
+                          if _number(row["adjusted_r"]) < 0), Decimal(0))
         cumulative = Decimal(0)
         peak = Decimal(0)
         max_dd = Decimal(0)
         for row in ordered:
-            cumulative += row["adjusted_r"]
+            cumulative += _number(row["adjusted_r"])
             peak = max(peak, cumulative)
             max_dd = max(max_dd, peak - cumulative)
-        wins = sum(row["adjusted_r"] > 0 for row in ordered)
-        breakevens = sum(row["adjusted_r"] == 0 for row in ordered)
+        wins = sum(_number(row["adjusted_r"]) > 0 for row in ordered)
+        breakevens = sum(_number(row["adjusted_r"]) == 0 for row in ordered)
         losses = n - wins - breakevens
         return {
             "count": n, "wins": wins, "breakevens": breakevens, "losses": losses,
@@ -246,7 +251,7 @@ def _calculate_synthetic_cost_r(
             and "SYNTHETIC_TEST_ONLY" in src_manifest.get("limitations", ())
             and strategy.get("synthetic_fixture_identity") is not None
         )
-        qualified = report_from_saved_bytes(document, source_bytes, strict_bytes)
+        qualified: Any = report_from_saved_bytes(document, source_bytes, strict_bytes)
         result = _map(envelope.get("result"), "result")
         fills = _map(manifest.get("fills"), "fills")
         _require(fills.get("profile_id") in ("REFERENCE_RAW", "ADVERSE_RAW"))
