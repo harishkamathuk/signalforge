@@ -10,13 +10,13 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from scripts.sf296_guarded_v2 import _private, _read, _root
+from scripts.sf296_guarded_v2 import OperatorBlocked, _private, _read, _root
 from signalforge.research._synthetic_cost_r import (
     _SyntheticCostBlocked,
     _aggregate,
@@ -357,7 +357,7 @@ def _safe_run(root: Path, set_name: str, recipient: str) -> dict[str, object]:
         return _run_is_only(root, set_name, recipient)
     except _ReleaseDenied as exc:
         status = exc.disposition
-    except (EvidenceBlocked, ReportabilityError, _SyntheticCostBlocked,
+    except (OperatorBlocked, EvidenceBlocked, ReportabilityError, _SyntheticCostBlocked,
             OSError, KeyError, ValueError, TypeError, AttributeError,
             OverflowError, ArithmeticError, AssertionError, RecursionError):
         status = "RELEASE_BLOCKED"
