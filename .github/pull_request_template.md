@@ -6,6 +6,32 @@
 - Strategy semantics changed: **No / Yes**
 - Schema or migration changed: **No / Yes**
 
+## Delivery relationship
+
+Select exactly one relationship. Delete the two unused options and replace all placeholders
+before submitting the PR. This is a human-readable declaration: ordinary references may
+create cross-references, but this declaration does not itself create native
+automatic-closing relationships and does not change Project Status, Priority/Workstream,
+Issue Type, or Project membership.
+
+- [ ] **A. Implements delivery Issue**
+  - Delivery Issue: #NNN
+- [ ] **B. Correction to existing PR**
+  - Correction to PR: #NNN
+  - Original delivery Issue: #NNN (or `None` if the corrected PR had no delivery Issue)
+- [ ] **C. No delivery Issue**
+  - Delivery Issue: None
+  - Reason: [short explanation]
+
+Rules:
+- The delivery Issue is the Issue whose work this PR directly delivers.
+- An Issue cited as parent, research or governance authority is not automatically the
+  delivery Issue; keep such references under **Work item** or **Scope**.
+- Correction PRs identify the original implementation PR and its confirmed delivery Issue
+  when one exists.
+- Do not use `Closes`, `Fixes`, `Resolves` or similar native closing keywords in this
+  section.
+
 ## Scope
 
 Describe what this PR implements.
