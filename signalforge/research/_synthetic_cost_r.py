@@ -180,8 +180,13 @@ def _trade_math(
 
 
 def _metric(value: Decimal | None, reason: str) -> dict[str, object]:
-    return ({"status": "DEFINED", "value": str(value)} if value is not None
-            else {"status": "UNDEFINED", "reason": reason})
+    if value is None:
+        return {"status": "UNDEFINED", "reason": reason}
+    # Match SF-283's fixed Decimal-28 ratio publication while retaining
+    # extended precision for intermediate cumulative sums and drawdown.
+    with localcontext() as ctx:
+        ctx.prec = 28
+        return {"status": "DEFINED", "value": str(+value)}
 
 
 def _aggregate(closed: list[dict[str, Any]], expected: int) -> dict[str, object]:
