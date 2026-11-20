@@ -274,9 +274,12 @@ def _calculate_synthetic_cost_r(
         src_manifest = _map(src.get("manifest"), "source_manifest")
         grid = _map(src_manifest.get("grid"), "grid")
         strategy = _map(manifest.get("strategy"), "strategy")
+        limitations = src_manifest.get("limitations")
         _require(
             grid.get("grid_id") == "scenario-synthetic"
-            and "SYNTHETIC_TEST_ONLY" in src_manifest.get("limitations", ())
+            and isinstance(limitations, (list, tuple))
+            and all(type(item) is str for item in limitations)
+            and _SOURCE in limitations
             and strategy.get("synthetic_fixture_identity") is not None
         )
         qualified: Any = report_from_saved_bytes(document, source_bytes, strict_bytes)
@@ -341,10 +344,12 @@ def _calculate_synthetic_cost_r(
                 entry_at <= _utc(event["bucket"]) <= exit_at
                 for event in funding_rows
             ))
-            funding_debit = sum(
-                (_decimal(event["signed_debit_quote"]) for event in funding_rows),
-                Decimal(0),
-            )
+            with localcontext() as ctx:
+                ctx.prec = max(64, 3 * len(funding_rows) + 32)
+                funding_debit = sum(
+                    (_decimal(event["signed_debit_quote"]) for event in funding_rows),
+                    Decimal(0),
+                )
             bridge = _trade_math(
                 entry=_number(outcome["entry_price"]),
                 stop=_number(outcome["modeled_stop_price"]),
