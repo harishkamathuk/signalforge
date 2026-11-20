@@ -2251,7 +2251,18 @@ def test_sf293_slice2_saved_bytes_matched_cohort_provenance_no_mutation(tmp_path
         "closed_cohort_reconciliation"
     ]
     closed = calculated["windows"]["IS"]["economics"]
+    assert calculated["windows"]["IS"]["gross_economics"] == (
+        original["windows"]["IS"]["economics"]
+    )
+    assert calculated["windows"]["OOS"]["gross_economics"] == (
+        original["windows"]["OOS"]["economics"]
+    )
     assert closed["count"] == 1
+    assert Decimal(closed["component_totals_quote"]["entry_fee_quote"]) > 0
+    assert Decimal(closed["component_totals_quote"]["exit_fee_quote"]) > 0
+    assert Decimal(closed["component_totals_quote"]["funding_debit_quote"]) == (
+        Decimal("0.05")
+    )
     assert Decimal(closed["sum_gross_r"]) == Decimal("1.5")
     assert Decimal(closed["sum_adjusted_r"]) < Decimal("1.5")
     assert closed["trades"][0]["opportunity_id"]
