@@ -3049,3 +3049,35 @@ def test_sf293_slice3_report_deterministic_no_mutating_any_fixture(tmp_path, cap
         outputs.append(stream.out)
     assert outputs[0] == outputs[1]
     assert {item.name: item.read_bytes() for item in folder.iterdir()} == before
+
+
+def test_sf293_slice3_actual_subprocess_cli_has_no_partial_error_surfaces(tmp_path):
+    """T11: real process stdout/stderr/exit, no extra receipts or artifacts."""
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parents[3] / (
+        "scripts/sf293_is_only_report.py"
+    )
+    root = tmp_path / "synthetic-custody"
+    folder, _ = _sf293_slice3_fixture(root, "subprocess")
+    initial = {item.name: item.read_bytes() for item in folder.iterdir()}
+    args = [
+        sys.executable, str(script), "--root", str(root),
+        "--set", "subprocess", "--recipient", "test-owner",
+    ]
+    accepted = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    assert accepted.returncode == 0 and accepted.stderr == ""
+    success = json.loads(accepted.stdout)
+    assert success["status"] == "IS_ONLY_QUALIFIED"
+    assert success["oos"] == "SEALED"
+    assert "windows" not in accepted.stdout
+    denied = subprocess.run(
+        args + ["--show-oos"], capture_output=True, text=True, timeout=30,
+    )
+    assert denied.returncode == 1 and denied.stderr == ""
+    assert json.loads(denied.stdout) == {
+        "contract": "sf293-slice3-synthetic-is-only-v1",
+        "status": "RELEASE_BLOCKED", "oos": "SEALED",
+    }
+    assert {item.name: item.read_bytes() for item in folder.iterdir()} == initial
