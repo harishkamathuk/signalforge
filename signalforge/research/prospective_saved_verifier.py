@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import localcontext
-from typing import Literal
+from typing import Any, Literal
 
 from signalforge.research.scenario_reportability import (
     EXPIRY,
@@ -146,7 +146,7 @@ def verify_v2_structure(
         )
         seen: set[str] = set()
         signals: set[object] = set()
-        by_opportunity: dict[str, dict] = {}
+        by_opportunity: dict[str, dict[str, Any]] = {}
         close_buckets: set[object] = set()
         last_signal = None
         last_terminal = None
